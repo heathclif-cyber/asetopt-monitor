@@ -9,11 +9,12 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
-import { Badge } from '@/components/ui/badge'
 import { StatusBadge } from '@/components/common/StatusBadge'
 import { SlideOver } from '@/components/common/SlideOver'
+import { EmptyState } from '@/components/common/EmptyState'
+import { TableSkeleton } from '@/components/common/LoadingSkeleton'
 import { formatTanggal, hitungSisaHari } from '@/lib/utils'
-import { Plus, Clock, AlertCircle, Users, Pencil } from 'lucide-react'
+import { Plus, Pencil, AlertCircle, Users, ChevronRight } from 'lucide-react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -54,7 +55,7 @@ type ProspekForm = z.infer<typeof prospekSchema>
 type KSConvertForm = z.infer<typeof ksConvertSchema>
 
 export function TimelineProgram() {
-  const { daftarAset, fetchAset, updateStatus } = useAsetStore()
+  const { daftarAset, isLoading, fetchAset, updateStatus } = useAsetStore()
   const { daftarTahapan, daftarProspek, fetchAllTimeline, addTahapan, updateTahapan, addProspek, updateProspek } = useTimelineStore()
   const { addKS } = useKerjaSamaStore()
 
@@ -78,21 +79,6 @@ export function TimelineProgram() {
   const getCurrentTahapan = (asetId: string) => {
     const list = daftarTahapan[asetId] ?? []
     return list.filter(t => t.status !== 'selesai').sort((a, b) => a.urutan - b.urutan)[0]
-  }
-
-  const getAsetColumn = (col: string) => {
-    const colMap: Record<string, string[]> = {
-      'Identifikasi': ['pipeline'],
-      'Kajian Aset': ['pipeline'],
-      'Penawaran': ['prospek'],
-      'Negosiasi': ['negosiasi'],
-      'Selesai': ['aktif_ks', 'selesai'],
-    }
-    return pipelineAset.filter(a => {
-      const tahapan = getCurrentTahapan(a.id)
-      if (tahapan) return tahapan.nama_tahapan === col
-      return colMap[col]?.includes(a.status)
-    })
   }
 
   const openDetail = (aset: Aset) => {
@@ -183,56 +169,74 @@ export function TimelineProgram() {
         <p className="text-sm text-gray-500">Tracking tahapan optimalisasi aset pipeline (Jalur A)</p>
       </div>
 
-      {/* Kanban Board */}
-      <div className="grid grid-cols-5 gap-3 overflow-x-auto pb-4">
-        {TAHAPAN_BAKU.map(col => {
-          const items = getAsetColumn(col)
-          return (
-            <div key={col} className="min-w-[200px]">
-              <div className="bg-gray-100 rounded-lg px-3 py-2 mb-3 flex items-center justify-between">
-                <span className="text-xs font-semibold text-gray-600 uppercase">{col}</span>
-                <span className="text-xs bg-white px-2 py-0.5 rounded-full text-gray-500 font-medium">{items.length}</span>
-              </div>
-              <div className="space-y-2">
-                {items.map(aset => {
-                  const tahapan = getCurrentTahapan(aset.id)
-                  const isLate = tahapan?.tgl_target && hitungSisaHari(tahapan.tgl_target) < 0
-                  const prospekCount = (daftarProspek[aset.id] ?? []).filter(p => p.progress !== 'gagal').length
-                  return (
-                    <div
-                      key={aset.id}
-                      className={`bg-white rounded-lg border p-3 shadow-sm cursor-pointer hover:shadow-md transition-shadow ${isLate ? 'border-red-200' : ''}`}
-                      onClick={() => openDetail(aset)}
-                    >
-                      <div className="flex items-start justify-between mb-1">
-                        <span className="text-xs text-gray-500 font-mono">{aset.kode_aset}</span>
-                        {isLate && <AlertCircle size={12} className="text-red-500 shrink-0" />}
-                      </div>
-                      <p className="text-sm font-medium text-gray-800 leading-tight">{aset.nama_aset}</p>
-                      {tahapan && (
-                        <p className="text-xs text-gray-500 mt-1 flex items-center gap-1">
-                          <Clock size={10} />
-                          {tahapan.tgl_target ? formatTanggal(tahapan.tgl_target) : 'Tanpa target'}
-                        </p>
-                      )}
-                      {prospekCount > 0 && (
-                        <p className="text-xs text-[#5B2C6F] mt-1.5 flex items-center gap-1">
-                          <Users size={10} /> {prospekCount} prospek mitra
-                        </p>
-                      )}
-                      {tahapan?.pic && (
-                        <p className="text-xs text-gray-400 mt-1">PIC: {tahapan.pic}</p>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )
-        })}
+      <div className="bg-white rounded-xl border overflow-hidden">
+        {isLoading ? (
+          <div className="p-6"><TableSkeleton /></div>
+        ) : pipelineAset.length === 0 ? (
+          <EmptyState title="Tidak ada aset pipeline" description="Aset dengan status pipeline, prospek, atau negosiasi akan muncul di sini." />
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-gray-50 text-gray-600 text-xs uppercase">
+                <th className="text-left px-4 py-3">Aset</th>
+                <th className="text-left px-4 py-3 hidden md:table-cell">Tahapan Aktif</th>
+                <th className="text-left px-4 py-3 hidden lg:table-cell">Target</th>
+                <th className="text-left px-4 py-3 hidden lg:table-cell">PIC</th>
+                <th className="text-center px-4 py-3">Status</th>
+                <th className="text-center px-4 py-3 hidden md:table-cell">Prospek</th>
+                <th className="text-right px-4 py-3">Aksi</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {pipelineAset.map(aset => {
+                const tahapan = getCurrentTahapan(aset.id)
+                const prospekCount = (daftarProspek[aset.id] ?? []).filter(p => p.progress !== 'gagal').length
+                const isLate = tahapan?.tgl_target && hitungSisaHari(tahapan.tgl_target) < 0
+
+                return (
+                  <tr key={aset.id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-4 py-3">
+                      <p className="font-medium text-gray-900">{aset.nama_aset}</p>
+                      <p className="text-xs font-mono text-gray-500">{aset.kode_aset}</p>
+                    </td>
+                    <td className="px-4 py-3 hidden md:table-cell text-gray-700">
+                      {tahapan ? tahapan.nama_tahapan : <span className="text-gray-400">—</span>}
+                    </td>
+                    <td className="px-4 py-3 hidden lg:table-cell">
+                      {tahapan?.tgl_target ? (
+                        <span className={isLate ? 'text-red-600 flex items-center gap-1' : 'text-gray-600'}>
+                          {isLate && <AlertCircle size={12} />}
+                          {formatTanggal(tahapan.tgl_target)}
+                        </span>
+                      ) : <span className="text-gray-400">—</span>}
+                    </td>
+                    <td className="px-4 py-3 hidden lg:table-cell text-gray-600">
+                      {tahapan?.pic ?? <span className="text-gray-400">—</span>}
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <StatusBadge type="aset" value={aset.status} />
+                    </td>
+                    <td className="px-4 py-3 text-center hidden md:table-cell">
+                      {prospekCount > 0 ? (
+                        <span className="inline-flex items-center gap-1 text-[#5B2C6F] font-medium">
+                          <Users size={12} /> {prospekCount}
+                        </span>
+                      ) : <span className="text-gray-400">—</span>}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <Button variant="ghost" size="sm" className="gap-1 text-gray-600" onClick={() => openDetail(aset)}>
+                        Detail <ChevronRight size={14} />
+                      </Button>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        )}
       </div>
 
-      {/* Slide-over detail */}
+      {/* Slide-over detail per aset */}
       <SlideOver open={detailOpen} onClose={() => setDetailOpen(false)} title={selectedAset?.nama_aset ?? ''} width="max-w-2xl">
         {selectedAset && (
           <div className="space-y-6">
@@ -247,7 +251,9 @@ export function TimelineProgram() {
                 <Button size="sm" variant="outline" onClick={openAddTL}><Plus size={13} /> Tahapan</Button>
               </div>
               <div className="space-y-2">
-                {(daftarTahapan[selectedAset.id] ?? []).map(tl => (
+                {(daftarTahapan[selectedAset.id] ?? []).length === 0 ? (
+                  <p className="text-sm text-gray-400">Belum ada tahapan.</p>
+                ) : (daftarTahapan[selectedAset.id] ?? []).map(tl => (
                   <div key={tl.id} className="border rounded-lg p-3 flex items-start justify-between">
                     <div>
                       <div className="flex items-center gap-2 mb-1">
@@ -274,7 +280,9 @@ export function TimelineProgram() {
                 <Button size="sm" variant="outline" onClick={openAddProspek}><Plus size={13} /> Prospek</Button>
               </div>
               <div className="space-y-2">
-                {(daftarProspek[selectedAset.id] ?? []).map(p => (
+                {(daftarProspek[selectedAset.id] ?? []).length === 0 ? (
+                  <p className="text-sm text-gray-400">Belum ada prospek mitra.</p>
+                ) : (daftarProspek[selectedAset.id] ?? []).map(p => (
                   <div key={p.id} className="border rounded-lg p-3">
                     <div className="flex items-start justify-between">
                       <div>

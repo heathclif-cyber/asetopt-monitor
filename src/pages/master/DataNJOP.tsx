@@ -12,8 +12,7 @@ import { CurrencyDisplay } from '@/components/common/CurrencyDisplay'
 import { EmptyState } from '@/components/common/EmptyState'
 import { hitungPotensiNJOP } from '@/utils/potensiUtils'
 import { formatRupiah } from '@/lib/utils'
-import { Plus, Pencil, Trash2, TrendingUp } from 'lucide-react'
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+import { Plus, Pencil, Trash2 } from 'lucide-react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -31,8 +30,8 @@ type NJOPForm = z.infer<typeof njopSchema>
 
 export function DataNJOP() {
   const { daftarAset, fetchAset } = useAsetStore()
-  const { dataNJOP, fetchNJOP, fetchAllNJOP, addNJOP, updateNJOP, deleteNJOP } = useNJOPStore()
-  const [selectedAsetId, setSelectedAsetId] = useState<string>('')
+  const { dataNJOP, fetchAllNJOP, addNJOP, updateNJOP, deleteNJOP } = useNJOPStore()
+  const [filterAsetId, setFilterAsetId] = useState<string>('semua')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<NJOP | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; asetId: string } | null>(null)
@@ -47,20 +46,13 @@ export function DataNJOP() {
   const watchedBangunan = watch('nilai_bangunan_per_m2')
 
   useEffect(() => { fetchAset(); fetchAllNJOP() }, [])
-  useEffect(() => { if (selectedAsetId) fetchNJOP(selectedAsetId) }, [selectedAsetId])
 
-  const selectedAset = daftarAset.find(a => a.id === selectedAsetId)
-  const njopList = dataNJOP[selectedAsetId] ?? []
+  const allNJOP = Object.values(dataNJOP).flat()
 
-  const chartData = useMemo(() => {
-    return [...njopList]
-      .sort((a, b) => a.tahun - b.tahun)
-      .map(n => ({
-        tahun: n.tahun.toString(),
-        tanah: n.nilai_tanah_per_m2,
-        bangunan: n.nilai_bangunan_per_m2,
-      }))
-  }, [njopList])
+  const filtered = useMemo(() => {
+    if (filterAsetId === 'semua') return allNJOP
+    return allNJOP.filter(n => n.aset_id === filterAsetId)
+  }, [allNJOP, filterAsetId])
 
   const previewPotensi = useMemo(() => {
     if (!watchedAsetId || !watchedTanah) return null
@@ -76,7 +68,7 @@ export function DataNJOP() {
 
   const openAdd = () => {
     setEditTarget(null)
-    reset({ tahun: new Date().getFullYear(), aset_id: selectedAsetId, nilai_bangunan_per_m2: 0 })
+    reset({ tahun: new Date().getFullYear(), nilai_bangunan_per_m2: 0 })
     setDialogOpen(true)
   }
 
@@ -107,20 +99,21 @@ export function DataNJOP() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Data NJOP</h1>
-          <p className="text-sm text-gray-500">Input dan tren nilai NJOP per aset per tahun</p>
+          <p className="text-sm text-gray-500">{allNJOP.length} data NJOP terdaftar</p>
         </div>
-        <Button onClick={openAdd} className="bg-[#1B4F72]" disabled={!selectedAsetId}>
+        <Button onClick={openAdd} className="bg-[#1B4F72]">
           <Plus size={16} /> Tambah NJOP
         </Button>
       </div>
 
       <div className="flex items-center gap-3">
-        <Label className="shrink-0">Pilih Aset:</Label>
-        <Select value={selectedAsetId} onValueChange={setSelectedAsetId}>
+        <Label className="shrink-0">Filter Aset:</Label>
+        <Select value={filterAsetId} onValueChange={setFilterAsetId}>
           <SelectTrigger className="max-w-xs">
-            <SelectValue placeholder="Pilih aset..." />
+            <SelectValue placeholder="Semua Aset" />
           </SelectTrigger>
           <SelectContent>
+            <SelectItem value="semua">Semua Aset</SelectItem>
             {daftarAset.map(a => (
               <SelectItem key={a.id} value={a.id}>{a.kode_aset} — {a.nama_aset}</SelectItem>
             ))}
@@ -128,74 +121,57 @@ export function DataNJOP() {
         </Select>
       </div>
 
-      {!selectedAsetId ? (
-        <EmptyState title="Pilih aset terlebih dahulu" description="Pilih aset dari dropdown di atas untuk melihat data NJOP." />
-      ) : (
-        <>
-          {chartData.length > 1 && (
-            <div className="bg-white rounded-xl border p-5">
-              <h3 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
-                <TrendingUp size={15} /> Tren NJOP — {selectedAset?.nama_aset}
-              </h3>
-              <ResponsiveContainer width="100%" height={200}>
-                <LineChart data={chartData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis dataKey="tahun" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `${(v / 1000).toFixed(0)}k`} />
-                  <Tooltip formatter={(v: number) => formatRupiah(v)} />
-                  <Legend />
-                  <Line type="monotone" dataKey="tanah" name="Tanah/m²" stroke="#117A65" strokeWidth={2} dot={{ r: 3 }} />
-                  <Line type="monotone" dataKey="bangunan" name="Bangunan/m²" stroke="#1B4F72" strokeWidth={2} dot={{ r: 3 }} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          )}
-
-          <div className="bg-white rounded-xl border overflow-hidden">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-gray-50 text-gray-600 text-xs uppercase">
-                  <th className="text-left px-4 py-3">Tahun</th>
-                  <th className="text-right px-4 py-3">Nilai Tanah/m²</th>
-                  <th className="text-right px-4 py-3">Nilai Bangunan/m²</th>
-                  <th className="text-right px-4 py-3">Potensi Total</th>
-                  <th className="text-left px-4 py-3">Sumber</th>
-                  <th className="text-right px-4 py-3">Aksi</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {njopList.length === 0 ? (
-                  <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-500 text-sm">Belum ada data NJOP untuk aset ini</td></tr>
-                ) : njopList.map(n => {
-                  const pot = hitungPotensiNJOP({
-                    njopTanahPerM2: n.nilai_tanah_per_m2,
-                    luasTanahM2: selectedAset?.luas_tanah_m2 ?? 0,
-                    njopBangunanPerM2: n.nilai_bangunan_per_m2,
-                    luasBangunanM2: selectedAset?.luas_bangunan_m2 ?? 0,
-                  })
-                  return (
-                    <tr key={n.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 font-medium">{n.tahun}</td>
-                      <td className="px-4 py-3 text-right"><CurrencyDisplay value={n.nilai_tanah_per_m2} size="sm" /></td>
-                      <td className="px-4 py-3 text-right"><CurrencyDisplay value={n.nilai_bangunan_per_m2} size="sm" /></td>
-                      <td className="px-4 py-3 text-right font-semibold text-[#117A65]"><CurrencyDisplay value={pot.totalPotensi} size="sm" /></td>
-                      <td className="px-4 py-3 text-gray-500">{n.sumber ?? '-'}</td>
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <Button variant="ghost" size="icon" onClick={() => openEdit(n)}><Pencil size={14} /></Button>
-                          <Button variant="ghost" size="icon" className="text-red-500" onClick={() => setDeleteTarget({ id: n.id, asetId: n.aset_id })}>
-                            <Trash2 size={14} />
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
+      <div className="bg-white rounded-xl border overflow-hidden">
+        {filtered.length === 0 ? (
+          <EmptyState title="Belum ada data NJOP" description="Tambahkan data NJOP untuk aset yang terdaftar." action={<Button onClick={openAdd} size="sm"><Plus size={14} /> Tambah NJOP</Button>} />
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-gray-50 text-gray-600 text-xs uppercase">
+                <th className="text-left px-4 py-3">Aset</th>
+                <th className="text-center px-4 py-3">Tahun</th>
+                <th className="text-right px-4 py-3">Nilai Tanah/m²</th>
+                <th className="text-right px-4 py-3 hidden lg:table-cell">Nilai Bangunan/m²</th>
+                <th className="text-right px-4 py-3">Potensi Total</th>
+                <th className="text-left px-4 py-3 hidden md:table-cell">Sumber</th>
+                <th className="text-right px-4 py-3">Aksi</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {filtered.map(n => {
+                const aset = daftarAset.find(a => a.id === n.aset_id)
+                const pot = hitungPotensiNJOP({
+                  njopTanahPerM2: n.nilai_tanah_per_m2,
+                  luasTanahM2: aset?.luas_tanah_m2 ?? 0,
+                  njopBangunanPerM2: n.nilai_bangunan_per_m2,
+                  luasBangunanM2: aset?.luas_bangunan_m2 ?? 0,
+                })
+                return (
+                  <tr key={n.id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-4 py-3">
+                      <p className="font-medium text-gray-900">{aset?.nama_aset ?? '-'}</p>
+                      <p className="text-xs text-gray-500 font-mono">{aset?.kode_aset}</p>
+                    </td>
+                    <td className="px-4 py-3 text-center font-medium">{n.tahun}</td>
+                    <td className="px-4 py-3 text-right"><CurrencyDisplay value={n.nilai_tanah_per_m2} size="sm" /></td>
+                    <td className="px-4 py-3 text-right hidden lg:table-cell"><CurrencyDisplay value={n.nilai_bangunan_per_m2} size="sm" /></td>
+                    <td className="px-4 py-3 text-right font-semibold text-[#117A65]"><CurrencyDisplay value={pot.totalPotensi} size="sm" /></td>
+                    <td className="px-4 py-3 hidden md:table-cell text-gray-500">{n.sumber ?? '-'}</td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <Button variant="ghost" size="icon" onClick={() => openEdit(n)}><Pencil size={14} /></Button>
+                        <Button variant="ghost" size="icon" className="text-red-500" onClick={() => setDeleteTarget({ id: n.id, asetId: n.aset_id })}>
+                          <Trash2 size={14} />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-lg">
@@ -205,7 +181,7 @@ export function DataNJOP() {
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div>
               <Label>Aset</Label>
-              <Select defaultValue={editTarget?.aset_id ?? selectedAsetId} onValueChange={v => setValue('aset_id', v)}>
+              <Select defaultValue={editTarget?.aset_id} onValueChange={v => setValue('aset_id', v)}>
                 <SelectTrigger className="mt-1"><SelectValue placeholder="Pilih aset..." /></SelectTrigger>
                 <SelectContent>
                   {daftarAset.map(a => <SelectItem key={a.id} value={a.id}>{a.kode_aset} — {a.nama_aset}</SelectItem>)}
@@ -233,7 +209,6 @@ export function DataNJOP() {
               <Label>Sumber Data</Label>
               <Input {...register('sumber')} className="mt-1" placeholder="cth: SPPT 2025, SK Kepala Daerah" />
             </div>
-
             {previewPotensi && (
               <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-sm space-y-1">
                 <p className="font-semibold text-green-800 mb-2">Preview Potensi Pendapatan:</p>
@@ -242,7 +217,6 @@ export function DataNJOP() {
                 <p className="font-bold text-green-800">Total: {formatRupiah(previewPotensi.totalPotensi)}</p>
               </div>
             )}
-
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Batal</Button>
               <Button type="submit" className="bg-[#1B4F72]">{editTarget ? 'Simpan' : 'Tambah'}</Button>
