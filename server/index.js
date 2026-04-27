@@ -2,6 +2,7 @@ import express from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
 import { pool } from './db.js'
+import { migrate } from './migrate.js'
 
 dotenv.config()
 
@@ -441,6 +442,11 @@ app.post('/api/log-notifikasi', async (req, res) => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-app.listen(PORT, () => {
-  console.log(`API server berjalan di http://localhost:${PORT}`)
+migrate().then(() => {
+  app.listen(PORT, () => {
+    console.log(`API server berjalan di http://localhost:${PORT}`)
+  })
+}).catch((err) => {
+  console.error('Gagal start server:', err.message)
+  process.exit(1)
 })
