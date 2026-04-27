@@ -9,14 +9,13 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
-import { Progress } from '@/components/ui/progress'
 import { CurrencyInput } from '@/components/common/CurrencyInput'
 import { CurrencyDisplay } from '@/components/common/CurrencyDisplay'
 import { StatusBadge } from '@/components/common/StatusBadge'
 import { EmptyState } from '@/components/common/EmptyState'
 import { TableSkeleton } from '@/components/common/LoadingSkeleton'
 import { formatTanggal, formatRupiah } from '@/lib/utils'
-import { Plus, MessageSquare, FileWarning, DollarSign } from 'lucide-react'
+import { Plus, Pencil, MessageSquare, FileWarning, DollarSign, ChevronDown, ChevronUp } from 'lucide-react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -45,14 +44,16 @@ type KompForm = z.infer<typeof kompSchema>
 type BayarForm = z.infer<typeof bayarSchema>
 
 export function Kompensasi() {
-  const { allKompensasi, isLoading, fetchAllKompensasi, addKompensasi, getKompensasiWithStatus, catatPembayaran } = useKompensasiStore()
+  const { allKompensasi, isLoading, fetchAllKompensasi, addKompensasi, updateKompensasi, getKompensasiWithStatus, catatPembayaran } = useKompensasiStore()
   const { daftarKS, fetchKS } = useKerjaSamaStore()
   const { terbitkanSP, kirimNotifWA } = useNotifikasiStore()
 
   const [kompDialog, setKompDialog] = useState(false)
+  const [editTarget, setEditTarget] = useState<KType | null>(null)
   const [bayarDialog, setBayarDialog] = useState(false)
   const [bayarTarget, setBayarTarget] = useState<KType | null>(null)
   const [filterKS, setFilterKS] = useState<string>('semua')
+  const [expandedId, setExpandedId] = useState<string | null>(null)
 
   const kompForm = useForm<KompForm>({
     resolver: zodResolver(kompSchema),
@@ -68,9 +69,36 @@ export function Kompensasi() {
 
   const filtered = filterKS === 'semua' ? allKompensasi : allKompensasi.filter(k => k.ks_id === filterKS)
 
-  const onAddKomp = async (data: KompForm) => {
-    await addKompensasi(data as any)
+  const openAdd = () => {
+    setEditTarget(null)
+    kompForm.reset({ ppn_persen: 11, pph_persen: 10, maks_hari_bayar: 14, persen_denda_per_hari: 0.1 })
+    setKompDialog(true)
+  }
+
+  const openEdit = (k: KType) => {
+    setEditTarget(k)
+    kompForm.reset({
+      ks_id: k.ks_id,
+      periode_label: k.periode_label ?? '',
+      nominal: k.nominal,
+      ppn_persen: k.ppn_persen,
+      pph_persen: k.pph_persen,
+      maks_hari_bayar: k.maks_hari_bayar,
+      persen_denda_per_hari: k.persen_denda_per_hari,
+      tgl_jatuh_tempo: k.tgl_jatuh_tempo,
+      keterangan: k.keterangan ?? '',
+    })
+    setKompDialog(true)
+  }
+
+  const onSubmit = async (data: KompForm) => {
+    if (editTarget) {
+      await updateKompensasi(editTarget.id, data as any)
+    } else {
+      await addKompensasi(data as any)
+    }
     setKompDialog(false)
+    await fetchAllKompensasi()
   }
 
   const openBayar = (k: KType) => {
@@ -118,7 +146,7 @@ export function Kompensasi() {
           <h1 className="text-2xl font-bold text-gray-900">Kompensasi</h1>
           <p className="text-sm text-gray-500">Monitoring dan pencatatan kompensasi kerja sama</p>
         </div>
-        <Button onClick={() => { kompForm.reset({ ppn_persen: 11, pph_persen: 10, maks_hari_bayar: 14, persen_denda_per_hari: 0.1 }); setKompDialog(true) }} className="bg-[#5B2C6F]">
+        <Button onClick={openAdd} className="bg-[#5B2C6F] hover:bg-[#5B2C6F]/90">
           <Plus size={16} /> Tambah Kompensasi
         </Button>
       </div>
@@ -138,94 +166,119 @@ export function Kompensasi() {
         </Select>
       </div>
 
-      <div className="space-y-3">
+      <div className="bg-white rounded-xl border overflow-hidden">
         {isLoading ? (
-          <div className="bg-white rounded-xl border p-6"><TableSkeleton rows={3} /></div>
+          <div className="p-6"><TableSkeleton /></div>
         ) : filtered.length === 0 ? (
-          <EmptyState title="Belum ada kompensasi" description="Tambahkan kompensasi untuk kerja sama aktif." action={<Button onClick={() => setKompDialog(true)} size="sm"><Plus size={14} /> Tambah</Button>} />
-        ) : filtered.map(k => {
-          const pembayaran = (k as any).pembayaran as Pembayaran[] ?? []
-          const ws = getKompensasiWithStatus(k, pembayaran)
-          const ks = daftarKS.find(x => x.id === k.ks_id)
-          const persen = Math.min(100, Math.round((ws.totalDibayar / k.total_tagihan) * 100))
+          <EmptyState title="Belum ada kompensasi" description="Tambahkan kompensasi untuk kerja sama aktif." action={<Button onClick={openAdd} size="sm"><Plus size={14} /> Tambah</Button>} />
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-gray-50 text-gray-600 text-xs uppercase">
+                <th className="text-left px-4 py-3">Mitra / Aset</th>
+                <th className="text-left px-4 py-3 hidden md:table-cell">Periode</th>
+                <th className="text-right px-4 py-3">Total Tagihan</th>
+                <th className="text-right px-4 py-3 hidden lg:table-cell">Sudah Dibayar</th>
+                <th className="text-right px-4 py-3 hidden lg:table-cell">Sisa</th>
+                <th className="text-left px-4 py-3 hidden md:table-cell">Jatuh Tempo</th>
+                <th className="text-center px-4 py-3">Status</th>
+                <th className="text-right px-4 py-3">Aksi</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {filtered.map(k => {
+                const pembayaran = (k as any).pembayaran as Pembayaran[] ?? []
+                const ws = getKompensasiWithStatus(k, pembayaran)
+                const ks = daftarKS.find(x => x.id === k.ks_id)
+                const expanded = expandedId === k.id
 
-          return (
-            <div key={k.id} className="bg-white rounded-xl border p-5">
-              <div className="flex items-start justify-between mb-3">
-                <div>
-                  <p className="text-xs text-gray-500">{ks ? `${(ks.aset as any)?.nama_aset ?? '-'} — ${ks.nama_mitra}` : '-'}</p>
-                  <h3 className="font-semibold text-gray-900">{k.periode_label ?? 'Kompensasi'}</h3>
-                  <p className="text-xs text-gray-500 mt-0.5">Jatuh tempo: {formatTanggal(k.tgl_jatuh_tempo)}</p>
-                </div>
-                <StatusBadge type="bayar" value={ws.statusBayar} />
-              </div>
-
-              <div className="grid grid-cols-3 gap-4 mb-3 text-sm">
-                <div>
-                  <p className="text-xs text-gray-500">Total Tagihan</p>
-                  <CurrencyDisplay value={k.total_tagihan} size="sm" className="font-semibold" />
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500">Sudah Dibayar</p>
-                  <CurrencyDisplay value={ws.totalDibayar} size="sm" className="font-semibold text-green-700" />
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500">Sisa Tagihan</p>
-                  <CurrencyDisplay value={ws.sisaTagihan} size="sm" className="font-semibold text-red-700" />
-                </div>
-              </div>
-
-              <Progress value={persen} className="h-2 mb-2" />
-              <p className="text-xs text-gray-500 mb-3">{persen}% terbayar</p>
-
-              {ws.dendaAkumulasi.hariTerlambat > 0 && (
-                <div className="bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-3 text-sm">
-                  <span className="text-red-700 font-medium">Terlambat {ws.dendaAkumulasi.hariTerlambat} hari — </span>
-                  <span className="text-red-600">Denda akumulasi: {formatRupiah(ws.dendaAkumulasi.nominalDenda)} ({ws.dendaAkumulasi.persenAkumulasi.toFixed(2)}%)</span>
-                </div>
-              )}
-
-              <div className="flex gap-2 flex-wrap">
-                <Button size="sm" variant="outline" onClick={() => openBayar(k)}>
-                  <DollarSign size={13} /> Catat Pembayaran
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => handleSendWA(k)}>
-                  <MessageSquare size={13} /> Kirim Notif WA
-                </Button>
-                {ws.statusBayar === 'terlambat' && (
-                  <Button size="sm" variant="outline" className="text-orange-700 border-orange-300" onClick={() => handleSP(k)}>
-                    <FileWarning size={13} /> Terbitkan SP
-                  </Button>
-                )}
-              </div>
-
-              {pembayaran.length > 0 && (
-                <div className="mt-4 pt-4 border-t">
-                  <p className="text-xs font-semibold text-gray-600 mb-2">Riwayat Pembayaran:</p>
-                  <div className="space-y-1">
-                    {pembayaran.map(p => (
-                      <div key={p.id} className="flex justify-between text-xs text-gray-600">
-                        <span>{formatTanggal(p.tgl_bayar)}</span>
-                        <span className="font-medium">{formatRupiah(p.nominal_bayar)}</span>
-                        {p.bukti_url && <a href={p.bukti_url} target="_blank" className="text-blue-600">Bukti</a>}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )
-        })}
+                return (
+                  <>
+                    <tr key={k.id} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-4 py-3">
+                        <p className="font-medium text-gray-900">{ks?.nama_mitra ?? '-'}</p>
+                        <p className="text-xs text-gray-500">{(ks?.aset as any)?.nama_aset ?? '-'}</p>
+                        {ws.dendaAkumulasi.hariTerlambat > 0 && (
+                          <p className="text-xs text-red-600 mt-0.5">Terlambat {ws.dendaAkumulasi.hariTerlambat} hari</p>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 hidden md:table-cell text-gray-600">{k.periode_label ?? '-'}</td>
+                      <td className="px-4 py-3 text-right font-semibold">
+                        <CurrencyDisplay value={k.total_tagihan} size="sm" />
+                      </td>
+                      <td className="px-4 py-3 text-right hidden lg:table-cell text-green-700">
+                        <CurrencyDisplay value={ws.totalDibayar} size="sm" />
+                      </td>
+                      <td className="px-4 py-3 text-right hidden lg:table-cell text-red-700">
+                        <CurrencyDisplay value={ws.sisaTagihan} size="sm" />
+                      </td>
+                      <td className="px-4 py-3 hidden md:table-cell text-gray-600 text-xs">{formatTanggal(k.tgl_jatuh_tempo)}</td>
+                      <td className="px-4 py-3 text-center">
+                        <StatusBadge type="bayar" value={ws.statusBayar} />
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-end gap-1">
+                          <Button variant="ghost" size="icon" title="Edit" onClick={() => openEdit(k)}>
+                            <Pencil size={14} />
+                          </Button>
+                          <Button variant="ghost" size="icon" title="Catat Pembayaran" onClick={() => openBayar(k)}>
+                            <DollarSign size={14} />
+                          </Button>
+                          <Button variant="ghost" size="icon" title="Kirim WA" onClick={() => handleSendWA(k)}>
+                            <MessageSquare size={14} />
+                          </Button>
+                          {ws.statusBayar === 'terlambat' && (
+                            <Button variant="ghost" size="icon" title="Terbitkan SP" className="text-orange-600" onClick={() => handleSP(k)}>
+                              <FileWarning size={14} />
+                            </Button>
+                          )}
+                          {pembayaran.length > 0 && (
+                            <Button variant="ghost" size="icon" title="Riwayat pembayaran" onClick={() => setExpandedId(expanded ? null : k.id)}>
+                              {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                            </Button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                    {expanded && pembayaran.length > 0 && (
+                      <tr key={`${k.id}-detail`} className="bg-gray-50">
+                        <td colSpan={8} className="px-6 py-3">
+                          <p className="text-xs font-semibold text-gray-600 mb-2">Riwayat Pembayaran:</p>
+                          <div className="space-y-1">
+                            {pembayaran.map(p => (
+                              <div key={p.id} className="flex gap-6 text-xs text-gray-600">
+                                <span>{formatTanggal(p.tgl_bayar)}</span>
+                                <span className="font-medium">{formatRupiah(p.nominal_bayar)}</span>
+                                {p.keterangan && <span className="text-gray-400">{p.keterangan}</span>}
+                                {p.bukti_url && <a href={p.bukti_url} target="_blank" className="text-blue-600">Lihat Bukti</a>}
+                              </div>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </>
+                )
+              })}
+            </tbody>
+          </table>
+        )}
       </div>
 
-      {/* Dialog tambah kompensasi */}
+      {/* Dialog tambah / edit kompensasi */}
       <Dialog open={kompDialog} onOpenChange={setKompDialog}>
         <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle>Tambah Kompensasi</DialogTitle></DialogHeader>
-          <form onSubmit={kompForm.handleSubmit(onAddKomp)} className="space-y-4">
+          <DialogHeader>
+            <DialogTitle>{editTarget ? 'Edit Kompensasi' : 'Tambah Kompensasi'}</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={kompForm.handleSubmit(onSubmit)} className="space-y-4">
             <div>
               <Label>Kerja Sama</Label>
-              <Select onValueChange={v => kompForm.setValue('ks_id', v)}>
+              <Select
+                defaultValue={editTarget?.ks_id}
+                onValueChange={v => kompForm.setValue('ks_id', v)}
+                disabled={!!editTarget}
+              >
                 <SelectTrigger className="mt-1"><SelectValue placeholder="Pilih KS..." /></SelectTrigger>
                 <SelectContent>
                   {daftarKS.map(ks => <SelectItem key={ks.id} value={ks.id}>{(ks.aset as any)?.nama_aset ?? '-'} — {ks.nama_mitra}</SelectItem>)}
@@ -278,7 +331,7 @@ export function Kompensasi() {
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setKompDialog(false)}>Batal</Button>
-              <Button type="submit" className="bg-[#5B2C6F]">Tambah</Button>
+              <Button type="submit" className="bg-[#5B2C6F]">{editTarget ? 'Simpan' : 'Tambah'}</Button>
             </DialogFooter>
           </form>
         </DialogContent>
