@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { supabase } from '@/lib/supabase'
+import { api } from '@/lib/api'
 import { Kompensasi, Pembayaran, KompensasiWithStatus } from '@/types'
 import { hitungDenda } from '@/utils/taxUtils'
 
@@ -22,46 +22,33 @@ export const useKompensasiStore = create<KompensasiStore>((set, get) => ({
 
   fetchKompensasi: async (ksId) => {
     set({ isLoading: true })
-    const { data, error } = await supabase
-      .from('kompensasi')
-      .select('*, pembayaran(*)')
-      .eq('ks_id', ksId)
-      .order('tgl_jatuh_tempo')
-    if (!error && data) {
-      set(state => ({ daftarKompensasi: { ...state.daftarKompensasi, [ksId]: data as Kompensasi[] } }))
-    }
+    const { data } = await api.get<Kompensasi[]>(`/api/kompensasi?ks_id=${ksId}`)
+    if (data) set(state => ({ daftarKompensasi: { ...state.daftarKompensasi, [ksId]: data } }))
     set({ isLoading: false })
   },
 
   fetchAllKompensasi: async () => {
     set({ isLoading: true })
-    const { data, error } = await supabase
-      .from('kompensasi')
-      .select('*, pembayaran(*), kerja_sama(*, aset(*))')
-      .order('tgl_jatuh_tempo')
-    if (!error && data) set({ allKompensasi: data as Kompensasi[] })
+    const { data } = await api.get<Kompensasi[]>('/api/kompensasi')
+    if (data) set({ allKompensasi: data })
     set({ isLoading: false })
   },
 
   addKompensasi: async (data) => {
-    const { error } = await supabase.from('kompensasi').insert(data)
-    if (!error) await get().fetchKompensasi(data.ks_id)
+    await api.post('/api/kompensasi', data)
+    await get().fetchKompensasi(data.ks_id)
   },
 
   updateKompensasi: async (id, data) => {
-    const { error } = await supabase.from('kompensasi').update(data).eq('id', id)
-    if (!error) {
-      await get().fetchAllKompensasi()
-    }
+    await api.put(`/api/kompensasi/${id}`, data)
+    await get().fetchAllKompensasi()
   },
 
   catatPembayaran: async (data) => {
-    const { error } = await supabase.from('pembayaran').insert(data)
-    if (!error) {
-      const kompensasi = Object.values(get().daftarKompensasi).flat().find(k => k.id === data.kompensasi_id)
-      if (kompensasi) await get().fetchKompensasi(kompensasi.ks_id)
-      await get().fetchAllKompensasi()
-    }
+    await api.post('/api/pembayaran', data)
+    const kompensasi = Object.values(get().daftarKompensasi).flat().find(k => k.id === data.kompensasi_id)
+    if (kompensasi) await get().fetchKompensasi(kompensasi.ks_id)
+    await get().fetchAllKompensasi()
   },
 
   getKompensasiWithStatus: (kompensasi, pembayaran) => {

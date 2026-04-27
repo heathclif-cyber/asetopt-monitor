@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { supabase } from '@/lib/supabase'
+import { api } from '@/lib/api'
 import { PenilaianKJPP } from '@/types'
 
 interface KJPPStore {
@@ -19,26 +19,17 @@ export const useKJPPStore = create<KJPPStore>((set, get) => ({
 
   fetchKJPP: async (asetId) => {
     set({ isLoading: true })
-    const { data, error } = await supabase
-      .from('penilaian_kjpp')
-      .select('*')
-      .eq('aset_id', asetId)
-      .order('tgl_penilaian', { ascending: false })
-    if (!error && data) {
-      set(state => ({ dataPenilaian: { ...state.dataPenilaian, [asetId]: data as PenilaianKJPP[] } }))
-    }
+    const { data } = await api.get<PenilaianKJPP[]>(`/api/kjpp?aset_id=${asetId}`)
+    if (data) set(state => ({ dataPenilaian: { ...state.dataPenilaian, [asetId]: data } }))
     set({ isLoading: false })
   },
 
   fetchAllKJPP: async () => {
     set({ isLoading: true })
-    const { data, error } = await supabase
-      .from('penilaian_kjpp')
-      .select('*')
-      .order('tgl_penilaian', { ascending: false })
-    if (!error && data) {
+    const { data } = await api.get<PenilaianKJPP[]>('/api/kjpp')
+    if (data) {
       const byAset: Record<string, PenilaianKJPP[]> = {}
-      ;(data as PenilaianKJPP[]).forEach(k => {
+      data.forEach(k => {
         if (!byAset[k.aset_id]) byAset[k.aset_id] = []
         byAset[k.aset_id].push(k)
       })
@@ -48,24 +39,23 @@ export const useKJPPStore = create<KJPPStore>((set, get) => ({
   },
 
   addKJPP: async (data) => {
-    const { error } = await supabase.from('penilaian_kjpp').insert(data)
-    if (!error) await get().fetchKJPP(data.aset_id)
+    await api.post('/api/kjpp', data)
+    await get().fetchKJPP(data.aset_id)
   },
 
   updateKJPP: async (id, data) => {
     const existing = Object.values(get().dataPenilaian).flat().find(k => k.id === id)
-    const { error } = await supabase.from('penilaian_kjpp').update(data).eq('id', id)
-    if (!error && existing) await get().fetchKJPP(existing.aset_id)
+    await api.put(`/api/kjpp/${id}`, data)
+    if (existing) await get().fetchKJPP(existing.aset_id)
   },
 
   deleteKJPP: async (id, asetId) => {
-    const { error } = await supabase.from('penilaian_kjpp').delete().eq('id', id)
-    if (!error) await get().fetchKJPP(asetId)
+    await api.delete(`/api/kjpp/${id}`)
+    await get().fetchKJPP(asetId)
   },
 
   getKJPPTerbaru: (asetId) => {
     const list = get().dataPenilaian[asetId]
-    if (!list || list.length === 0) return null
-    return list[0]
+    return list?.[0] ?? null
   },
 }))

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { supabase } from '@/lib/supabase'
+import { api } from '@/lib/api'
 import { Aset, AsetStatus } from '@/types'
 
 interface AsetStore {
@@ -21,33 +21,32 @@ export const useAsetStore = create<AsetStore>((set, get) => ({
 
   fetchAset: async () => {
     set({ isLoading: true })
-    const { data, error } = await supabase
-      .from('aset')
-      .select('*')
-      .order('created_at', { ascending: false })
-    if (!error && data) set({ daftarAset: data as Aset[] })
+    const { data } = await api.get<Aset[]>('/api/aset')
+    if (data) set({ daftarAset: data })
     set({ isLoading: false })
   },
 
   addAset: async (data) => {
-    const { error } = await supabase.from('aset').insert(data)
-    if (!error) await get().fetchAset()
+    await api.post('/api/aset', data)
+    await get().fetchAset()
   },
 
   updateAset: async (id, data) => {
-    const { error } = await supabase.from('aset').update(data).eq('id', id)
-    if (!error) await get().fetchAset()
+    const current = get().daftarAset.find(a => a.id === id)
+    await api.put(`/api/aset/${id}`, { ...current, ...data })
+    await get().fetchAset()
   },
 
   deleteAset: async (id) => {
-    const { error } = await supabase.from('aset').delete().eq('id', id)
-    if (!error) await get().fetchAset()
+    await api.delete(`/api/aset/${id}`)
+    await get().fetchAset()
   },
 
   setSelected: (aset) => set({ asetSelected: aset }),
 
   updateStatus: async (id, status) => {
-    const { error } = await supabase.from('aset').update({ status }).eq('id', id)
-    if (!error) await get().fetchAset()
+    const current = get().daftarAset.find(a => a.id === id)
+    await api.put(`/api/aset/${id}`, { ...current, status })
+    await get().fetchAset()
   },
 }))

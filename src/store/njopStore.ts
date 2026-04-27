@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { supabase } from '@/lib/supabase'
+import { api } from '@/lib/api'
 import { NJOP } from '@/types'
 import { hitungPotensiNJOP } from '@/utils/potensiUtils'
 
@@ -21,26 +21,17 @@ export const useNJOPStore = create<NJOPStore>((set, get) => ({
 
   fetchNJOP: async (asetId) => {
     set({ isLoading: true })
-    const { data, error } = await supabase
-      .from('njop')
-      .select('*')
-      .eq('aset_id', asetId)
-      .order('tahun', { ascending: false })
-    if (!error && data) {
-      set(state => ({ dataNJOP: { ...state.dataNJOP, [asetId]: data as NJOP[] } }))
-    }
+    const { data } = await api.get<NJOP[]>(`/api/njop?aset_id=${asetId}`)
+    if (data) set(state => ({ dataNJOP: { ...state.dataNJOP, [asetId]: data } }))
     set({ isLoading: false })
   },
 
   fetchAllNJOP: async () => {
     set({ isLoading: true })
-    const { data, error } = await supabase
-      .from('njop')
-      .select('*')
-      .order('tahun', { ascending: false })
-    if (!error && data) {
+    const { data } = await api.get<NJOP[]>('/api/njop')
+    if (data) {
       const byAset: Record<string, NJOP[]> = {}
-      ;(data as NJOP[]).forEach(n => {
+      data.forEach(n => {
         if (!byAset[n.aset_id]) byAset[n.aset_id] = []
         byAset[n.aset_id].push(n)
       })
@@ -50,24 +41,24 @@ export const useNJOPStore = create<NJOPStore>((set, get) => ({
   },
 
   addNJOP: async (data) => {
-    const { error } = await supabase.from('njop').insert(data)
-    if (!error) await get().fetchNJOP(data.aset_id)
+    await api.post('/api/njop', data)
+    await get().fetchNJOP(data.aset_id)
   },
 
   updateNJOP: async (id, data) => {
-    const { error, data: updated } = await supabase.from('njop').update(data).eq('id', id).select().single()
-    if (!error && updated) await get().fetchNJOP((updated as NJOP).aset_id)
+    const existing = Object.values(get().dataNJOP).flat().find(n => n.id === id)
+    await api.put(`/api/njop/${id}`, data)
+    if (existing) await get().fetchNJOP(existing.aset_id)
   },
 
   deleteNJOP: async (id, asetId) => {
-    const { error } = await supabase.from('njop').delete().eq('id', id)
-    if (!error) await get().fetchNJOP(asetId)
+    await api.delete(`/api/njop/${id}`)
+    await get().fetchNJOP(asetId)
   },
 
   getNJOPTerbaru: (asetId) => {
     const list = get().dataNJOP[asetId]
-    if (!list || list.length === 0) return null
-    return list[0]
+    return list?.[0] ?? null
   },
 
   hitungPotensiAset: (asetId, luasTanah, luasBangunan) => {

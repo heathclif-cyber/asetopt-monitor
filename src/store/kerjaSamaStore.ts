@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { supabase } from '@/lib/supabase'
+import { api } from '@/lib/api'
 import { KerjaSama, KerjaSamaStatus } from '@/types'
 
 interface KerjaSamaStore {
@@ -20,31 +20,27 @@ export const useKerjaSamaStore = create<KerjaSamaStore>((set, get) => ({
 
   fetchKS: async () => {
     set({ isLoading: true })
-    const { data, error } = await supabase
-      .from('kerja_sama')
-      .select('*, aset(*)')
-      .order('created_at', { ascending: false })
-    if (!error && data) set({ daftarKS: data as KerjaSama[] })
+    const { data } = await api.get<KerjaSama[]>('/api/kerja-sama')
+    if (data) set({ daftarKS: data })
     set({ isLoading: false })
   },
 
   addKS: async (data) => {
-    const { data: inserted, error } = await supabase.from('kerja_sama').insert(data).select().single()
-    if (!error && inserted) {
-      await get().fetchKS()
-      return (inserted as KerjaSama).id
-    }
-    return null
+    const { data: inserted } = await api.post<KerjaSama>('/api/kerja-sama', data)
+    await get().fetchKS()
+    return inserted?.id ?? null
   },
 
   updateKS: async (id, data) => {
-    const { error } = await supabase.from('kerja_sama').update(data).eq('id', id)
-    if (!error) await get().fetchKS()
+    const current = get().daftarKS.find(k => k.id === id)
+    await api.put(`/api/kerja-sama/${id}`, { ...current, ...data })
+    await get().fetchKS()
   },
 
   updateStatusKS: async (id, status) => {
-    const { error } = await supabase.from('kerja_sama').update({ status }).eq('id', id)
-    if (!error) await get().fetchKS()
+    const current = get().daftarKS.find(k => k.id === id)
+    await api.put(`/api/kerja-sama/${id}`, { ...current, status })
+    await get().fetchKS()
   },
 
   setSelected: (ks) => set({ ksSelected: ks }),
