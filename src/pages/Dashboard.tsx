@@ -5,16 +5,14 @@ import { useKompensasiStore } from '@/store/kompensasiStore'
 import { useNotifikasiStore } from '@/store/notifikasiStore'
 import { useNJOPStore } from '@/store/njopStore'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
 import { CurrencyDisplay } from '@/components/common/CurrencyDisplay'
 import { StatusBadge } from '@/components/common/StatusBadge'
 import { formatTanggal, hitungSisaHari } from '@/lib/utils'
 import { hitungPotensiNJOP } from '@/utils/potensiUtils'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-  LineChart, Line
 } from 'recharts'
-import { Building2, Handshake, Clock, TrendingUp, AlertTriangle } from 'lucide-react'
+import { Building2, Handshake, Clock, TrendingUp, AlertTriangle, Banknote, ReceiptText, Percent } from 'lucide-react'
 
 export function Dashboard() {
   const { daftarAset, fetchAset } = useAsetStore()
@@ -57,8 +55,14 @@ export function Dashboard() {
         }
       })
 
-    return { totalAset, asetPipeline, asetAktifKS, totalPotensiNJOP }
-  }, [daftarAset, dataNJOP])
+    const totalTagihan = allKompensasi.reduce((sum, k) => sum + (k.total_tagihan ?? 0), 0)
+    const totalCashIn = allKompensasi
+      .flatMap(k => k.pembayaran ?? [])
+      .reduce((sum, p) => sum + (p.nominal_bayar ?? 0), 0)
+    const collectionRate = totalTagihan > 0 ? (totalCashIn / totalTagihan) * 100 : 0
+
+    return { totalAset, asetPipeline, asetAktifKS, totalPotensiNJOP, totalTagihan, totalCashIn, collectionRate }
+  }, [daftarAset, dataNJOP, allKompensasi])
 
   const ksWithSP = daftarKS.filter(ks => ['sp1', 'sp2', 'sp3'].includes(ks.status))
 
@@ -85,19 +89,25 @@ export function Dashboard() {
     })
     .filter(d => d.potensiNJOP > 0)
 
-  const trendData = useMemo(() => {
-    const byBulan: Record<string, number> = {}
+  const cashFlowData = useMemo(() => {
+    const byBulan: Record<string, { tagihan: number; cashIn: number }> = {}
     allKompensasi.forEach(k => {
       const bulan = k.tgl_jatuh_tempo.slice(0, 7)
-      if (!byBulan[bulan]) byBulan[bulan] = 0
-      byBulan[bulan] += k.nominal
+      if (!byBulan[bulan]) byBulan[bulan] = { tagihan: 0, cashIn: 0 }
+      byBulan[bulan].tagihan += k.total_tagihan ?? 0
+      ;(k.pembayaran ?? []).forEach(p => {
+        const bln = p.tgl_bayar.slice(0, 7)
+        if (!byBulan[bln]) byBulan[bln] = { tagihan: 0, cashIn: 0 }
+        byBulan[bln].cashIn += p.nominal_bayar ?? 0
+      })
     })
     return Object.entries(byBulan)
       .sort(([a], [b]) => a.localeCompare(b))
       .slice(-12)
-      .map(([bulan, total]) => ({
+      .map(([bulan, { tagihan, cashIn }]) => ({
         bulan: new Date(bulan + '-01').toLocaleDateString('id-ID', { month: 'short', year: '2-digit' }),
-        total: Math.round(total / 1000000),
+        tagihan: Math.round(tagihan / 1_000_000),
+        cashIn: Math.round(cashIn / 1_000_000),
       }))
   }, [allKompensasi])
 
@@ -165,6 +175,47 @@ export function Dashboard() {
             <div>
               <p className="text-xs text-gray-500 font-medium">Potensi NJOP (Pipeline)</p>
               <CurrencyDisplay value={stats.totalPotensiNJOP} size="lg" className="text-[#1B4F72] mt-1 block" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Stat keuangan */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <Card>
+          <CardContent className="p-5">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-xs text-gray-500 font-medium">Total Tagihan (Pendapatan)</p>
+                <CurrencyDisplay value={stats.totalTagihan} size="lg" className="text-[#1B4F72] mt-1 block" />
+              </div>
+              <ReceiptText className="text-[#1B4F72]" size={22} />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-5">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-xs text-gray-500 font-medium">Total Cash In (Terbayar)</p>
+                <CurrencyDisplay value={stats.totalCashIn} size="lg" className="text-[#117A65] mt-1 block" />
+              </div>
+              <Banknote className="text-[#117A65]" size={22} />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-5">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-xs text-gray-500 font-medium">Collection Rate</p>
+                <p className={`text-3xl font-bold mt-1 ${stats.collectionRate >= 80 ? 'text-[#117A65]' : stats.collectionRate >= 50 ? 'text-yellow-600' : 'text-red-600'}`}>
+                  {stats.collectionRate.toFixed(1)}%
+                </p>
+              </div>
+              <Percent className={stats.collectionRate >= 80 ? 'text-[#117A65]' : stats.collectionRate >= 50 ? 'text-yellow-500' : 'text-red-500'} size={22} />
             </div>
           </CardContent>
         </Card>
@@ -254,23 +305,25 @@ export function Dashboard() {
           </CardContent>
         </Card>
 
-        {/* Line chart tren kompensasi */}
+        {/* Bar chart cash in vs tagihan */}
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">Tren Kompensasi per Bulan (Juta Rp)</CardTitle>
+            <CardTitle className="text-base">Tagihan vs Cash In per Bulan (Juta Rp)</CardTitle>
           </CardHeader>
           <CardContent>
-            {trendData.length === 0 ? (
+            {cashFlowData.length === 0 ? (
               <p className="text-sm text-gray-500 text-center py-8">Belum ada data kompensasi</p>
             ) : (
               <ResponsiveContainer width="100%" height={220}>
-                <LineChart data={trendData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                <BarChart data={cashFlowData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis dataKey="bulan" tick={{ fontSize: 11 }} />
                   <YAxis tick={{ fontSize: 11 }} />
-                  <Tooltip formatter={(v: number) => [`Rp ${v}jt`, 'Total']} />
-                  <Line type="monotone" dataKey="total" stroke="#5B2C6F" strokeWidth={2} dot={{ r: 3 }} />
-                </LineChart>
+                  <Tooltip formatter={(v: number, name: string) => [`Rp ${v}jt`, name === 'tagihan' ? 'Tagihan' : 'Cash In']} />
+                  <Legend formatter={(value) => value === 'tagihan' ? 'Tagihan' : 'Cash In'} />
+                  <Bar dataKey="tagihan" fill="#1B4F72" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="cashIn" fill="#117A65" radius={[4, 4, 0, 0]} />
+                </BarChart>
               </ResponsiveContainer>
             )}
           </CardContent>
