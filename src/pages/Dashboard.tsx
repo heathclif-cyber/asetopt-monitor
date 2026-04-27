@@ -114,8 +114,8 @@ export function Dashboard() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-        <p className="text-sm text-gray-500 mt-1">Ringkasan program optimalisasi aset</p>
+        <h1 className="text-lg font-bold text-gray-900">Dashboard</h1>
+        <p className="text-xs text-gray-500 mt-0.5">Ringkasan program optimalisasi aset</p>
       </div>
 
       {/* Stat cards */}
@@ -125,7 +125,7 @@ export function Dashboard() {
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-xs text-gray-500 font-medium">Total Aset</p>
-                <p className="text-3xl font-bold text-gray-900 mt-1">{stats.totalAset}</p>
+                <p className="text-2xl font-bold text-gray-900 mt-1">{stats.totalAset}</p>
               </div>
               <Building2 className="text-[#1B4F72]" size={22} />
             </div>
@@ -137,7 +137,7 @@ export function Dashboard() {
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-xs text-gray-500 font-medium">Di Pipeline</p>
-                <p className="text-3xl font-bold text-[#117A65] mt-1">{stats.asetPipeline}</p>
+                <p className="text-2xl font-bold text-[#117A65] mt-1">{stats.asetPipeline}</p>
               </div>
               <TrendingUp className="text-[#117A65]" size={22} />
             </div>
@@ -149,7 +149,7 @@ export function Dashboard() {
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-xs text-gray-500 font-medium">Aktif KS</p>
-                <p className="text-3xl font-bold text-[#5B2C6F] mt-1">{stats.asetAktifKS}</p>
+                <p className="text-2xl font-bold text-[#5B2C6F] mt-1">{stats.asetAktifKS}</p>
               </div>
               <Handshake className="text-[#5B2C6F]" size={22} />
             </div>
@@ -161,7 +161,7 @@ export function Dashboard() {
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-xs text-gray-500 font-medium">Jatuh Tempo ≤14 Hari</p>
-                <p className={`text-3xl font-bold mt-1 ${jatuhTempoH14.length > 0 ? 'text-red-600' : 'text-gray-900'}`}>
+                <p className={`text-2xl font-bold mt-1 ${jatuhTempoH14.length > 0 ? 'text-red-600' : 'text-gray-900'}`}>
                   {jatuhTempoH14.length}
                 </p>
               </div>
@@ -211,7 +211,7 @@ export function Dashboard() {
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-xs text-gray-500 font-medium">Collection Rate</p>
-                <p className={`text-3xl font-bold mt-1 ${stats.collectionRate >= 80 ? 'text-[#117A65]' : stats.collectionRate >= 50 ? 'text-yellow-600' : 'text-red-600'}`}>
+                <p className={`text-2xl font-bold mt-1 ${stats.collectionRate >= 80 ? 'text-[#117A65]' : stats.collectionRate >= 50 ? 'text-yellow-600' : 'text-red-600'}`}>
                   {stats.collectionRate.toFixed(1)}%
                 </p>
               </div>
