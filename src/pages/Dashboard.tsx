@@ -10,8 +10,9 @@ import { CurrencyDisplay } from '@/components/common/CurrencyDisplay'
 import { StatusBadge } from '@/components/common/StatusBadge'
 import { formatTanggal, hitungSisaHari } from '@/lib/utils'
 import { hitungPotensiNJOP } from '@/utils/potensiUtils'
-import { hitungRKAP, getCashInPerBulan2026 } from '@/utils/rkapUtils'
-import { TOTAL_TARGET_2026, BULAN_LABELS } from '@/data/rkap2026'
+import { hitungRKAP, getCashInPerBulanByYear } from '@/utils/rkapUtils'
+import { RKAP_2026, BULAN_LABELS } from '@/data/rkap2026'
+import { useRKAPStore, rowToRKAPItem } from '@/store/rkapStore'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts'
@@ -26,6 +27,7 @@ export function Dashboard() {
   const { allKompensasi, fetchAllKompensasi } = useKompensasiStore()
   const { jatuhTempoH14, spAktif, checkJatuhTempo, fetchSPAktif } = useNotifikasiStore()
   const { fetchAllNJOP, dataNJOP } = useNJOPStore()
+  const { rows: rkapRows, fetchRKAP } = useRKAPStore()
 
   useEffect(() => {
     fetchAset()
@@ -33,6 +35,7 @@ export function Dashboard() {
     fetchAllKompensasi()
     fetchSPAktif()
     fetchAllNJOP()
+    fetchRKAP(CURRENT_MONTH >= 0 ? new Date().getFullYear() : 2026)
   }, [])
 
   useEffect(() => {
@@ -96,10 +99,13 @@ export function Dashboard() {
     .filter(d => d.potensiNJOP > 0)
 
   const rkapSummary = useMemo(() => {
-    const cashIn2026 = getCashInPerBulan2026(allKompensasi)
-    const months = hitungRKAP(cashIn2026)
+    const tahun = new Date().getFullYear()
+    const items = rkapRows.length > 0 ? rkapRows.map(rowToRKAPItem) : RKAP_2026
+    const totalTarget = items.reduce((s, i) => s + i.total, 0)
+    const cashIn = getCashInPerBulanByYear(allKompensasi, tahun)
+    const months = hitungRKAP(items, cashIn)
     const ytdTarget = months.slice(0, CURRENT_MONTH + 1).reduce((s, m) => s + m.targetOriginal, 0)
-    const ytdRealisasi = cashIn2026.slice(0, CURRENT_MONTH + 1).reduce((s, v) => s + v, 0)
+    const ytdRealisasi = cashIn.slice(0, CURRENT_MONTH + 1).reduce((s, v) => s + v, 0)
     const achievement = ytdTarget > 0 ? (ytdRealisasi / ytdTarget) * 100 : 0
     const currentCarryOver = months[CURRENT_MONTH]?.carryOver ?? 0
     const chartData = months.slice(0, CURRENT_MONTH + 1).map(m => ({
@@ -107,8 +113,8 @@ export function Dashboard() {
       'Target': Math.round(m.targetAdjusted / 1_000_000),
       'Realisasi': Math.round(m.realisasi / 1_000_000),
     }))
-    return { ytdTarget, ytdRealisasi, achievement, currentCarryOver, chartData }
-  }, [allKompensasi])
+    return { totalTarget, ytdTarget, ytdRealisasi, achievement, currentCarryOver, chartData }
+  }, [allKompensasi, rkapRows])
 
   const cashFlowData = useMemo(() => {
     const byBulan: Record<string, { tagihan: number; cashIn: number }> = {}
