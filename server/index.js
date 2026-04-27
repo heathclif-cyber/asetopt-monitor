@@ -322,6 +322,31 @@ app.post('/api/kompensasi', async (req, res) => {
   } catch (e) { err(res, e) }
 })
 
+app.post('/api/kompensasi/bulk', async (req, res) => {
+  const { items } = req.body
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    const rows = []
+    for (const item of items) {
+      const { ks_id, periode_label, nominal, ppn_persen, pph_persen, maks_hari_bayar, persen_denda_per_hari, tgl_jatuh_tempo, keterangan } = item
+      const { rows: r } = await client.query(
+        `INSERT INTO kompensasi (ks_id, periode_label, nominal, ppn_persen, pph_persen, maks_hari_bayar, persen_denda_per_hari, tgl_jatuh_tempo, keterangan)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+        [ks_id, periode_label, nominal, ppn_persen ?? 11, pph_persen ?? 10, maks_hari_bayar ?? 14, persen_denda_per_hari ?? 0.1, tgl_jatuh_tempo, keterangan]
+      )
+      rows.push(r[0])
+    }
+    await client.query('COMMIT')
+    ok(res, rows)
+  } catch (e) {
+    await client.query('ROLLBACK')
+    err(res, e)
+  } finally {
+    client.release()
+  }
+})
+
 // ════════════════════════════════════════════════════════════════════════════
 // PEMBAYARAN
 // ════════════════════════════════════════════════════════════════════════════

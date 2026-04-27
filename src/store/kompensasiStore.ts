@@ -10,6 +10,7 @@ interface KompensasiStore {
   fetchKompensasi: (ksId: string) => Promise<void>
   fetchAllKompensasi: () => Promise<void>
   addKompensasi: (data: Omit<Kompensasi, 'id' | 'nominal_ppn' | 'nominal_pph' | 'total_tagihan' | 'created_at' | 'kerja_sama' | 'pembayaran'>) => Promise<void>
+  bulkAddKompensasi: (items: Omit<Kompensasi, 'id' | 'nominal_ppn' | 'nominal_pph' | 'total_tagihan' | 'created_at' | 'kerja_sama' | 'pembayaran'>[]) => Promise<void>
   updateKompensasi: (id: string, data: Partial<Kompensasi>) => Promise<void>
   catatPembayaran: (data: Omit<Pembayaran, 'id' | 'created_at'>) => Promise<void>
   getKompensasiWithStatus: (kompensasi: Kompensasi, pembayaran: Pembayaran[]) => KompensasiWithStatus
@@ -36,7 +37,12 @@ export const useKompensasiStore = create<KompensasiStore>((set, get) => ({
 
   addKompensasi: async (data) => {
     await api.post('/api/kompensasi', data)
-    await get().fetchKompensasi(data.ks_id)
+    await get().fetchAllKompensasi()
+  },
+
+  bulkAddKompensasi: async (items) => {
+    await api.post('/api/kompensasi/bulk', { items })
+    await get().fetchAllKompensasi()
   },
 
   updateKompensasi: async (id, data) => {

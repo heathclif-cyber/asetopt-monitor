@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useKompensasiStore } from '@/store/kompensasiStore'
 import { useKerjaSamaStore } from '@/store/kerjaSamaStore'
 import { useNotifikasiStore } from '@/store/notifikasiStore'
@@ -15,11 +15,96 @@ import { StatusBadge } from '@/components/common/StatusBadge'
 import { EmptyState } from '@/components/common/EmptyState'
 import { TableSkeleton } from '@/components/common/LoadingSkeleton'
 import { formatTanggal, formatRupiah } from '@/lib/utils'
-import { Plus, Pencil, MessageSquare, FileWarning, DollarSign, ChevronDown, ChevronUp } from 'lucide-react'
+import { Plus, Pencil, MessageSquare, FileWarning, DollarSign, ChevronDown, ChevronUp, Wand2 } from 'lucide-react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { buatPesanWA } from '@/utils/notifikasiUtils'
+
+// ─── Helpers generate periode ─────────────────────────────────────────────────
+const BULAN = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember']
+
+function addMonths(date: Date, n: number): Date {
+  const d = new Date(date)
+  d.setMonth(d.getMonth() + n)
+  return d
+}
+function addDays(date: Date, n: number): Date {
+  const d = new Date(date)
+  d.setDate(d.getDate() + n)
+  return d
+}
+function toISO(date: Date): string {
+  return date.toISOString().split('T')[0]
+}
+
+type GeneratedPeriode = {
+  label: string
+  tgl_jatuh_tempo: string
+  nominal: number
+  ppn_persen: number
+  total_tagihan: number
+}
+
+function generatePeriode(params: {
+  ksId: string
+  tglMulai: string
+  tglSelesai: string
+  nominal: number
+  interval: 'bulanan' | 'triwulan' | 'semesteran' | 'tahunan'
+  ppnPersen: number
+  pphPersen: number
+  maksHariBayar: number
+  persenDenda: number
+  offsetJatuhTempo: number
+}): (GeneratedPeriode & { ks_id: string; ppn_persen: number; pph_persen: number; maks_hari_bayar: number; persen_denda_per_hari: number })[] {
+  const { tglMulai, tglSelesai, nominal, interval, ppnPersen, offsetJatuhTempo } = params
+  const stepMonths = { bulanan: 1, triwulan: 3, semesteran: 6, tahunan: 12 }[interval]
+  const hasil = []
+  let current = new Date(tglMulai)
+  const end = new Date(tglSelesai)
+  let idx = 1
+
+  while (current <= end) {
+    let label = ''
+    if (interval === 'bulanan') label = `${BULAN[current.getMonth()]} ${current.getFullYear()}`
+    else if (interval === 'triwulan') label = `Triwulan ${['I','II','III','IV'][Math.floor(current.getMonth() / 3)]} ${current.getFullYear()}`
+    else if (interval === 'semesteran') label = `Semester ${current.getMonth() < 6 ? 1 : 2} ${current.getFullYear()}`
+    else label = `Tahun ke-${idx}`
+
+    const tgl_jatuh_tempo = toISO(addDays(current, offsetJatuhTempo))
+    const total_tagihan = nominal + (nominal * ppnPersen / 100)
+
+    hasil.push({
+      ks_id: params.ksId,
+      periode_label: label,
+      label,
+      tgl_jatuh_tempo,
+      nominal,
+      ppn_persen: params.ppnPersen,
+      pph_persen: params.pphPersen,
+      maks_hari_bayar: params.maksHariBayar,
+      persen_denda_per_hari: params.persenDenda,
+      total_tagihan,
+    })
+
+    current = addMonths(current, stepMonths)
+    idx++
+  }
+  return hasil
+}
+
+const genSchema = z.object({
+  ks_id: z.string().min(1),
+  nominal: z.coerce.number().min(1),
+  interval: z.enum(['bulanan', 'triwulan', 'semesteran', 'tahunan']),
+  ppn_persen: z.coerce.number().min(0).default(11),
+  pph_persen: z.coerce.number().min(0).default(10),
+  maks_hari_bayar: z.coerce.number().min(1).default(14),
+  persen_denda_per_hari: z.coerce.number().min(0).default(0.1),
+  offset_jatuh_tempo: z.coerce.number().min(0).default(14),
+})
+type GenForm = z.infer<typeof genSchema>
 
 const kompSchema = z.object({
   ks_id: z.string().min(1),
@@ -44,7 +129,7 @@ type KompForm = z.infer<typeof kompSchema>
 type BayarForm = z.infer<typeof bayarSchema>
 
 export function Kompensasi() {
-  const { allKompensasi, isLoading, fetchAllKompensasi, addKompensasi, updateKompensasi, getKompensasiWithStatus, catatPembayaran } = useKompensasiStore()
+  const { allKompensasi, isLoading, fetchAllKompensasi, addKompensasi, updateKompensasi, bulkAddKompensasi, getKompensasiWithStatus, catatPembayaran } = useKompensasiStore()
   const { daftarKS, fetchKS } = useKerjaSamaStore()
   const { terbitkanSP, kirimNotifWA } = useNotifikasiStore()
 
@@ -52,6 +137,12 @@ export function Kompensasi() {
   const [editTarget, setEditTarget] = useState<KType | null>(null)
   const [bayarDialog, setBayarDialog] = useState(false)
   const [bayarTarget, setBayarTarget] = useState<KType | null>(null)
+
+  // Generate periode dialog
+  const [genDialog, setGenDialog] = useState(false)
+  const [genStep, setGenStep] = useState<1 | 2>(1)
+  const [genPreview, setGenPreview] = useState<ReturnType<typeof generatePeriode>>([])
+  const [isSaving, setIsSaving] = useState(false)
   const [filterKS, setFilterKS] = useState<string>('semua')
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
@@ -61,6 +152,11 @@ export function Kompensasi() {
   })
 
   const bayarForm = useForm<BayarForm>({ resolver: zodResolver(bayarSchema) })
+
+  const genForm = useForm<GenForm>({
+    resolver: zodResolver(genSchema),
+    defaultValues: { interval: 'tahunan', ppn_persen: 11, pph_persen: 10, maks_hari_bayar: 14, persen_denda_per_hari: 0.1, offset_jatuh_tempo: 14 },
+  })
 
   const watchNominal = kompForm.watch('nominal')
   const watchPPN = kompForm.watch('ppn_persen')
@@ -139,6 +235,34 @@ export function Kompensasi() {
     }
   }
 
+  const onGenPreview = (data: GenForm) => {
+    const ks = daftarKS.find(x => x.id === data.ks_id)
+    if (!ks) return
+    const preview = generatePeriode({
+      ksId: data.ks_id,
+      tglMulai: ks.tgl_mulai,
+      tglSelesai: ks.tgl_selesai,
+      nominal: data.nominal,
+      interval: data.interval,
+      ppnPersen: data.ppn_persen,
+      pphPersen: data.pph_persen,
+      maksHariBayar: data.maks_hari_bayar,
+      persenDenda: data.persen_denda_per_hari,
+      offsetJatuhTempo: data.offset_jatuh_tempo,
+    })
+    setGenPreview(preview)
+    setGenStep(2)
+  }
+
+  const onGenSimpan = async () => {
+    setIsSaving(true)
+    await bulkAddKompensasi(genPreview.map(({ label, total_tagihan, ...rest }) => rest) as any)
+    setIsSaving(false)
+    setGenDialog(false)
+    setGenStep(1)
+    genForm.reset({ interval: 'tahunan', ppn_persen: 11, pph_persen: 10, maks_hari_bayar: 14, persen_denda_per_hari: 0.1, offset_jatuh_tempo: 14 })
+  }
+
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
@@ -146,9 +270,14 @@ export function Kompensasi() {
           <h1 className="text-2xl font-bold text-gray-900">Kompensasi</h1>
           <p className="text-sm text-gray-500">Monitoring dan pencatatan kompensasi kerja sama</p>
         </div>
-        <Button onClick={openAdd} className="bg-[#5B2C6F] hover:bg-[#5B2C6F]/90">
-          <Plus size={16} /> Tambah Kompensasi
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => { setGenStep(1); setGenDialog(true) }}>
+            <Wand2 size={15} /> Generate Periode
+          </Button>
+          <Button onClick={openAdd} className="bg-[#5B2C6F] hover:bg-[#5B2C6F]/90">
+            <Plus size={16} /> Tambah Manual
+          </Button>
+        </div>
       </div>
 
       <div className="flex items-center gap-3">
@@ -264,6 +393,132 @@ export function Kompensasi() {
           </table>
         )}
       </div>
+
+      {/* Dialog generate periode */}
+      <Dialog open={genDialog} onOpenChange={open => { setGenDialog(open); if (!open) setGenStep(1) }}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>
+              {genStep === 1 ? 'Generate Periode Kompensasi' : `Preview — ${genPreview.length} periode akan dibuat`}
+            </DialogTitle>
+          </DialogHeader>
+
+          {genStep === 1 && (
+            <form onSubmit={genForm.handleSubmit(onGenPreview)} className="space-y-4">
+              <div>
+                <Label>Kerja Sama</Label>
+                <Select onValueChange={v => genForm.setValue('ks_id', v)}>
+                  <SelectTrigger className="mt-1"><SelectValue placeholder="Pilih KS..." /></SelectTrigger>
+                  <SelectContent>
+                    {daftarKS.map(ks => (
+                      <SelectItem key={ks.id} value={ks.id}>
+                        {(ks.aset as any)?.nama_aset ?? '-'} — {ks.nama_mitra}
+                        <span className="text-gray-400 ml-1 text-xs">({formatTanggal(ks.tgl_mulai)} s.d. {formatTanggal(ks.tgl_selesai)})</span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Nominal per Periode (Rp)</Label>
+                  <Controller control={genForm.control} name="nominal" render={({ field }) => (
+                    <CurrencyInput value={field.value} onChange={field.onChange} className="mt-1" />
+                  )} />
+                </div>
+                <div>
+                  <Label>Interval Periode</Label>
+                  <Select defaultValue="tahunan" onValueChange={v => genForm.setValue('interval', v as any)}>
+                    <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="bulanan">Bulanan</SelectItem>
+                      <SelectItem value="triwulan">Triwulan (3 bulan)</SelectItem>
+                      <SelectItem value="semesteran">Semesteran (6 bulan)</SelectItem>
+                      <SelectItem value="tahunan">Tahunan</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <Label>PPN (%)</Label>
+                  <Input type="number" step="0.01" {...genForm.register('ppn_persen')} className="mt-1" />
+                </div>
+                <div>
+                  <Label>PPh (%)</Label>
+                  <Input type="number" step="0.01" {...genForm.register('pph_persen')} className="mt-1" />
+                </div>
+                <div>
+                  <Label>% Denda/Hari</Label>
+                  <Input type="number" step="0.001" {...genForm.register('persen_denda_per_hari')} className="mt-1" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Maks Hari Bayar</Label>
+                  <Input type="number" {...genForm.register('maks_hari_bayar')} className="mt-1" />
+                </div>
+                <div>
+                  <Label>Jatuh Tempo (hari setelah awal periode)</Label>
+                  <Input type="number" {...genForm.register('offset_jatuh_tempo')} className="mt-1" />
+                </div>
+              </div>
+
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setGenDialog(false)}>Batal</Button>
+                <Button type="submit" className="bg-[#5B2C6F]">Lihat Preview →</Button>
+              </DialogFooter>
+            </form>
+          )}
+
+          {genStep === 2 && (
+            <div className="space-y-4">
+              <div className="border rounded-lg overflow-hidden max-h-96 overflow-y-auto">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-gray-50">
+                    <tr className="border-b text-gray-600 text-xs uppercase">
+                      <th className="text-left px-3 py-2">No</th>
+                      <th className="text-left px-3 py-2">Label Periode</th>
+                      <th className="text-left px-3 py-2">Jatuh Tempo</th>
+                      <th className="text-right px-3 py-2">Nominal</th>
+                      <th className="text-right px-3 py-2">Total Tagihan</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {genPreview.map((p, i) => (
+                      <tr key={i} className="hover:bg-gray-50">
+                        <td className="px-3 py-2 text-gray-400">{i + 1}</td>
+                        <td className="px-3 py-2 font-medium">{p.label}</td>
+                        <td className="px-3 py-2 text-gray-600">{formatTanggal(p.tgl_jatuh_tempo)}</td>
+                        <td className="px-3 py-2 text-right">{formatRupiah(p.nominal)}</td>
+                        <td className="px-3 py-2 text-right font-semibold text-[#5B2C6F]">{formatRupiah(p.total_tagihan)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot className="bg-gray-50 border-t font-semibold">
+                    <tr>
+                      <td colSpan={4} className="px-3 py-2 text-right text-xs text-gray-600">Total seluruh periode:</td>
+                      <td className="px-3 py-2 text-right text-[#5B2C6F]">
+                        {formatRupiah(genPreview.reduce((s, p) => s + p.total_tagihan, 0))}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setGenStep(1)}>← Kembali</Button>
+                <Button onClick={onGenSimpan} disabled={isSaving} className="bg-[#5B2C6F]">
+                  {isSaving ? 'Menyimpan...' : `Simpan ${genPreview.length} Periode`}
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Dialog tambah / edit kompensasi */}
       <Dialog open={kompDialog} onOpenChange={setKompDialog}>
