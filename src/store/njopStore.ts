@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { api } from '@/lib/api'
+import { supabase } from '@/lib/supabase'
 import { NJOP } from '@/types'
 import { hitungPotensiNJOP } from '@/utils/potensiUtils'
 
@@ -21,14 +21,21 @@ export const useNJOPStore = create<NJOPStore>((set, get) => ({
 
   fetchNJOP: async (asetId) => {
     set({ isLoading: true })
-    const { data } = await api.get<NJOP[]>(`/api/njop?aset_id=${asetId}`)
+    const { data } = await supabase
+      .from('njop')
+      .select('*')
+      .eq('aset_id', asetId)
+      .order('tahun', { ascending: false })
     if (data) set(state => ({ dataNJOP: { ...state.dataNJOP, [asetId]: data } }))
     set({ isLoading: false })
   },
 
   fetchAllNJOP: async () => {
     set({ isLoading: true })
-    const { data } = await api.get<NJOP[]>('/api/njop')
+    const { data } = await supabase
+      .from('njop')
+      .select('*')
+      .order('tahun', { ascending: false })
     if (data) {
       const byAset: Record<string, NJOP[]> = {}
       data.forEach(n => {
@@ -41,18 +48,19 @@ export const useNJOPStore = create<NJOPStore>((set, get) => ({
   },
 
   addNJOP: async (data) => {
-    await api.post('/api/njop', data)
+    await supabase.from('njop').insert(data)
     await get().fetchNJOP(data.aset_id)
   },
 
   updateNJOP: async (id, data) => {
-    const existing = Object.values(get().dataNJOP).flat().find(n => n.id === id)
-    await api.put(`/api/njop/${id}`, data)
-    if (existing) await get().fetchNJOP(existing.aset_id)
+    const { id: _id, created_at, ...updateData } = data as any
+    await supabase.from('njop').update(updateData).eq('id', id)
+    const asetId = Object.entries(get().dataNJOP).find(([, list]) => list.some(n => n.id === id))?.[0]
+    if (asetId) await get().fetchNJOP(asetId)
   },
 
   deleteNJOP: async (id, asetId) => {
-    await api.delete(`/api/njop/${id}`)
+    await supabase.from('njop').delete().eq('id', id)
     await get().fetchNJOP(asetId)
   },
 

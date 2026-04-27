@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { api } from '@/lib/api'
+import { supabase } from '@/lib/supabase'
 import { TimelineProgram, ProspekMitra } from '@/types'
 
 interface TimelineStore {
@@ -26,15 +26,19 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
   isLoading: false,
 
   fetchTimeline: async (asetId) => {
-    const { data } = await api.get<TimelineProgram[]>(`/api/timeline?aset_id=${asetId}`)
+    const { data } = await supabase
+      .from('timeline_program')
+      .select('*')
+      .eq('aset_id', asetId)
+      .order('urutan', { ascending: true })
     if (data) set(s => ({ daftarTahapan: { ...s.daftarTahapan, [asetId]: data } }))
   },
 
   fetchAllTimeline: async () => {
     set({ isLoading: true })
     const [{ data: tl }, { data: pr }] = await Promise.all([
-      api.get<TimelineProgram[]>('/api/timeline'),
-      api.get<ProspekMitra[]>('/api/prospek'),
+      supabase.from('timeline_program').select('*').order('urutan', { ascending: true }),
+      supabase.from('prospek_mitra').select('*').order('created_at', { ascending: false }),
     ])
 
     if (tl) {
@@ -58,32 +62,38 @@ export const useTimelineStore = create<TimelineStore>((set, get) => ({
   },
 
   addTahapan: async (data) => {
-    await api.post('/api/timeline', data)
+    await supabase.from('timeline_program').insert(data)
     await get().fetchTimeline(data.aset_id)
   },
 
   updateTahapan: async (id, data, asetId) => {
-    await api.put(`/api/timeline/${id}`, data)
+    const { id: _id, created_at, ...updateData } = data as any
+    await supabase.from('timeline_program').update(updateData).eq('id', id)
     await get().fetchTimeline(asetId)
   },
 
   deleteTahapan: async (id, asetId) => {
-    await api.delete(`/api/timeline/${id}`)
+    await supabase.from('timeline_program').delete().eq('id', id)
     await get().fetchTimeline(asetId)
   },
 
   fetchProspek: async (asetId) => {
-    const { data } = await api.get<ProspekMitra[]>(`/api/prospek?aset_id=${asetId}`)
+    const { data } = await supabase
+      .from('prospek_mitra')
+      .select('*')
+      .eq('aset_id', asetId)
+      .order('created_at', { ascending: false })
     if (data) set(s => ({ daftarProspek: { ...s.daftarProspek, [asetId]: data } }))
   },
 
   addProspek: async (data) => {
-    await api.post('/api/prospek', data)
+    await supabase.from('prospek_mitra').insert(data)
     await get().fetchProspek(data.aset_id)
   },
 
   updateProspek: async (id, data, asetId) => {
-    await api.put(`/api/prospek/${id}`, data)
+    const { id: _id, created_at, ...updateData } = data as any
+    await supabase.from('prospek_mitra').update(updateData).eq('id', id)
     await get().fetchProspek(asetId)
   },
 }))

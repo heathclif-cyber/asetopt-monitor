@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { api } from '@/lib/api'
+import { supabase } from '@/lib/supabase'
 import { PBB } from '@/types'
 
 interface PBBStore {
@@ -18,31 +18,39 @@ export const usePBBStore = create<PBBStore>((set, get) => ({
   isLoading: false,
 
   fetchPBB: async (asetId) => {
-    const { data } = await api.get<PBB[]>(`/api/pbb?aset_id=${asetId}`)
+    const { data } = await supabase
+      .from('pbb')
+      .select('*')
+      .eq('aset_id', asetId)
+      .order('tahun', { ascending: false })
     if (data) set(s => ({ dataPBB: { ...s.dataPBB, [asetId]: data } }))
   },
 
   fetchAllPBB: async () => {
     set({ isLoading: true })
-    const { data } = await api.get<PBB[]>('/api/pbb')
+    const { data } = await supabase
+      .from('pbb')
+      .select('*, aset(*)')
+      .order('tahun', { ascending: false })
     if (data) {
       const byAset: Record<string, PBB[]> = {}
       data.forEach(p => {
         if (!byAset[p.aset_id]) byAset[p.aset_id] = []
         byAset[p.aset_id].push(p)
       })
-      set({ dataPBB: byAset, allPBB: data })
+      set({ dataPBB: byAset, allPBB: data as PBB[] })
     }
     set({ isLoading: false })
   },
 
   addPBB: async (data) => {
-    await api.post('/api/pbb', data)
+    await supabase.from('pbb').insert(data)
     await get().fetchPBB(data.aset_id)
   },
 
   updatePBB: async (id, data, asetId) => {
-    await api.put(`/api/pbb/${id}`, data)
+    const { id: _id, created_at, aset, ...updateData } = data as any
+    await supabase.from('pbb').update(updateData).eq('id', id)
     await get().fetchPBB(asetId)
   },
 }))

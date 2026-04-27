@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { api } from '@/lib/api'
+import { supabase } from '@/lib/supabase'
 import { PenilaianKJPP } from '@/types'
 
 interface KJPPStore {
@@ -19,14 +19,21 @@ export const useKJPPStore = create<KJPPStore>((set, get) => ({
 
   fetchKJPP: async (asetId) => {
     set({ isLoading: true })
-    const { data } = await api.get<PenilaianKJPP[]>(`/api/kjpp?aset_id=${asetId}`)
+    const { data } = await supabase
+      .from('penilaian_kjpp')
+      .select('*')
+      .eq('aset_id', asetId)
+      .order('tgl_penilaian', { ascending: false })
     if (data) set(state => ({ dataPenilaian: { ...state.dataPenilaian, [asetId]: data } }))
     set({ isLoading: false })
   },
 
   fetchAllKJPP: async () => {
     set({ isLoading: true })
-    const { data } = await api.get<PenilaianKJPP[]>('/api/kjpp')
+    const { data } = await supabase
+      .from('penilaian_kjpp')
+      .select('*')
+      .order('tgl_penilaian', { ascending: false })
     if (data) {
       const byAset: Record<string, PenilaianKJPP[]> = {}
       data.forEach(k => {
@@ -39,18 +46,20 @@ export const useKJPPStore = create<KJPPStore>((set, get) => ({
   },
 
   addKJPP: async (data) => {
-    await api.post('/api/kjpp', data)
+    await supabase.from('penilaian_kjpp').insert(data)
     await get().fetchKJPP(data.aset_id)
   },
 
   updateKJPP: async (id, data) => {
-    const existing = Object.values(get().dataPenilaian).flat().find(k => k.id === id)
-    await api.put(`/api/kjpp/${id}`, data)
-    if (existing) await get().fetchKJPP(existing.aset_id)
+    // total_nilai adalah GENERATED ALWAYS kolom, tidak bisa diupdate
+    const { id: _id, total_nilai, created_at, ...updateData } = data as any
+    await supabase.from('penilaian_kjpp').update(updateData).eq('id', id)
+    const asetId = Object.entries(get().dataPenilaian).find(([, list]) => list.some(k => k.id === id))?.[0]
+    if (asetId) await get().fetchKJPP(asetId)
   },
 
   deleteKJPP: async (id, asetId) => {
-    await api.delete(`/api/kjpp/${id}`)
+    await supabase.from('penilaian_kjpp').delete().eq('id', id)
     await get().fetchKJPP(asetId)
   },
 

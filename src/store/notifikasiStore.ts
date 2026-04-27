@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { api } from '@/lib/api'
+import { supabase } from '@/lib/supabase'
 import { Kompensasi, SuratPeringatan, LogNotifikasi, SPJenis } from '@/types'
 import { cekJatuhTempoH14 } from '@/utils/notifikasiUtils'
 import { kirimWA } from '@/services/waService'
@@ -28,43 +28,48 @@ export const useNotifikasiStore = create<NotifikasiStore>((set, get) => ({
   },
 
   fetchSPAktif: async () => {
-    const { data } = await api.get<SuratPeringatan[]>('/api/surat-peringatan?status=aktif')
-    if (data) set({ spAktif: data })
+    const { data } = await supabase
+      .from('surat_peringatan')
+      .select('*, kerja_sama(*, aset(*))')
+      .eq('status', 'aktif')
+      .order('tgl_terbit', { ascending: false })
+    if (data) set({ spAktif: data as SuratPeringatan[] })
   },
 
   fetchLog: async () => {
     set({ isLoading: true })
-    const { data } = await api.get<LogNotifikasi[]>('/api/log-notifikasi')
-    if (data) set({ logNotifikasi: data })
+    const { data } = await supabase
+      .from('log_notifikasi')
+      .select('*, kerja_sama(*, aset(*))')
+      .order('tgl_kirim', { ascending: false })
+    if (data) set({ logNotifikasi: data as LogNotifikasi[] })
     set({ isLoading: false })
   },
 
   terbitkanSP: async (ksId, kompensasiId, jenis) => {
     const tglTerbit = new Date().toISOString().split('T')[0]
-    const tglDeadline = new Date()
-    tglDeadline.setDate(tglDeadline.getDate() + 14)
+    const tglDeadlineDate = new Date()
+    tglDeadlineDate.setDate(tglDeadlineDate.getDate() + 14)
+    const tglDeadline = tglDeadlineDate.toISOString().split('T')[0]
 
-    await api.post('/api/surat-peringatan', {
+    await supabase.from('surat_peringatan').insert({
       ks_id: ksId,
       kompensasi_id: kompensasiId,
       jenis,
       tgl_terbit: tglTerbit,
-      tgl_deadline: tglDeadline.toISOString().split('T')[0],
+      tgl_deadline: tglDeadline,
       status: 'aktif',
     })
 
     const newStatus = jenis === 'PUTUS' ? 'putus' : jenis.toLowerCase()
-    // update status KS via backend — fetch current KS first
-    const { data: ksList } = await api.get<any[]>('/api/kerja-sama')
-    const ks = ksList?.find(k => k.id === ksId)
-    if (ks) await api.put(`/api/kerja-sama/${ksId}`, { ...ks, status: newStatus })
+    await supabase.from('kerja_sama').update({ status: newStatus }).eq('id', ksId)
 
     await get().fetchSPAktif()
   },
 
   kirimNotifWA: async ({ noWA, pesan, ksId, jenis }) => {
     const result = await kirimWA({ noWA, pesan })
-    await api.post('/api/log-notifikasi', {
+    await supabase.from('log_notifikasi').insert({
       ks_id: ksId,
       jenis,
       no_wa: noWA,
@@ -76,7 +81,10 @@ export const useNotifikasiStore = create<NotifikasiStore>((set, get) => ({
   },
 
   fetchAllSP: async () => {
-    const { data } = await api.get<SuratPeringatan[]>('/api/surat-peringatan')
-    return data ?? []
+    const { data } = await supabase
+      .from('surat_peringatan')
+      .select('*, kerja_sama(*, aset(*))')
+      .order('tgl_terbit', { ascending: false })
+    return (data as SuratPeringatan[]) ?? []
   },
 }))
