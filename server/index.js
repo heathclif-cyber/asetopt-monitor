@@ -3,6 +3,10 @@ import cors from 'cors'
 import dotenv from 'dotenv'
 import { pool } from './db.js'
 import { migrate } from './migrate.js'
+import { fileURLToPath } from 'url'
+import { dirname, join } from 'path'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
 
 dotenv.config()
 
@@ -439,6 +443,13 @@ app.post('/api/log-notifikasi', async (req, res) => {
     )
     ok(res, rows[0])
   } catch (e) { err(res, e) }
+})
+
+// ─── Serve React frontend ────────────────────────────────────────────────────
+const distPath = join(__dirname, '../dist')
+app.use(express.static(distPath))
+app.get('*', (req, res) => {
+  res.sendFile(join(distPath, 'index.html'))
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
