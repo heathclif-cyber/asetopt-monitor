@@ -10,6 +10,7 @@ import { NotifikasiSP } from './pages/jalurB/NotifikasiSP'
 import { DataAset } from './pages/master/DataAset'
 import { DataNJOP } from './pages/master/DataNJOP'
 import { PenilaianKJPP } from './pages/master/PenilaianKJPP'
+import { RKAPMonitor } from './pages/RKAPMonitor'
 
 function App() {
   return (
@@ -25,6 +26,7 @@ function App() {
         <Route path="/master/aset" element={<DataAset />} />
         <Route path="/master/njop" element={<DataNJOP />} />
         <Route path="/master/kjpp" element={<PenilaianKJPP />} />
+        <Route path="/rkap" element={<RKAPMonitor />} />
       </Route>
     </Routes>
   )

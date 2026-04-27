@@ -1,4 +1,5 @@
 import { useEffect, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAsetStore } from '@/store/asetStore'
 import { useKerjaSamaStore } from '@/store/kerjaSamaStore'
 import { useKompensasiStore } from '@/store/kompensasiStore'
@@ -9,12 +10,17 @@ import { CurrencyDisplay } from '@/components/common/CurrencyDisplay'
 import { StatusBadge } from '@/components/common/StatusBadge'
 import { formatTanggal, hitungSisaHari } from '@/lib/utils'
 import { hitungPotensiNJOP } from '@/utils/potensiUtils'
+import { hitungRKAP, getCashInPerBulan2026 } from '@/utils/rkapUtils'
+import { TOTAL_TARGET_2026, BULAN_LABELS } from '@/data/rkap2026'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts'
-import { Building2, Handshake, Clock, TrendingUp, AlertTriangle, Banknote, ReceiptText, Percent } from 'lucide-react'
+import { Building2, Handshake, Clock, TrendingUp, AlertTriangle, Banknote, ReceiptText, Percent, Target, ChevronRight } from 'lucide-react'
+
+const CURRENT_MONTH = new Date().getMonth()
 
 export function Dashboard() {
+  const navigate = useNavigate()
   const { daftarAset, fetchAset } = useAsetStore()
   const { daftarKS, fetchKS } = useKerjaSamaStore()
   const { allKompensasi, fetchAllKompensasi } = useKompensasiStore()
@@ -88,6 +94,21 @@ export function Dashboard() {
       }
     })
     .filter(d => d.potensiNJOP > 0)
+
+  const rkapSummary = useMemo(() => {
+    const cashIn2026 = getCashInPerBulan2026(allKompensasi)
+    const months = hitungRKAP(cashIn2026)
+    const ytdTarget = months.slice(0, CURRENT_MONTH + 1).reduce((s, m) => s + m.targetOriginal, 0)
+    const ytdRealisasi = cashIn2026.slice(0, CURRENT_MONTH + 1).reduce((s, v) => s + v, 0)
+    const achievement = ytdTarget > 0 ? (ytdRealisasi / ytdTarget) * 100 : 0
+    const currentCarryOver = months[CURRENT_MONTH]?.carryOver ?? 0
+    const chartData = months.slice(0, CURRENT_MONTH + 1).map(m => ({
+      bulan: m.label,
+      'Target': Math.round(m.targetAdjusted / 1_000_000),
+      'Realisasi': Math.round(m.realisasi / 1_000_000),
+    }))
+    return { ytdTarget, ytdRealisasi, achievement, currentCarryOver, chartData }
+  }, [allKompensasi])
 
   const cashFlowData = useMemo(() => {
     const byBulan: Record<string, { tagihan: number; cashIn: number }> = {}
@@ -280,6 +301,68 @@ export function Dashboard() {
             )}
           </CardContent>
         </Card>
+      </div>
+
+      {/* RKAP Section */}
+      <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-100">
+          <div className="flex items-center gap-2">
+            <Target size={15} className="text-[#1B4F72]" />
+            <span className="text-sm font-semibold text-gray-800">RKAP 2026 — Progress YTD</span>
+            <span className="text-xs text-gray-400">s.d. {BULAN_LABELS[CURRENT_MONTH]}</span>
+          </div>
+          <button
+            onClick={() => navigate('/rkap')}
+            className="flex items-center gap-1 text-xs text-[#1B4F72] hover:underline font-medium"
+          >
+            Detail <ChevronRight size={13} />
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-0 divide-y lg:divide-y-0 lg:divide-x divide-gray-100">
+          <div className="px-5 py-4">
+            <p className="text-[11px] text-gray-500 font-medium">Target RKAP 2026</p>
+            <CurrencyDisplay value={TOTAL_TARGET_2026} size="lg" className="text-[#1B4F72] mt-1 block" />
+            <p className="text-[11px] text-gray-400 mt-1">YTD: <span className="text-gray-600 font-medium"><CurrencyDisplay value={rkapSummary.ytdTarget} /></span></p>
+          </div>
+          <div className="px-5 py-4">
+            <p className="text-[11px] text-gray-500 font-medium">Realisasi YTD</p>
+            <CurrencyDisplay value={rkapSummary.ytdRealisasi} size="lg" className="text-[#117A65] mt-1 block" />
+            {rkapSummary.currentCarryOver > 0 && (
+              <p className="text-[11px] text-orange-600 mt-1 font-medium">
+                ⚠ Carry-over: <CurrencyDisplay value={rkapSummary.currentCarryOver} />
+              </p>
+            )}
+          </div>
+          <div className="px-5 py-4 flex flex-col justify-between">
+            <p className="text-[11px] text-gray-500 font-medium">Achievement YTD</p>
+            <p className={`text-2xl font-bold mt-1 ${rkapSummary.achievement >= 100 ? 'text-[#117A65]' : rkapSummary.achievement >= 80 ? 'text-yellow-600' : 'text-red-600'}`}>
+              {rkapSummary.achievement.toFixed(1)}%
+            </p>
+            <div className="mt-2 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${rkapSummary.achievement >= 100 ? 'bg-green-500' : rkapSummary.achievement >= 80 ? 'bg-yellow-400' : 'bg-red-500'}`}
+                style={{ width: `${Math.min(100, rkapSummary.achievement)}%` }}
+              />
+            </div>
+          </div>
+        </div>
+
+        {rkapSummary.chartData.length > 0 && (
+          <div className="px-5 pb-4 pt-1 border-t border-gray-100">
+            <ResponsiveContainer width="100%" height={160}>
+              <BarChart data={rkapSummary.chartData} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis dataKey="bulan" tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `${v}jt`} />
+                <Tooltip formatter={(v: number) => `Rp ${v}jt`} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Bar dataKey="Target" fill="#94a3b8" radius={[3,3,0,0]} />
+                <Bar dataKey="Realisasi" fill="#117A65" radius={[3,3,0,0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

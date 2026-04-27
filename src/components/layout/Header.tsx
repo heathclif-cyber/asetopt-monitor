@@ -14,6 +14,7 @@ const breadcrumbMap: Record<string, string[]> = {
   '/master/aset': ['Master Data', 'Data Aset'],
   '/master/njop': ['Master Data', 'Data NJOP'],
   '/master/kjpp': ['Master Data', 'Penilaian KJPP'],
+  '/rkap': ['RKAP Monitor 2026'],
 }
 
 export function Header() {
