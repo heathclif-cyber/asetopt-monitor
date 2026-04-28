@@ -47,6 +47,7 @@ export function Dashboard() {
   useEffect(() => {
     fetchAllKompensasi()
     fetchKS()
+    fetchSPAktif()
   }, [location.key])
 
   useEffect(() => {
@@ -94,7 +95,19 @@ export function Dashboard() {
     return { totalAset, asetPipeline, asetAktifKS, totalPotensiNJOP, totalTagihan, totalCashIn, collectionRate, totalPiutang }
   }, [daftarAset, dataNJOP, allKompensasi])
 
-  const ksWithSP = daftarKS.filter(ks => ['sp1', 'sp2', 'sp3'].includes(ks.status))
+  // Gunakan spAktif (dari tabel surat_peringatan) sebagai sumber tunggal SP di dashboard
+  // agar sinkron dengan Notifikasi & SP — saat SP dihapus, dashboard ikut terupdate
+  const spJenisOrder: Record<string, number> = { SP1: 1, SP2: 2, SP3: 3, PUTUS: 4 }
+  const spByKS = useMemo(() => {
+    const map = new Map<string, typeof spAktif[0]>()
+    for (const sp of spAktif) {
+      const existing = map.get(sp.ks_id)
+      if (!existing || (spJenisOrder[sp.jenis] ?? 0) > (spJenisOrder[existing.jenis] ?? 0)) {
+        map.set(sp.ks_id, sp)
+      }
+    }
+    return Array.from(map.values())
+  }, [spAktif])
 
   // Piutang: hanya periode yang sudah jatuh tempo tapi belum lunas, dikelompokkan per KS
   const piutangList = useMemo(() => {
@@ -169,7 +182,16 @@ export function Dashboard() {
 
         // Hari dalam tahun (366 jika kabisat)
         const hariDalamTahun = ((tahun % 4 === 0 && tahun % 100 !== 0) || tahun % 400 === 0) ? 366 : 365
-        const proporsi = hariKS / hariDalamTahun
+        const proporsiWaktu = hariKS / hariDalamTahun
+
+        // Proporsi luasan (NJOP-weighted) — jika data objek tersedia
+        const njopSppt = (pbb.luas_tanah_sppt ?? 0) * (pbb.njop_tanah_per_m2 ?? 0)
+                       + (pbb.luas_bangunan_sppt ?? 0) * (pbb.njop_bangunan_per_m2 ?? 0)
+        const njopKS   = (pbb.luas_tanah_ks ?? 0) * (pbb.njop_tanah_per_m2 ?? 0)
+                       + (pbb.luas_bangunan_ks ?? 0) * (pbb.njop_bangunan_per_m2 ?? 0)
+        const proporsiArea = njopSppt > 0 ? njopKS / njopSppt : 1
+
+        const proporsi = proporsiArea * proporsiWaktu
         const pbbProporsional = Math.round(pbb.nilai_pbb * proporsi)
 
         rows.push({
@@ -561,19 +583,23 @@ export function Dashboard() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {ksWithSP.length === 0 ? (
+            {spByKS.length === 0 ? (
               <p className="text-sm text-gray-500 text-center py-4">Tidak ada SP aktif</p>
             ) : (
               <div className="space-y-2">
-                {ksWithSP.map(ks => (
-                  <div key={ks.id} className="flex items-center justify-between p-3 rounded-lg bg-gray-50">
-                    <div>
-                      <p className="text-sm font-medium">{ks.nama_mitra}</p>
-                      <p className="text-xs text-gray-500">{(ks.aset as any)?.nama_aset ?? '-'}</p>
+                {spByKS.map(sp => {
+                  const ks = sp.kerja_sama as any
+                  const aset = ks?.aset as any
+                  return (
+                    <div key={sp.ks_id} className="flex items-center justify-between p-3 rounded-lg bg-gray-50">
+                      <div>
+                        <p className="text-sm font-medium">{ks?.nama_mitra ?? '-'}</p>
+                        <p className="text-xs text-gray-500">{aset?.nama_aset ?? '-'}</p>
+                      </div>
+                      <StatusBadge type="ks" value={sp.jenis.toLowerCase()} />
                     </div>
-                    <StatusBadge type="ks" value={ks.status} />
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </CardContent>

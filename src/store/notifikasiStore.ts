@@ -55,6 +55,13 @@ export const useNotifikasiStore = create<NotifikasiStore>((set, get) => ({
     tglDeadlineDate.setDate(tglDeadlineDate.getDate() + 14)
     const tglDeadline = tglDeadlineDate.toISOString().split('T')[0]
 
+    // Nonaktifkan semua SP lama sebelum menerbitkan yang baru
+    await supabase
+      .from('surat_peringatan')
+      .update({ status: 'tidak_aktif' })
+      .eq('ks_id', ksId)
+      .eq('status', 'aktif')
+
     await supabase.from('surat_peringatan').insert({
       ks_id: ksId,
       kompensasi_id: kompensasiId,
@@ -100,6 +107,7 @@ export const useNotifikasiStore = create<NotifikasiStore>((set, get) => ({
         .from('surat_peringatan')
         .select('jenis')
         .eq('ks_id', sp.ks_id)
+        .eq('status', 'aktif')
         .order('tgl_terbit', { ascending: false })
 
       const spToStatus: Record<string, KerjaSamaStatus> = {
