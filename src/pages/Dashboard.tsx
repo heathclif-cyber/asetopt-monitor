@@ -13,7 +13,7 @@ import { StatusBadge } from '@/components/common/StatusBadge'
 import { formatTanggal, hitungSisaHari } from '@/lib/utils'
 import { hitungPotensiNJOP } from '@/utils/potensiUtils'
 import { hitungRKAP, getCashInPerBulanByYear } from '@/utils/rkapUtils'
-import { RKAP_2026, BULAN_LABELS } from '@/data/rkap2026'
+import { RKAP_2026, BULAN_LABELS, TOTAL_TARGET_2026 } from '@/data/rkap2026'
 import { useRKAPStore, rowToRKAPItem } from '@/store/rkapStore'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -269,11 +269,11 @@ export function Dashboard() {
       const bulan = k.tgl_jatuh_tempo.slice(0, 7)
       if (!byBulan[bulan]) byBulan[bulan] = { tagihan: 0, cashIn: 0 }
       byBulan[bulan].tagihan += k.total_tagihan ?? 0
-      ;(k.pembayaran ?? []).forEach(p => {
-        const bln = p.tgl_bayar.slice(0, 7)
-        if (!byBulan[bln]) byBulan[bln] = { tagihan: 0, cashIn: 0 }
-        byBulan[bln].cashIn += p.nominal_bayar ?? 0
-      })
+        ; (k.pembayaran ?? []).forEach(p => {
+          const bln = p.tgl_bayar.slice(0, 7)
+          if (!byBulan[bln]) byBulan[bln] = { tagihan: 0, cashIn: 0 }
+          byBulan[bln].cashIn += p.nominal_bayar ?? 0
+        })
     })
     
     allCashIn.forEach(ci => {

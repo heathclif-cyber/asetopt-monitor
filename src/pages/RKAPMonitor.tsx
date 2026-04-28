@@ -26,6 +26,7 @@ function exportRKAPExcel(
   rkapItems: RKAPItem[],
   totalTarget: number,
   efektifBulan: number,   // bulan terakhir yang sudah berjalan (0–11), -1 jika tahun depan
+  cashInPerNama: Record<string, number[]> // NEW PARAMETER
 ) {
   const wb = XLSX.utils.book_new()
   const now = new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })
@@ -97,7 +98,44 @@ function exportRKAPExcel(
 
   const ws2 = XLSX.utils.aoa_to_sheet(sh2)
   ws2['!cols'] = [{ wch: 5 }, { wch: 42 }, ...BL.map(() => ({ wch: 16 })), { wch: 18 }]
-  XLSX.utils.book_append_sheet(wb, ws2, `Per Obyek ${tahun}`)
+  XLSX.utils.book_append_sheet(wb, ws2, `Target Per Obyek ${tahun}`)
+
+  // ── Sheet 3: Prognosa Per Obyek ──────────────────────────────────────────────
+  const sh3: any[][] = [
+    [`Prognosa Per Obyek Kerjasama ${tahun} (Rp)`],
+    [`Diekspor pada: ${now}`],
+    [],
+    ['No', 'Obyek Kerjasama', ...BL, 'Total Prognosa'],
+  ]
+
+  let totalPrognosaSeluruhObjek = 0;
+  const prognosaPerBulanAll = Array(12).fill(0);
+
+  rkapItems.forEach(item => {
+    const realPerBulan = cashInPerNama[item.nama] ?? Array(12).fill(0);
+    const progBulan = item.bulan.map((target, i) => {
+      const isFuture = i > efektifBulan;
+      const prog = isFuture ? target : realPerBulan[i];
+      prognosaPerBulanAll[i] += prog;
+      return prog;
+    });
+    const totalProgObjek = progBulan.reduce((s, v) => s + v, 0);
+    totalPrognosaSeluruhObjek += totalProgObjek;
+
+    sh3.push([item.no, item.nama, ...progBulan.map(rp), rp(totalProgObjek)]);
+  })
+
+  sh3.push(
+    [],
+    ['', 'TOTAL',
+      ...prognosaPerBulanAll.map(rp),
+      rp(totalPrognosaSeluruhObjek),
+    ],
+  )
+
+  const ws3 = XLSX.utils.aoa_to_sheet(sh3)
+  ws3['!cols'] = [{ wch: 5 }, { wch: 42 }, ...BL.map(() => ({ wch: 16 })), { wch: 18 }]
+  XLSX.utils.book_append_sheet(wb, ws3, `Prognosa Per Obyek ${tahun}`)
 
   XLSX.writeFile(wb, `RKAP_Prognosa_${tahun}_${new Date().toISOString().slice(0, 10)}.xlsx`)
 }
@@ -326,7 +364,7 @@ export function RKAPMonitor() {
         </Button>
         <Button
           size="sm" variant="outline"
-          onClick={() => exportRKAPExcel(tahunAktif, rkapData, rkapItems, totalTarget, efektifBulan)}
+          onClick={() => exportRKAPExcel(tahunAktif, rkapData, rkapItems, totalTarget, efektifBulan, cashInPerNama)}
         >
           <FileDown size={14} /> Export Excel
         </Button>
