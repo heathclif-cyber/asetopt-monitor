@@ -9,7 +9,7 @@ interface CashInStore {
   fetchCashIn: (ksId: string) => Promise<void>
   fetchAllCashIn: () => Promise<void>
   addCashIn: (data: Omit<CashIn, 'id' | 'created_at' | 'kerja_sama' | 'kompensasi'>) => Promise<void>
-  updateCashIn: (id: string, data: Partial<Pick<CashIn, 'jenis' | 'tgl_terima' | 'nominal' | 'keterangan' | 'kompensasi_id'>>) => Promise<void>
+  updateCashIn: (id: string, data: Partial<Pick<CashIn, 'jenis' | 'tgl_terima' | 'nominal' | 'keterangan' | 'kompensasi_id' | 'rkap_kode'>>) => Promise<void>
   deleteCashIn: (id: string) => Promise<void>
 }
 

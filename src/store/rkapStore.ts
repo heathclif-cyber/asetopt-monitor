@@ -9,6 +9,7 @@ export interface RKAPTargetRow {
   id: string
   tahun: number
   no: number
+  kode?: string
   nama: string
   total: number
   jan: number; feb: number; mar: number; apr: number
@@ -20,6 +21,7 @@ export interface RKAPTargetRow {
 export function rowToRKAPItem(row: RKAPTargetRow): RKAPItem {
   return {
     no: row.no,
+    kode: row.kode ?? '',
     nama: row.nama,
     total: row.total,
     bulan: BULAN_COLS.map(col => row[col] ?? 0),

@@ -22,6 +22,7 @@ import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { buatPesanWA } from '@/utils/notifikasiUtils'
+import { RKAP_2026 } from '@/data/rkap2026'
 
 // ─── Helpers generate periode ─────────────────────────────────────────────────
 const BULAN = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember']
@@ -219,6 +220,7 @@ type BayarForm = z.infer<typeof bayarSchema>
 
 const cashInSchema = z.object({
   ks_id: z.string().min(1),
+  rkap_kode: z.string().optional(),
   jenis: z.enum(['denda', 'lainnya']),
   tgl_terima: z.string().min(1),
   nominal: z.coerce.number().min(1),
@@ -447,7 +449,7 @@ export function Kompensasi() {
   const onCashIn = async (data: CashInForm) => {
     setIsSavingCashIn(true)
     try {
-      await addCashIn({ ...data, kompensasi_id: null, keterangan: data.keterangan ?? null })
+      await addCashIn({ ...data, kompensasi_id: null, rkap_kode: data.rkap_kode ?? null, keterangan: data.keterangan ?? null })
       setCashInDialog(false)
     } catch (e: any) {
       alert(e.message ?? 'Gagal menyimpan cash in.')
@@ -770,6 +772,9 @@ export function Kompensasi() {
                                          <span className="text-[10px] text-purple-700 bg-purple-50 px-1 rounded shrink-0">
                                            {CASH_IN_JENIS_LABEL[ci.jenis]}
                                          </span>
+                                         {ci.rkap_kode && (
+                                           <span className="font-mono text-[10px] text-blue-600 bg-blue-50 px-1 rounded shrink-0">{ci.rkap_kode}</span>
+                                         )}
                                          <span className="font-medium flex-1 text-green-700">{formatRupiah(ci.nominal)}</span>
                                          {ci.keterangan && <span className="text-gray-400 text-[10px]">{ci.keterangan}</span>}
                                          <button
@@ -1302,6 +1307,22 @@ export function Kompensasi() {
               <p className="mt-1 text-sm font-medium text-gray-800">
                 {cashInKsId ? (() => { const ks = daftarKS.find(x => x.id === cashInKsId); return `${(ks?.aset as any)?.nama_aset ?? '-'} — ${ks?.nama_mitra ?? '-'}` })() : '-'}
               </p>
+            </div>
+            <div>
+              <Label>Program RKAP</Label>
+              <Controller control={cashInForm.control} name="rkap_kode" render={({ field }) => (
+                <Select value={field.value ?? ''} onValueChange={v => field.onChange(v || undefined)}>
+                  <SelectTrigger className="mt-1"><SelectValue placeholder="— Pilih program RKAP —" /></SelectTrigger>
+                  <SelectContent>
+                    {RKAP_2026.map(item => (
+                      <SelectItem key={item.kode} value={item.kode}>
+                        <span className="font-mono text-xs text-gray-500 mr-2">{item.kode}</span>
+                        {item.nama}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )} />
             </div>
             <div>
               <Label>Jenis Pemasukan</Label>

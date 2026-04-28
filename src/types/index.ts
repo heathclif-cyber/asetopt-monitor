@@ -206,6 +206,7 @@ export interface CashIn {
   id: string
   ks_id: string
   kompensasi_id: string | null
+  rkap_kode: string | null
   jenis: CashInJenis
   tgl_terima: string
   nominal: number

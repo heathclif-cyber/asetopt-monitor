@@ -323,7 +323,7 @@ export function RKAPMonitor() {
     const items = RKAP_2026.map(item => {
       const [jan, feb, mar, apr, mei, jun, jul, agu, sep, okt, nov, des] = item.bulan
       return {
-        tahun: tahunAktif, no: item.no, nama: item.nama, total: item.total,
+        tahun: tahunAktif, no: item.no, kode: item.kode, nama: item.nama, total: item.total,
         jan, feb, mar, apr, mei, jun, jul, agu, sep, okt, nov, des
       }
     })
@@ -331,7 +331,7 @@ export function RKAPMonitor() {
   }
 
   const displayRows = rows.length > 0 ? rows : (tahunAktif === 2026 ? RKAP_2026.map((item, idx) => ({
-    id: `seed-${idx}`, tahun: 2026, no: item.no, nama: item.nama, total: item.total,
+    id: `seed-${idx}`, tahun: 2026, no: item.no, kode: item.kode, nama: item.nama, total: item.total,
     ...Object.fromEntries(BULAN_COLS.map((col, i) => [col, item.bulan[i]])),
   } as RKAPTargetRow)) : [])
 
