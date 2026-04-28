@@ -3,7 +3,8 @@ import { useKompensasiStore } from '@/store/kompensasiStore'
 import { useKerjaSamaStore } from '@/store/kerjaSamaStore'
 import { useNotifikasiStore } from '@/store/notifikasiStore'
 import { usePBBStore } from '@/store/pbbStore'
-import { Kompensasi as KType, Pembayaran } from '@/types'
+import { useCashInStore, CASH_IN_JENIS_LABEL } from '@/store/cashInStore'
+import { Kompensasi as KType, Pembayaran, CashIn } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -16,7 +17,7 @@ import { StatusBadge } from '@/components/common/StatusBadge'
 import { EmptyState } from '@/components/common/EmptyState'
 import { TableSkeleton } from '@/components/common/LoadingSkeleton'
 import { formatTanggal, formatRupiah } from '@/lib/utils'
-import { Plus, Pencil, Trash2, MessageSquare, FileWarning, DollarSign, ChevronDown, ChevronUp, Wand2 } from 'lucide-react'
+import { Plus, Pencil, Trash2, MessageSquare, FileWarning, DollarSign, ChevronDown, ChevronUp, Wand2, ArrowDownCircle } from 'lucide-react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -214,11 +215,21 @@ const bayarSchema = z.object({
 type KompForm = z.infer<typeof kompSchema>
 type BayarForm = z.infer<typeof bayarSchema>
 
+const cashInSchema = z.object({
+  ks_id: z.string().min(1),
+  jenis: z.enum(['denda', 'lainnya']),
+  tgl_terima: z.string().min(1),
+  nominal: z.coerce.number().min(1),
+  keterangan: z.string().optional(),
+})
+type CashInForm = z.infer<typeof cashInSchema>
+
 export function Kompensasi() {
   const { allKompensasi, isLoading, fetchAllKompensasi, addKompensasi, updateKompensasi, deleteKompensasi, bulkAddKompensasi, getKompensasiWithStatus, catatPembayaran, updatePembayaran, deletePembayaran } = useKompensasiStore()
   const { daftarKS, fetchKS } = useKerjaSamaStore()
   const { terbitkanSP, kirimNotifWA } = useNotifikasiStore()
   const { dataPBB, fetchAllPBB } = usePBBStore()
+  const { allCashIn, fetchAllCashIn, addCashIn, deleteCashIn } = useCashInStore()
 
   const [kompDialog, setKompDialog] = useState(false)
   const [editTarget, setEditTarget] = useState<KType | null>(null)
@@ -229,6 +240,12 @@ export function Kompensasi() {
   const [editBayarTarget, setEditBayarTarget]   = useState<Pembayaran | null>(null)
   const [editBayarDialog, setEditBayarDialog]   = useState(false)
   const [deleteBayarId, setDeleteBayarId]       = useState<string | null>(null)
+
+  // Cash In state
+  const [cashInDialog, setCashInDialog] = useState(false)
+  const [cashInKsId, setCashInKsId]   = useState<string | null>(null)
+  const [deleteCashInId, setDeleteCashInId] = useState<string | null>(null)
+  const [isSavingCashIn, setIsSavingCashIn] = useState(false)
 
   // Generate periode dialog
   const [genDialog, setGenDialog] = useState(false)
@@ -246,6 +263,10 @@ export function Kompensasi() {
 
   const bayarForm     = useForm<BayarForm>({ resolver: zodResolver(bayarSchema) })
   const editBayarForm = useForm<BayarForm>({ resolver: zodResolver(bayarSchema) })
+  const cashInForm    = useForm<CashInForm>({
+    resolver: zodResolver(cashInSchema),
+    defaultValues: { jenis: 'denda' },
+  })
 
   const GEN_DEFAULTS = {
     interval: 'tahunan' as const,
@@ -266,7 +287,7 @@ export function Kompensasi() {
   const watchGraceBulan = genForm.watch('grace_bulan')
   const watchCampTahun  = genForm.watch('campuran_tahun_peralihan')
 
-  useEffect(() => { fetchAllKompensasi(); fetchKS(); fetchAllPBB() }, [])
+  useEffect(() => { fetchAllKompensasi(); fetchKS(); fetchAllPBB(); fetchAllCashIn() }, [])
 
   const filtered = filterKS === 'semua' ? allKompensasi : allKompensasi.filter(k => k.ks_id === filterKS)
 
@@ -380,6 +401,24 @@ export function Kompensasi() {
     if (confirm(`Terbitkan ${jenisSP} untuk ${ks.nama_mitra}?`)) {
       await terbitkanSP(k.ks_id, k.id, jenisSP as any)
       await fetchAllKompensasi()
+    }
+  }
+
+  const openCashIn = (ksId: string) => {
+    setCashInKsId(ksId)
+    cashInForm.reset({ ks_id: ksId, jenis: 'denda' })
+    setCashInDialog(true)
+  }
+
+  const onCashIn = async (data: CashInForm) => {
+    setIsSavingCashIn(true)
+    try {
+      await addCashIn({ ...data, kompensasi_id: null, keterangan: data.keterangan ?? null })
+      setCashInDialog(false)
+    } catch (e: any) {
+      alert(e.message ?? 'Gagal menyimpan cash in.')
+    } finally {
+      setIsSavingCashIn(false)
     }
   }
 
@@ -612,6 +651,49 @@ export function Kompensasi() {
                               }
                             </div>
 
+
+                             {/* -- Cash In Lainnya (denda, dll) -- */}
+                             <div className="space-y-2">
+                               <div className="flex items-center justify-between">
+                                 <p className="font-semibold text-gray-700 text-[11px] uppercase tracking-wide">Cash In Lainnya</p>
+                                 <button
+                                   onClick={() => openCashIn(k.ks_id)}
+                                   className="flex items-center gap-1 text-[10px] text-[#5B2C6F] hover:underline"
+                                   title="Tambah denda / pendapatan lain"
+                                 >
+                                   <Plus size={10} /> Tambah
+                                 </button>
+                               </div>
+                               {(() => {
+                                 const ciList = allCashIn.filter(ci => ci.ks_id === k.ks_id)
+                                 if (ciList.length === 0)
+                                   return <p className="text-gray-400 italic">Belum ada catatan</p>
+                                 return (
+                                   <div className="space-y-1.5">
+                                     {ciList.map(ci => (
+                                       <div key={ci.id} className="flex items-center gap-2 group/ci">
+                                         <ArrowDownCircle size={11} className="text-green-600 shrink-0" />
+                                         <span className="text-gray-400 shrink-0 w-20 text-[10px]">{formatTanggal(ci.tgl_terima)}</span>
+                                         <span className="text-[10px] text-purple-700 bg-purple-50 px-1 rounded shrink-0">
+                                           {CASH_IN_JENIS_LABEL[ci.jenis]}
+                                         </span>
+                                         <span className="font-medium flex-1 text-green-700">{formatRupiah(ci.nominal)}</span>
+                                         {ci.keterangan && <span className="text-gray-400 text-[10px]">{ci.keterangan}</span>}
+                                         <button
+                                           onClick={() => setDeleteCashInId(ci.id)}
+                                           className="p-0.5 rounded hover:bg-red-100 text-gray-400 hover:text-red-500 opacity-0 group-hover/ci:opacity-100 transition-opacity"
+                                           title="Hapus cash in"
+                                         ><Trash2 size={10} /></button>
+                                       </div>
+                                     ))}
+                                     <div className="border-t pt-1 flex justify-between text-green-700 font-semibold text-[11px]">
+                                       <span>Total Cash In Lain</span>
+                                       <span>{formatRupiah(ciList.reduce((s, ci) => s + ci.nominal, 0))}</span>
+                                     </div>
+                                   </div>
+                                 )
+                               })()}
+                             </div>
                             {/* ── PBB Aset ──────────────────────────────────── */}
                             <div className="space-y-2">
                               <p className="font-semibold text-gray-700 text-[11px] uppercase tracking-wide">PBB Aset Terkait</p>
@@ -1064,6 +1146,66 @@ export function Kompensasi() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteKompId(null)}>Batal</Button>
             <Button variant="destructive" onClick={handleDeleteKomp}>Hapus</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Dialog tambah cash in ──────────────────────────────────────────── */}
+      <Dialog open={cashInDialog} onOpenChange={open => { setCashInDialog(open) }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Tambah Cash In Lainnya</DialogTitle></DialogHeader>
+          <form onSubmit={cashInForm.handleSubmit(onCashIn)} className="space-y-4">
+            <div>
+              <Label>Kerja Sama</Label>
+              <p className="mt-1 text-sm font-medium text-gray-800">
+                {cashInKsId ? (() => { const ks = daftarKS.find(x => x.id === cashInKsId); return `${(ks?.aset as any)?.nama_aset ?? '-'} — ${ks?.nama_mitra ?? '-'}` })() : '-'}
+              </p>
+            </div>
+            <div>
+              <Label>Jenis Pemasukan</Label>
+              <Controller control={cashInForm.control} name="jenis" render={({ field }) => (
+                <Select value={field.value} onValueChange={field.onChange}>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="denda">Denda Keterlambatan</SelectItem>
+                    <SelectItem value="lainnya">Pendapatan Lainnya</SelectItem>
+                  </SelectContent>
+                </Select>
+              )} />
+            </div>
+            <div>
+              <Label>Tanggal Diterima</Label>
+              <Input type="date" {...cashInForm.register('tgl_terima')} className="mt-1" />
+            </div>
+            <div>
+              <Label>Nominal (Rp)</Label>
+              <Controller control={cashInForm.control} name="nominal" render={({ field }) => (
+                <CurrencyInput value={field.value} onChange={field.onChange} className="mt-1" />
+              )} />
+            </div>
+            <div>
+              <Label>Keterangan</Label>
+              <Textarea {...cashInForm.register('keterangan')} className="mt-1" rows={2}
+                placeholder="cth: Denda keterlambatan Januari 2025 (15 hari)" />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setCashInDialog(false)}>Batal</Button>
+              <Button type="submit" className="bg-[#1E8449]" disabled={isSavingCashIn}>
+                {isSavingCashIn ? 'Menyimpan...' : 'Simpan Cash In'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Konfirmasi hapus cash in ───────────────────────────────────────── */}
+      <Dialog open={!!deleteCashInId} onOpenChange={() => setDeleteCashInId(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Hapus Cash In?</DialogTitle></DialogHeader>
+          <p className="text-sm text-gray-600">Data cash in ini akan dihapus permanen.</p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteCashInId(null)}>Batal</Button>
+            <Button variant="destructive" onClick={async () => { if (deleteCashInId) { await deleteCashIn(deleteCashInId); setDeleteCashInId(null) } }}>Hapus</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -5,6 +5,7 @@ export type ProspekProgress = 'identifikasi' | 'penjajakan' | 'penawaran' | 'neg
 export type KerjaSamaStatus = 'aktif' | 'sp1' | 'sp2' | 'sp3' | 'putus' | 'selesai'
 export type SPJenis = 'SP1' | 'SP2' | 'SP3' | 'PUTUS'
 export type NotifJenis = 'jatuh_tempo_h14' | 'SP1' | 'SP2' | 'SP3' | 'pemutusan'
+export type CashInJenis = 'denda' | 'lainnya'
 
 export interface Aset {
   id: string
@@ -178,4 +179,17 @@ export interface KompensasiWithStatus extends Kompensasi {
   sisaTagihan: number
   dendaAkumulasi: DendaResult
   statusBayar: 'lunas' | 'sebagian' | 'belum_bayar' | 'terlambat'
+}
+
+export interface CashIn {
+  id: string
+  ks_id: string
+  kompensasi_id: string | null
+  jenis: CashInJenis
+  tgl_terima: string
+  nominal: number
+  keterangan: string | null
+  created_at: string
+  kerja_sama?: KerjaSama
+  kompensasi?: Pick<Kompensasi, 'id' | 'periode_label'>
 }
