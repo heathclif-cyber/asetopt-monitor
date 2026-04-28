@@ -55,7 +55,8 @@ export function hitungRKAP(
 
 export function getCashInPerBulanByYear(
   allKompensasi: { pembayaran?: { tgl_bayar: string; nominal_bayar: number }[] }[],
-  tahun: number
+  tahun: number,
+  allCashIn: { tgl_terima: string; nominal: number }[] = []
 ): number[] {
   const arr = Array(12).fill(0)
   allKompensasi.forEach(k => {
@@ -64,9 +65,13 @@ export function getCashInPerBulanByYear(
       if (d.getFullYear() === tahun) arr[d.getMonth()] += p.nominal_bayar
     })
   })
+  allCashIn.forEach(ci => {
+    const d = new Date(ci.tgl_terima)
+    if (d.getFullYear() === tahun) arr[d.getMonth()] += ci.nominal
+  })
   return arr
 }
 
 // Backward-compat alias
-export const getCashInPerBulan2026 = (kompensasi: Parameters<typeof getCashInPerBulanByYear>[0]) =>
-  getCashInPerBulanByYear(kompensasi, 2026)
+export const getCashInPerBulan2026 = (kompensasi: Parameters<typeof getCashInPerBulanByYear>[0], allCashIn?: any[]) =>
+  getCashInPerBulanByYear(kompensasi, 2026, allCashIn)

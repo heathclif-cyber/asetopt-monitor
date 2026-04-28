@@ -6,6 +6,7 @@ import { useKompensasiStore } from '@/store/kompensasiStore'
 import { useNotifikasiStore } from '@/store/notifikasiStore'
 import { useNJOPStore } from '@/store/njopStore'
 import { usePBBStore } from '@/store/pbbStore'
+import { useCashInStore } from '@/store/cashInStore'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { CurrencyDisplay } from '@/components/common/CurrencyDisplay'
 import { StatusBadge } from '@/components/common/StatusBadge'
@@ -31,6 +32,7 @@ export function Dashboard() {
   const { fetchAllNJOP, dataNJOP } = useNJOPStore()
   const { rows: rkapRows, fetchRKAP } = useRKAPStore()
   const { allPBB, fetchAllPBB } = usePBBStore()
+  const { allCashIn, fetchAllCashIn } = useCashInStore()
 
   const location = useLocation()
 
@@ -40,12 +42,14 @@ export function Dashboard() {
     fetchSPAktif()
     fetchAllNJOP()
     fetchAllPBB()
+    fetchAllCashIn()
     fetchRKAP(CURRENT_MONTH >= 0 ? new Date().getFullYear() : 2026)
   }, [])
 
   // Re-fetch data yang berubah setiap kali dashboard dikunjungi (fix: status lunas tidak terupdate)
   useEffect(() => {
     fetchAllKompensasi()
+    fetchAllCashIn()
     fetchKS()
     fetchSPAktif()
   }, [location.key])
@@ -76,10 +80,11 @@ export function Dashboard() {
         }
       })
 
-    const totalTagihan = allKompensasi.reduce((sum, k) => sum + (k.total_tagihan ?? 0), 0)
+    const cashInLain = allCashIn.reduce((sum, ci) => sum + ci.nominal, 0)
+    const totalTagihan = allKompensasi.reduce((sum, k) => sum + (k.total_tagihan ?? 0), 0) + cashInLain
     const totalCashIn = allKompensasi
       .flatMap(k => k.pembayaran ?? [])
-      .reduce((sum, p) => sum + (p.nominal_bayar ?? 0), 0)
+      .reduce((sum, p) => sum + (p.nominal_bayar ?? 0), 0) + cashInLain
     const collectionRate = totalTagihan > 0 ? (totalCashIn / totalTagihan) * 100 : 0
 
     const today = new Date()
@@ -94,7 +99,7 @@ export function Dashboard() {
     }, 0)
 
     return { totalAset, asetPipeline, asetAktifKS, totalPotensiNJOP, totalTagihan, totalCashIn, collectionRate, totalPiutang }
-  }, [daftarAset, dataNJOP, allKompensasi])
+  }, [daftarAset, dataNJOP, allKompensasi, allCashIn])
 
   // Gunakan spAktif (dari tabel surat_peringatan) sebagai sumber tunggal SP di dashboard
   // agar sinkron dengan Notifikasi & SP — saat SP dihapus, dashboard ikut terupdate
@@ -233,7 +238,7 @@ export function Dashboard() {
     const tahun = new Date().getFullYear()
     const items = rkapRows.length > 0 ? rkapRows.map(rowToRKAPItem) : RKAP_2026
     const totalTarget = items.reduce((s, i) => s + i.total, 0)
-    const cashIn = getCashInPerBulanByYear(allKompensasi, tahun)
+    const cashIn = getCashInPerBulanByYear(allKompensasi, tahun, allCashIn)
     const months = hitungRKAP(items, cashIn)
     const ytdTarget = months.slice(0, CURRENT_MONTH + 1).reduce((s, m) => s + m.targetOriginal, 0)
     const ytdRealisasi = cashIn.slice(0, CURRENT_MONTH + 1).reduce((s, v) => s + v, 0)
@@ -256,7 +261,7 @@ export function Dashboard() {
       return { label, target, realisasi, achievement, isFuture, isCurrent }
     })
     return { totalTarget, ytdTarget, ytdRealisasi, achievement, currentCarryOver, chartData, triwulan }
-  }, [allKompensasi, rkapRows])
+  }, [allKompensasi, rkapRows, allCashIn])
 
   const cashFlowData = useMemo(() => {
     const byBulan: Record<string, { tagihan: number; cashIn: number }> = {}
@@ -270,6 +275,14 @@ export function Dashboard() {
         byBulan[bln].cashIn += p.nominal_bayar ?? 0
       })
     })
+    
+    allCashIn.forEach(ci => {
+      const bln = ci.tgl_terima.slice(0, 7)
+      if (!byBulan[bln]) byBulan[bln] = { tagihan: 0, cashIn: 0 }
+      byBulan[bln].cashIn += ci.nominal
+      byBulan[bln].tagihan += ci.nominal
+    })
+
     return Object.entries(byBulan)
       .sort(([a], [b]) => a.localeCompare(b))
       .slice(-12)
@@ -278,7 +291,7 @@ export function Dashboard() {
         tagihan: Math.round(tagihan / 1_000_000),
         cashIn: Math.round(cashIn / 1_000_000),
       }))
-  }, [allKompensasi])
+  }, [allKompensasi, allCashIn])
 
   // Proyeksi cash in 18 bulan — berdasarkan jadwal jatuh tempo KS eksisting
   const proyeksiCashInData = useMemo(() => {
@@ -302,6 +315,13 @@ export function Dashboard() {
         if (!byBulan[bln]) byBulan[bln] = { tagihan: 0, cashIn: 0, sisaTagihan: 0 }
         byBulan[bln].cashIn += p.nominal_bayar
       })
+    })
+
+    allCashIn.forEach(ci => {
+      const bln = ci.tgl_terima.slice(0, 7)
+      if (!byBulan[bln]) byBulan[bln] = { tagihan: 0, cashIn: 0, sisaTagihan: 0 }
+      byBulan[bln].cashIn += ci.nominal
+      byBulan[bln].tagihan += ci.nominal
     })
 
     // Ambil 6 bulan lewat + bulan ini + 12 bulan ke depan
@@ -334,7 +354,7 @@ export function Dashboard() {
         cumProyeksi:  Math.round((cumRealisasi + cumProyeksi) / 1_000_000),
       }
     })
-  }, [allKompensasi])
+  }, [allKompensasi, allCashIn])
 
   return (
     <div className="space-y-6">
