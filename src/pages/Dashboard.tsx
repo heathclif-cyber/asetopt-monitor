@@ -16,7 +16,7 @@ import { useRKAPStore, rowToRKAPItem } from '@/store/rkapStore'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts'
-import { Building2, Handshake, Clock, TrendingUp, AlertTriangle, Banknote, ReceiptText, Percent, Target, ChevronRight } from 'lucide-react'
+import { Building2, Handshake, Clock, TrendingUp, AlertTriangle, Banknote, ReceiptText, Percent, Target, ChevronRight, WalletCards } from 'lucide-react'
 
 const CURRENT_MONTH = new Date().getMonth()
 
@@ -70,10 +70,51 @@ export function Dashboard() {
       .reduce((sum, p) => sum + (p.nominal_bayar ?? 0), 0)
     const collectionRate = totalTagihan > 0 ? (totalCashIn / totalTagihan) * 100 : 0
 
-    return { totalAset, asetPipeline, asetAktifKS, totalPotensiNJOP, totalTagihan, totalCashIn, collectionRate }
+    const totalPiutang = allKompensasi.reduce((sum, k) => {
+      const totalDibayar = (k.pembayaran ?? []).reduce((s, p) => s + p.nominal_bayar, 0)
+      const sisa = Math.max(0, (k.total_tagihan ?? 0) - totalDibayar)
+      return sum + sisa
+    }, 0)
+
+    return { totalAset, asetPipeline, asetAktifKS, totalPotensiNJOP, totalTagihan, totalCashIn, collectionRate, totalPiutang }
   }, [daftarAset, dataNJOP, allKompensasi])
 
   const ksWithSP = daftarKS.filter(ks => ['sp1', 'sp2', 'sp3'].includes(ks.status))
+
+  // Piutang: kompensasi yang belum lunas, dikelompokkan per KS
+  const piutangList = useMemo(() => {
+    const byKS: Record<string, { ksId: string; namaMitra: string; namaAset: string; totalTagihan: number; totalDibayar: number; sisaPiutang: number; adaTerlambat: boolean; hariTerlambat: number }> = {}
+    allKompensasi.forEach(k => {
+      const totalDibayar = (k.pembayaran ?? []).reduce((s, p) => s + p.nominal_bayar, 0)
+      const sisa = Math.max(0, (k.total_tagihan ?? 0) - totalDibayar)
+      if (sisa <= 0) return
+      const ks = daftarKS.find(x => x.id === k.ks_id)
+      if (!ks) return
+      const today = new Date()
+      const jtTempo = new Date(k.tgl_jatuh_tempo)
+      const hariTerlambat = Math.max(0, Math.floor((today.getTime() - jtTempo.getTime()) / (1000 * 60 * 60 * 24)))
+      if (!byKS[k.ks_id]) {
+        byKS[k.ks_id] = {
+          ksId: k.ks_id,
+          namaMitra: ks.nama_mitra,
+          namaAset: (ks.aset as any)?.nama_aset ?? '-',
+          totalTagihan: 0,
+          totalDibayar: 0,
+          sisaPiutang: 0,
+          adaTerlambat: false,
+          hariTerlambat: 0,
+        }
+      }
+      byKS[k.ks_id].totalTagihan  += k.total_tagihan ?? 0
+      byKS[k.ks_id].totalDibayar  += totalDibayar
+      byKS[k.ks_id].sisaPiutang   += sisa
+      if (hariTerlambat > 0) {
+        byKS[k.ks_id].adaTerlambat = true
+        byKS[k.ks_id].hariTerlambat = Math.max(byKS[k.ks_id].hariTerlambat, hariTerlambat)
+      }
+    })
+    return Object.values(byKS).sort((a, b) => b.sisaPiutang - a.sisaPiutang)
+  }, [allKompensasi, daftarKS])
 
   const potensiChartData = daftarAset
     .filter(a => ['pipeline', 'prospek', 'negosiasi'].includes(a.status))
@@ -208,7 +249,7 @@ export function Dashboard() {
       </div>
 
       {/* Stat keuangan */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
           <CardContent className="p-5">
             <div className="flex items-start justify-between">
@@ -229,6 +270,19 @@ export function Dashboard() {
                 <CurrencyDisplay value={stats.totalCashIn} size="lg" className="text-[#117A65] mt-1 block" />
               </div>
               <Banknote className="text-[#117A65]" size={22} />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className={stats.totalPiutang > 0 ? 'border-orange-300' : ''}>
+          <CardContent className="p-5">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-xs text-gray-500 font-medium">Total Piutang (Belum Bayar)</p>
+                <CurrencyDisplay value={stats.totalPiutang} size="lg" className="text-orange-600 mt-1 block" />
+                <p className="text-[10px] text-gray-400 mt-1">{piutangList.length} mitra</p>
+              </div>
+              <WalletCards className={stats.totalPiutang > 0 ? 'text-orange-500' : 'text-gray-400'} size={22} />
             </div>
           </CardContent>
         </Card>
@@ -308,6 +362,84 @@ export function Dashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Daftar Piutang */}
+      <Card className={piutangList.length > 0 ? 'border-orange-200' : ''}>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <WalletCards size={16} className="text-orange-500" />
+            Piutang Belum Dibayar
+            {piutangList.length > 0 && (
+              <span className="ml-auto text-xs font-normal text-orange-600 bg-orange-50 border border-orange-200 px-2 py-0.5 rounded-full">
+                {piutangList.length} mitra
+              </span>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {piutangList.length === 0 ? (
+            <p className="text-sm text-gray-500 text-center py-4">Semua tagihan sudah terbayar ✓</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-gray-50 text-gray-500 text-xs uppercase">
+                    <th className="text-left px-3 py-2">Mitra</th>
+                    <th className="text-left px-3 py-2 hidden md:table-cell">Aset</th>
+                    <th className="text-right px-3 py-2">Total Tagihan</th>
+                    <th className="text-right px-3 py-2">Sudah Bayar</th>
+                    <th className="text-right px-3 py-2 font-semibold text-orange-700">Sisa Piutang</th>
+                    <th className="text-center px-3 py-2 hidden md:table-cell">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {piutangList.map(item => (
+                    <tr key={item.ksId} className={`hover:bg-gray-50 transition-colors ${item.adaTerlambat ? 'bg-red-50/40' : ''}`}>
+                      <td className="px-3 py-2.5">
+                        <p className="font-medium text-gray-900">{item.namaMitra}</p>
+                        {item.adaTerlambat && (
+                          <p className="text-xs text-red-600 mt-0.5">Terlambat {item.hariTerlambat} hari</p>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5 hidden md:table-cell text-gray-500 text-xs">{item.namaAset}</td>
+                      <td className="px-3 py-2.5 text-right text-gray-600">
+                        <CurrencyDisplay value={item.totalTagihan} size="sm" />
+                      </td>
+                      <td className="px-3 py-2.5 text-right text-green-700">
+                        <CurrencyDisplay value={item.totalDibayar} size="sm" />
+                      </td>
+                      <td className="px-3 py-2.5 text-right font-semibold text-orange-700">
+                        <CurrencyDisplay value={item.sisaPiutang} size="sm" />
+                      </td>
+                      <td className="px-3 py-2.5 text-center hidden md:table-cell">
+                        {item.adaTerlambat
+                          ? <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">Terlambat</span>
+                          : <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">Belum Bayar</span>
+                        }
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 bg-gray-50 font-semibold">
+                    <td colSpan={2} className="px-3 py-2 text-sm text-gray-700">Total</td>
+                    <td className="px-3 py-2 text-right text-sm text-gray-600">
+                      <CurrencyDisplay value={piutangList.reduce((s, i) => s + i.totalTagihan, 0)} size="sm" />
+                    </td>
+                    <td className="px-3 py-2 text-right text-sm text-green-700">
+                      <CurrencyDisplay value={piutangList.reduce((s, i) => s + i.totalDibayar, 0)} size="sm" />
+                    </td>
+                    <td className="px-3 py-2 text-right text-sm text-orange-700">
+                      <CurrencyDisplay value={stats.totalPiutang} size="sm" />
+                    </td>
+                    <td className="hidden md:table-cell" />
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* RKAP Section */}
       <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
