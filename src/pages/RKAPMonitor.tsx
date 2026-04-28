@@ -29,8 +29,9 @@ function parseRKAPCsv(text: string, tahun: number): Array<Omit<RKAPTargetRow, 'i
     const nama = cols[1].trim()
     if (!nama) continue
     const toRp = (v: string) => (parseFloat(v) || 0) * 1_000 // CSV dalam ribuan Rp
-    const [jan,feb,mar,apr,mei,jun,jul,agu,sep,okt,nov,des] = cols.slice(3, 15).map(toRp)
-    const total = toRp(cols[2]) || [jan,feb,mar,apr,mei,jun,jul,agu,sep,okt,nov,des].reduce((a,b) => a+b, 0)
+    // Format CSV: No, Nama, Jan, Feb, ..., Des, Total  (bulan di col[2..13], total di col[14])
+    const [jan,feb,mar,apr,mei,jun,jul,agu,sep,okt,nov,des] = cols.slice(2, 14).map(toRp)
+    const total = toRp(cols[14]) || [jan,feb,mar,apr,mei,jun,jul,agu,sep,okt,nov,des].reduce((a,b) => a+b, 0)
     results.push({ tahun, no, nama, total, jan,feb,mar,apr,mei,jun,jul,agu,sep,okt,nov,des })
   }
   return results
