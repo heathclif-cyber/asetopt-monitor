@@ -317,6 +317,11 @@ export function Kompensasi() {
   const onGenPreview = (data: GenForm) => {
     const ks = daftarKS.find(x => x.id === data.ks_id)
     if (!ks) return
+    const monthToFirstDay = (ym: string) => `${ym}-01`
+    const monthToLastDay  = (ym: string) => {
+      const [y, m] = ym.split('-').map(Number)
+      return toISO(new Date(y, m, 0)) // hari ke-0 bulan berikutnya = hari terakhir bulan ini
+    }
     const preview = generatePeriode({
       ksId: data.ks_id,
       tglMulai: ks.tgl_mulai,
@@ -326,8 +331,8 @@ export function Kompensasi() {
       campuranIntervalAwal: data.campuran_interval_awal,
       campuranTahunPeralihan: data.campuran_tahun_peralihan,
       campuranNominalTahunan: data.campuran_nominal_tahunan,
-      graceMulai: data.ada_grace_period ? data.grace_mulai : undefined,
-      graceSelesai: data.ada_grace_period ? data.grace_selesai : undefined,
+      graceMulai:   data.ada_grace_period && data.grace_mulai   ? monthToFirstDay(data.grace_mulai)  : undefined,
+      graceSelesai: data.ada_grace_period && data.grace_selesai ? monthToLastDay(data.grace_selesai)  : undefined,
       ppnPersen: data.ppn_persen,
       pphPersen: data.pph_persen,
       maksHariBayar: data.maks_hari_bayar,
@@ -583,11 +588,11 @@ export function Kompensasi() {
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <Label className="text-xs text-gray-600">Mulai Grace Period</Label>
-                        <Input type="date" {...genForm.register('grace_mulai')} className="mt-1 h-8 text-xs" />
+                        <Input type="month" {...genForm.register('grace_mulai')} className="mt-1 h-8 text-xs" />
                       </div>
                       <div>
                         <Label className="text-xs text-gray-600">Selesai Grace Period</Label>
-                        <Input type="date" {...genForm.register('grace_selesai')} className="mt-1 h-8 text-xs" />
+                        <Input type="month" {...genForm.register('grace_selesai')} className="mt-1 h-8 text-xs" />
                       </div>
                     </div>
                     <p className="text-[11px] text-orange-700 bg-orange-50 rounded px-2 py-1.5">
