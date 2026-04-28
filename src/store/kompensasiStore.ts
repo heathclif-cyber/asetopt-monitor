@@ -12,7 +12,10 @@ interface KompensasiStore {
   addKompensasi: (data: Omit<Kompensasi, 'id' | 'nominal_ppn' | 'nominal_pph' | 'total_tagihan' | 'created_at' | 'kerja_sama' | 'pembayaran'>) => Promise<void>
   bulkAddKompensasi: (items: Omit<Kompensasi, 'id' | 'nominal_ppn' | 'nominal_pph' | 'total_tagihan' | 'created_at' | 'kerja_sama' | 'pembayaran'>[]) => Promise<void>
   updateKompensasi: (id: string, data: Partial<Kompensasi>) => Promise<void>
+  deleteKompensasi: (id: string) => Promise<void>
   catatPembayaran: (data: Omit<Pembayaran, 'id' | 'created_at'>) => Promise<void>
+  updatePembayaran: (id: string, data: Partial<Pick<Pembayaran, 'tgl_bayar' | 'nominal_bayar' | 'bukti_url' | 'keterangan'>>) => Promise<void>
+  deletePembayaran: (id: string) => Promise<void>
   getKompensasiWithStatus: (kompensasi: Kompensasi, pembayaran: Pembayaran[]) => KompensasiWithStatus
 }
 
@@ -67,10 +70,25 @@ export const useKompensasiStore = create<KompensasiStore>((set, get) => ({
     await get().fetchAllKompensasi()
   },
 
+  deleteKompensasi: async (id) => {
+    await supabase.from('kompensasi').delete().eq('id', id)
+    await get().fetchAllKompensasi()
+  },
+
   catatPembayaran: async (data) => {
     await supabase.from('pembayaran').insert(data)
     const kompensasi = Object.values(get().daftarKompensasi).flat().find(k => k.id === data.kompensasi_id)
     if (kompensasi) await get().fetchKompensasi(kompensasi.ks_id)
+    await get().fetchAllKompensasi()
+  },
+
+  updatePembayaran: async (id, data) => {
+    await supabase.from('pembayaran').update(data).eq('id', id)
+    await get().fetchAllKompensasi()
+  },
+
+  deletePembayaran: async (id) => {
+    await supabase.from('pembayaran').delete().eq('id', id)
     await get().fetchAllKompensasi()
   },
 

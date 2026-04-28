@@ -16,7 +16,7 @@ import { StatusBadge } from '@/components/common/StatusBadge'
 import { EmptyState } from '@/components/common/EmptyState'
 import { TableSkeleton } from '@/components/common/LoadingSkeleton'
 import { formatTanggal, formatRupiah } from '@/lib/utils'
-import { Plus, Pencil, MessageSquare, FileWarning, DollarSign, ChevronDown, ChevronUp, Wand2 } from 'lucide-react'
+import { Plus, Pencil, Trash2, MessageSquare, FileWarning, DollarSign, ChevronDown, ChevronUp, Wand2 } from 'lucide-react'
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -215,7 +215,7 @@ type KompForm = z.infer<typeof kompSchema>
 type BayarForm = z.infer<typeof bayarSchema>
 
 export function Kompensasi() {
-  const { allKompensasi, isLoading, fetchAllKompensasi, addKompensasi, updateKompensasi, bulkAddKompensasi, getKompensasiWithStatus, catatPembayaran } = useKompensasiStore()
+  const { allKompensasi, isLoading, fetchAllKompensasi, addKompensasi, updateKompensasi, deleteKompensasi, bulkAddKompensasi, getKompensasiWithStatus, catatPembayaran, updatePembayaran, deletePembayaran } = useKompensasiStore()
   const { daftarKS, fetchKS } = useKerjaSamaStore()
   const { terbitkanSP, kirimNotifWA } = useNotifikasiStore()
   const { dataPBB, fetchAllPBB } = usePBBStore()
@@ -224,6 +224,11 @@ export function Kompensasi() {
   const [editTarget, setEditTarget] = useState<KType | null>(null)
   const [bayarDialog, setBayarDialog] = useState(false)
   const [bayarTarget, setBayarTarget] = useState<KType | null>(null)
+
+  const [deleteKompId, setDeleteKompId]       = useState<string | null>(null)
+  const [editBayarTarget, setEditBayarTarget]   = useState<Pembayaran | null>(null)
+  const [editBayarDialog, setEditBayarDialog]   = useState(false)
+  const [deleteBayarId, setDeleteBayarId]       = useState<string | null>(null)
 
   // Generate periode dialog
   const [genDialog, setGenDialog] = useState(false)
@@ -238,7 +243,8 @@ export function Kompensasi() {
     defaultValues: { ppn_persen: 11, pph_persen: 10, pph_mode: 'none', maks_hari_bayar: 14, persen_denda_per_hari: 0.1 },
   })
 
-  const bayarForm = useForm<BayarForm>({ resolver: zodResolver(bayarSchema) })
+  const bayarForm     = useForm<BayarForm>({ resolver: zodResolver(bayarSchema) })
+  const editBayarForm = useForm<BayarForm>({ resolver: zodResolver(bayarSchema) })
 
   const GEN_DEFAULTS = {
     interval: 'tahunan' as const,
@@ -305,6 +311,35 @@ export function Kompensasi() {
     await catatPembayaran({ ...data, kompensasi_id: bayarTarget.id } as Omit<Pembayaran, 'id' | 'created_at'>)
     setBayarDialog(false)
     await fetchAllKompensasi()
+  }
+
+  const openEditBayar = (p: Pembayaran) => {
+    setEditBayarTarget(p)
+    editBayarForm.reset({
+      tgl_bayar: p.tgl_bayar,
+      nominal_bayar: p.nominal_bayar,
+      bukti_url: p.bukti_url ?? '',
+      keterangan: p.keterangan ?? '',
+    })
+    setEditBayarDialog(true)
+  }
+
+  const onEditBayar = async (data: BayarForm) => {
+    if (!editBayarTarget) return
+    await updatePembayaran(editBayarTarget.id, data)
+    setEditBayarDialog(false)
+  }
+
+  const handleDeleteBayar = async () => {
+    if (!deleteBayarId) return
+    await deletePembayaran(deleteBayarId)
+    setDeleteBayarId(null)
+  }
+
+  const handleDeleteKomp = async () => {
+    if (!deleteKompId) return
+    await deleteKompensasi(deleteKompId)
+    setDeleteKompId(null)
   }
 
   const handleSendWA = async (k: KType) => {
@@ -454,8 +489,11 @@ export function Kompensasi() {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-end gap-1">
-                          <Button variant="ghost" size="icon" title="Edit" onClick={() => openEdit(k)}>
+                          <Button variant="ghost" size="icon" title="Edit kompensasi" onClick={() => openEdit(k)}>
                             <Pencil size={14} />
+                          </Button>
+                          <Button variant="ghost" size="icon" title="Hapus kompensasi" className="text-gray-400 hover:text-red-600" onClick={() => setDeleteKompId(k.id)}>
+                            <Trash2 size={14} />
                           </Button>
                           <Button variant="ghost" size="icon" title="Catat Pembayaran" onClick={() => openBayar(k)}>
                             <DollarSign size={14} />
@@ -526,12 +564,22 @@ export function Kompensasi() {
                                 : (
                                   <div className="space-y-1.5">
                                     {pembayaran.map(p => (
-                                      <div key={p.id} className="flex items-start gap-3">
+                                      <div key={p.id} className="flex items-center gap-2 group/p">
                                         <span className="text-gray-400 shrink-0 w-24">{formatTanggal(p.tgl_bayar)}</span>
                                         <span className="font-medium flex-1">{formatRupiah(p.nominal_bayar)}</span>
-                                        <div className="flex gap-1.5">
-                                          {p.keterangan && <span className="text-gray-400">{p.keterangan}</span>}
+                                        <div className="flex items-center gap-1.5">
+                                          {p.keterangan && <span className="text-gray-400 text-[10px]">{p.keterangan}</span>}
                                           {p.bukti_url && <a href={p.bukti_url} target="_blank" className="text-blue-600 hover:underline">Bukti</a>}
+                                          <button
+                                            onClick={() => openEditBayar(p)}
+                                            className="p-0.5 rounded hover:bg-gray-200 text-gray-400 hover:text-blue-600 opacity-0 group-hover/p:opacity-100 transition-opacity"
+                                            title="Edit pembayaran"
+                                          ><Pencil size={11} /></button>
+                                          <button
+                                            onClick={() => setDeleteBayarId(p.id)}
+                                            className="p-0.5 rounded hover:bg-red-100 text-gray-400 hover:text-red-500 opacity-0 group-hover/p:opacity-100 transition-opacity"
+                                            title="Hapus pembayaran"
+                                          ><Trash2 size={11} /></button>
                                         </div>
                                       </div>
                                     ))}
@@ -907,6 +955,7 @@ export function Kompensasi() {
       </Dialog>
 
       {/* Dialog catat pembayaran */}
+      {/* ── Catat pembayaran baru ────────────────────────────────────────── */}
       <Dialog open={bayarDialog} onOpenChange={setBayarDialog}>
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>Catat Pembayaran</DialogTitle></DialogHeader>
@@ -934,6 +983,61 @@ export function Kompensasi() {
               <Button type="submit" className="bg-[#1E8449]">Catat Pembayaran</Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Edit pembayaran ───────────────────────────────────────────────── */}
+      <Dialog open={editBayarDialog} onOpenChange={setEditBayarDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader><DialogTitle>Edit Pembayaran</DialogTitle></DialogHeader>
+          <form onSubmit={editBayarForm.handleSubmit(onEditBayar)} className="space-y-4">
+            <div>
+              <Label>Tanggal Bayar</Label>
+              <Input type="date" {...editBayarForm.register('tgl_bayar')} className="mt-1" />
+            </div>
+            <div>
+              <Label>Nominal Dibayarkan (Rp)</Label>
+              <Controller control={editBayarForm.control} name="nominal_bayar" render={({ field }) => (
+                <CurrencyInput value={field.value} onChange={field.onChange} className="mt-1" />
+              )} />
+            </div>
+            <div>
+              <Label>Link Bukti Transfer</Label>
+              <Input {...editBayarForm.register('bukti_url')} className="mt-1" placeholder="https://..." />
+            </div>
+            <div>
+              <Label>Keterangan</Label>
+              <Textarea {...editBayarForm.register('keterangan')} className="mt-1" rows={2} />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setEditBayarDialog(false)}>Batal</Button>
+              <Button type="submit" className="bg-[#1E8449]">Simpan Perubahan</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Konfirmasi hapus pembayaran ───────────────────────────────────── */}
+      <Dialog open={!!deleteBayarId} onOpenChange={() => setDeleteBayarId(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Hapus Catatan Pembayaran?</DialogTitle></DialogHeader>
+          <p className="text-sm text-gray-600">Data pembayaran ini akan dihapus permanen dan tidak dapat dikembalikan.</p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteBayarId(null)}>Batal</Button>
+            <Button variant="destructive" onClick={handleDeleteBayar}>Hapus</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Konfirmasi hapus kompensasi ───────────────────────────────────── */}
+      <Dialog open={!!deleteKompId} onOpenChange={() => setDeleteKompId(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Hapus Kompensasi?</DialogTitle></DialogHeader>
+          <p className="text-sm text-gray-600">Kompensasi beserta seluruh catatan pembayarannya akan dihapus permanen.</p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteKompId(null)}>Batal</Button>
+            <Button variant="destructive" onClick={handleDeleteKomp}>Hapus</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
