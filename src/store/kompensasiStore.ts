@@ -108,6 +108,7 @@ export const useKompensasiStore = create<KompensasiStore>((set, get) => ({
       tglJatuhTempo: kompensasi.tgl_jatuh_tempo,
       tglHariIni: new Date(),
       persenDendaPerHari: kompensasi.persen_denda_per_hari / 100,
+      maksHariBayar: kompensasi.maks_hari_bayar,
     })
 
     let statusBayar: KompensasiWithStatus['statusBayar'] = 'belum_bayar'

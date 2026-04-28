@@ -5,16 +5,23 @@ interface HitungDendaParams {
   tglJatuhTempo: string
   tglHariIni: Date
   persenDendaPerHari?: number
+  maksHariBayar?: number  // toleransi hari sebelum denda mulai dihitung
 }
 
 export function hitungDenda(params: HitungDendaParams): DendaResult {
-  const { nominal, tglJatuhTempo, tglHariIni, persenDendaPerHari = 0.001 } = params
+  const { nominal, tglJatuhTempo, tglHariIni, persenDendaPerHari = 0.001, maksHariBayar = 0 } = params
   const jtTempo = new Date(tglJatuhTempo)
-  const hari = Math.max(0, Math.floor((tglHariIni.getTime() - jtTempo.getTime()) / (1000 * 60 * 60 * 24)))
-  const nominalDenda = nominal * persenDendaPerHari * hari
-  const persenAkumulasi = (nominalDenda / nominal) * 100
-  return { hariTerlambat: hari, nominalDenda, persenAkumulasi }
+  // Denda mulai dihitung setelah grace period (maks_hari_bayar) lewat
+  const tglMulaiDenda = new Date(jtTempo.getTime() + maksHariBayar * 24 * 60 * 60 * 1000)
+  // hariTerlambat = hari keterlambatan dihitung dari tgl_jatuh_tempo (bukan dari tglMulaiDenda)
+  const hariSejak = Math.max(0, Math.floor((tglHariIni.getTime() - jtTempo.getTime()) / (1000 * 60 * 60 * 24)))
+  const hariTerlambat = hariSejak  // tampilkan total hari sejak jatuh tempo
+  const hariBerDenda  = Math.max(0, Math.floor((tglHariIni.getTime() - tglMulaiDenda.getTime()) / (1000 * 60 * 60 * 24)))
+  const nominalDenda  = nominal * persenDendaPerHari * hariBerDenda
+  const persenAkumulasi = nominalDenda > 0 ? (nominalDenda / nominal) * 100 : 0
+  return { hariTerlambat, nominalDenda, persenAkumulasi }
 }
+
 
 interface TentukanStatusSPParams {
   persenDenda: number

@@ -522,7 +522,7 @@ export function Kompensasi() {
                       <td className="px-4 py-3">
                         <p className="font-medium text-gray-900">{ks?.nama_mitra ?? '-'}</p>
                         <p className="text-xs text-gray-500">{(ks?.aset as any)?.nama_aset ?? '-'}</p>
-                        {ws.dendaAkumulasi.hariTerlambat > 0 && (
+                        {ws.dendaAkumulasi.hariTerlambat > 0 && ws.statusBayar !== 'lunas' && (
                           <p className="text-xs text-red-600 mt-0.5">Terlambat {ws.dendaAkumulasi.hariTerlambat} hari</p>
                         )}
                       </td>
@@ -594,11 +594,11 @@ export function Kompensasi() {
                                 </div>
                               </div>
 
-                              {ws.dendaAkumulasi.hariTerlambat > 0 && (
+                              {ws.dendaAkumulasi.hariTerlambat > 0 && ws.statusBayar !== 'lunas' && (
                                 <div className="mt-2 pt-2 border-t space-y-1">
                                   <p className="font-semibold text-red-700 text-[11px] uppercase tracking-wide">Denda</p>
                                   <div className="flex justify-between text-red-600">
-                                    <span>{ws.dendaAkumulasi.hariTerlambat} hr × {k.persen_denda_per_hari}%/hr</span>
+                                    <span>Terlambat {ws.dendaAkumulasi.hariTerlambat} hr (denda: {Math.max(0, ws.dendaAkumulasi.hariTerlambat - k.maks_hari_bayar)} hr × {k.persen_denda_per_hari}%/hr)</span>
                                     <span className="font-medium">{formatRupiah(ws.dendaAkumulasi.nominalDenda)}</span>
                                   </div>
                                   <div className="flex justify-between text-red-500">
