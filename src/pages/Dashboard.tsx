@@ -211,7 +211,7 @@ export function Dashboard() {
     const currentCarryOver = months[CURRENT_MONTH]?.carryOver ?? 0
     const chartData = months.slice(0, CURRENT_MONTH + 1).map(m => ({
       bulan: m.label,
-      'Target': Math.round(m.targetAdjusted / 1_000_000),
+      'Target': Math.round(m.targetOriginal / 1_000_000),
       'Realisasi': Math.round(m.realisasi / 1_000_000),
     }))
     const triwulan = [0, 1, 2, 3].map(q => {

@@ -195,9 +195,10 @@ export function RKAPMonitor() {
 
   const chartData = rkapData.map(m => ({
     bulan: m.label,
-    'Target Adjusted (Prognosa)': Math.round(m.targetAdjusted / 1_000_000),
-    'Realisasi': Math.round(m.realisasi / 1_000_000),
-    'Prognosa': Math.round(m.prognosa / 1_000_000),
+    'Target RKAP':  Math.round(m.targetOriginal / 1_000_000),
+    'Target + C/O': Math.round(m.targetAdjusted / 1_000_000),
+    'Realisasi':    Math.round(m.realisasi / 1_000_000),
+    'Prognosa':     Math.round(m.prognosa / 1_000_000),
   }))
 
   // ── Helpers form ──────────────────────────────────────────────────────────
@@ -406,7 +407,7 @@ export function RKAPMonitor() {
       {/* Chart */}
       <Card>
         <CardHeader>
-          <CardTitle>Target (+ Carry-over) vs Realisasi per Bulan (Juta Rp) — {tahunAktif}</CardTitle>
+          <CardTitle>Target RKAP vs Realisasi & Prognosa per Bulan (Juta Rp) — {tahunAktif}</CardTitle>
         </CardHeader>
         <CardContent>
           <ResponsiveContainer width="100%" height={260}>
@@ -416,9 +417,10 @@ export function RKAPMonitor() {
               <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `${v}jt`} />
               <Tooltip formatter={(v: number) => `Rp ${v.toLocaleString('id-ID')}jt`} />
               <Legend wrapperStyle={{ fontSize: 12 }} />
-              <Bar dataKey="Target Adjusted (Prognosa)" fill="#94a3b8" radius={[4,4,0,0]} />
-              <Bar dataKey="Realisasi"  fill="#117A65" radius={[4,4,0,0]} />
-              <Bar dataKey="Prognosa"   fill="#3B82F6" radius={[4,4,0,0]} opacity={0.7} />
+              <Bar dataKey="Target RKAP"  fill="#cbd5e1" radius={[4,4,0,0]} />
+              <Bar dataKey="Target + C/O" fill="#94a3b8" radius={[4,4,0,0]} />
+              <Bar dataKey="Realisasi"    fill="#117A65" radius={[4,4,0,0]} />
+              <Bar dataKey="Prognosa"     fill="#3B82F6" radius={[4,4,0,0]} opacity={0.7} />
             </BarChart>
           </ResponsiveContainer>
         </CardContent>

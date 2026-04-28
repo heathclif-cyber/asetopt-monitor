@@ -5,12 +5,12 @@ export interface MonthSummary {
   label: string
   targetOriginal: number
   carryOver: number
-  targetAdjusted: number
+  targetAdjusted: number   // targetOriginal + carryOver (untuk acuan catch-up bulan ini)
   realisasi: number
-  selisih: number
+  selisih: number          // realisasi - targetAdjusted (negatif = defisit → jadi carryOver)
   achievement: number
-  prognosa: number      // realisasi jika sudah lewat/berjalan, targetAdjusted jika belum
-  isFuture: boolean     // true jika belum berjalan
+  prognosa: number         // past: realisasi aktual; future: targetOriginal (tanpa carry-over)
+  isFuture: boolean
 }
 
 export function hitungRKAP(
@@ -24,14 +24,17 @@ export function hitungRKAP(
   for (let i = 0; i < 12; i++) {
     const targetOriginal = items.reduce((sum, item) => sum + (item.bulan[i] ?? 0), 0)
     const currentCarryOver = carryOver
-    const targetAdjusted = targetOriginal + currentCarryOver
+    const targetAdjusted  = targetOriginal + currentCarryOver
     const realisasi = cashInPerBulan[i] ?? 0
-    const selisih = realisasi - targetAdjusted
-    carryOver = selisih < 0 ? Math.abs(selisih) : 0
+    const selisih   = realisasi - targetAdjusted
+    // Carry-over hanya dari bulan yang sudah berjalan (bukan proyeksi)
+    carryOver = (i <= bulanSekarang && selisih < 0) ? Math.abs(selisih) : 0
 
     const isFuture = i > bulanSekarang
-    // Prognosa: bulan lewat/berjalan → realisasi aktual; bulan mendatang → targetAdjusted
-    const prognosa = isFuture ? targetAdjusted : realisasi
+    // Prognosa:
+    //   • bulan lewat / berjalan → realisasi aktual
+    //   • bulan mendatang       → targetOriginal saja (BUKAN targetAdjusted agar tidak akumulasi)
+    const prognosa = isFuture ? targetOriginal : realisasi
 
     results.push({
       bulanIdx: i,
@@ -48,6 +51,7 @@ export function hitungRKAP(
   }
   return results
 }
+
 
 export function getCashInPerBulanByYear(
   allKompensasi: { pembayaran?: { tgl_bayar: string; nominal_bayar: number }[] }[],
