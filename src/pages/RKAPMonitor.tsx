@@ -516,137 +516,139 @@ export function RKAPMonitor() {
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
-            <table className="text-xs" style={{ minWidth: 1000 }}>
+            <table className="text-xs w-full" style={{ minWidth: 1400 }}>
               <thead>
-                <tr className="border-b bg-gray-50">
-                  <th className="px-2 py-2 text-left font-semibold text-gray-500 w-8">No</th>
-                  <th className="px-2 py-2 text-left font-semibold text-gray-600 min-w-[180px]">Obyek Kerjasama</th>
+                {/* Baris 1: Nama bulan (colspan 2 per bulan) */}
+                <tr className="bg-gray-100 border-b">
+                  <th className="px-2 py-1.5 text-left font-semibold text-gray-500 w-7" rowSpan={2}>No</th>
+                  <th className="px-2 py-1.5 text-left font-semibold text-gray-600 min-w-[160px]" rowSpan={2}>Obyek Kerjasama</th>
                   {BULAN_LABELS.map(b => (
-                    <th key={b} className="px-2 py-2 text-right font-semibold text-gray-600 w-14">{b}</th>
+                    <th key={b} colSpan={2} className="px-2 py-1.5 text-center font-semibold text-gray-600 border-l border-gray-200">
+                      {b}
+                    </th>
                   ))}
-                  <th className="px-2 py-2 text-right font-semibold text-[#1B4F72] w-20">Total</th>
-                  <th className="px-2 py-2 w-16"></th>
+                  <th colSpan={2} className="px-2 py-1.5 text-center font-semibold text-[#1B4F72] border-l border-gray-200">
+                    Total
+                  </th>
+                  <th className="px-2 py-1.5 w-14" rowSpan={2} />
+                </tr>
+                {/* Baris 2: T / R per bulan */}
+                <tr className="bg-gray-50 border-b">
+                  {BULAN_LABELS.map(b => (
+                    <>
+                      <th key={`${b}-t`} className="px-2 py-1 text-right text-[10px] font-medium text-gray-400 border-l border-gray-100 w-14">T</th>
+                      <th key={`${b}-r`} className="px-2 py-1 text-right text-[10px] font-medium text-green-500 w-14">R</th>
+                    </>
+                  ))}
+                  <th className="px-2 py-1 text-right text-[10px] font-medium text-gray-400 border-l border-gray-100 w-16">T</th>
+                  <th className="px-2 py-1 text-right text-[10px] font-medium text-green-500 w-16">R</th>
                 </tr>
               </thead>
               <tbody>
                 {displayRows.map(row => {
-                  // Cari realisasi per bulan untuk nama aset ini
                   const realPerBulan: number[] = cashInPerNama[row.nama] ?? Array(12).fill(0)
                   const totalReal = realPerBulan.reduce((s, v) => s + v, 0)
                   const totalTgt  = row.total ?? 0
                   const pctTotal  = totalTgt > 0 ? (totalReal / totalTgt) * 100 : null
-
                   return (
-                    <>
-                      {/* Sub-baris 1: Target */}
-                      <tr key={`${row.id}-t`} className="border-t hover:bg-gray-50/40 group">
-                        <td className="px-2 py-1 text-gray-400 align-top" rowSpan={2}>{row.no}</td>
-                        <td className="px-2 py-1 text-gray-700 font-medium align-top" rowSpan={2}>
-                          <div>{row.nama}</div>
-                          {pctTotal != null && (
-                            <div className={cn('text-[10px] font-semibold mt-0.5',
-                              pctTotal >= 100 ? 'text-green-600' : pctTotal >= 75 ? 'text-yellow-600' : 'text-red-500'
-                            )}>
-                              {pctTotal.toFixed(1)}% tercapai
-                            </div>
-                          )}
-                        </td>
-                        {BULAN_COLS.map(col => {
-                          const v = row[col] ?? 0
-                          return (
-                            <td key={col} className={cn('px-2 py-1 text-right text-[11px]', v > 0 ? 'text-gray-600' : 'text-gray-300')}>
-                              {v > 0 ? (v / 1_000_000).toFixed(2) : '—'}
-                            </td>
-                          )
-                        })}
-                        <td className="px-2 py-1 text-right text-[11px] font-semibold text-[#1B4F72]">
-                          {totalTgt > 0 ? (totalTgt / 1_000_000).toFixed(2) : '—'}
-                        </td>
-                        <td className="px-2 py-1 align-top" rowSpan={2}>
-                          <div className="flex gap-1 mt-0.5">
-                            <button onClick={() => openEdit(row)} className="p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-700" title="Edit">
-                              <Pencil size={12} />
-                            </button>
-                            {!isSeedRow(row.id) && (
-                              <button onClick={() => setDeleteId(row.id)} className="p-1 rounded hover:bg-red-100 text-gray-400 hover:text-red-500" title="Hapus">
-                                <Trash2 size={12} />
-                              </button>
-                            )}
+                    <tr key={row.id} className="border-b hover:bg-gray-50/60 group">
+                      <td className="px-2 py-1.5 text-gray-400">{row.no}</td>
+                      <td className="px-2 py-1.5 text-gray-700 font-medium">
+                        <div>{row.nama}</div>
+                        {pctTotal != null && (
+                          <div className={cn('text-[9px] font-semibold',
+                            pctTotal >= 100 ? 'text-green-600' : pctTotal >= 75 ? 'text-yellow-600' : 'text-red-500'
+                          )}>
+                            {pctTotal.toFixed(1)}% tercapai
                           </div>
-                        </td>
-                      </tr>
-
-                      {/* Sub-baris 2: Realisasi */}
-                      <tr key={`${row.id}-r`} className="border-b hover:bg-green-50/30 group">
-                        {realPerBulan.map((v, i) => {
-                          const tgt = BULAN_COLS[i] ? (row[BULAN_COLS[i]] ?? 0) : 0
-                          return (
-                            <td key={i} className={cn('px-2 py-1 text-right text-[11px]',
-                              v > 0 ? (tgt > 0 && v >= tgt ? 'text-green-700 font-semibold' : 'text-green-600') : 'text-gray-200'
+                        )}
+                      </td>
+                      {BULAN_COLS.map((col, i) => {
+                        const tgt  = row[col] ?? 0
+                        const real = realPerBulan[i] ?? 0
+                        const hit  = tgt > 0 && real >= tgt
+                        return (
+                          <>
+                            <td key={`${col}-t`} className={cn('px-2 py-1.5 text-right border-l border-gray-100',
+                              tgt > 0 ? 'text-gray-600' : 'text-gray-200'
                             )}>
-                              {v > 0 ? (v / 1_000_000).toFixed(2) : '—'}
+                              {tgt > 0 ? (tgt / 1_000_000).toFixed(2) : '—'}
                             </td>
-                          )
-                        })}
-                        <td className={cn('px-2 py-1 text-right text-[11px] font-semibold',
-                          totalReal > 0 ? 'text-green-700' : 'text-gray-300'
-                        )}>
-                          {totalReal > 0 ? (totalReal / 1_000_000).toFixed(2) : '—'}
-                        </td>
-                      </tr>
-                    </>
+                            <td key={`${col}-r`} className={cn('px-2 py-1.5 text-right',
+                              real > 0
+                                ? (hit ? 'text-green-700 font-semibold' : 'text-green-600')
+                                : 'text-gray-200'
+                            )}>
+                              {real > 0 ? (real / 1_000_000).toFixed(2) : '—'}
+                            </td>
+                          </>
+                        )
+                      })}
+                      {/* Total kolom */}
+                      <td className="px-2 py-1.5 text-right font-semibold text-[#1B4F72] border-l border-gray-100">
+                        {totalTgt > 0 ? (totalTgt / 1_000_000).toFixed(2) : '—'}
+                      </td>
+                      <td className={cn('px-2 py-1.5 text-right font-semibold',
+                        totalReal > 0 ? 'text-green-700' : 'text-gray-200'
+                      )}>
+                        {totalReal > 0 ? (totalReal / 1_000_000).toFixed(2) : '—'}
+                      </td>
+                      <td className="px-2 py-1.5">
+                        <div className="flex gap-1">
+                          <button onClick={() => openEdit(row)} className="p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-700" title="Edit">
+                            <Pencil size={12} />
+                          </button>
+                          {!isSeedRow(row.id) && (
+                            <button onClick={() => setDeleteId(row.id)} className="p-1 rounded hover:bg-red-100 text-gray-400 hover:text-red-500" title="Hapus">
+                              <Trash2 size={12} />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
                   )
                 })}
               </tbody>
               <tfoot>
-                {/* Header keterangan baris */}
-                <tr className="border-t-2 bg-gray-50/80 text-[10px] text-gray-400 italic">
-                  <td /><td className="px-2 py-1">↑ Target &nbsp; ↓ Realisasi</td>
-                  {BULAN_COLS.map(c => <td key={c} />)}
-                  <td /><td />
-                </tr>
                 {/* Total Target */}
-                <tr className="bg-[#1B4F72]/5 font-bold text-xs">
+                <tr className="border-t-2 bg-[#1B4F72]/5 font-bold text-xs">
                   <td /><td className="px-2 py-2 text-[#1B4F72]">Total Target</td>
-                  {BULAN_COLS.map((col) => {
-                    const tot = displayRows.reduce((s, r) => s + (r[col] ?? 0), 0)
-                    return (
-                      <td key={col} className={cn('px-2 py-2 text-right', tot > 0 ? 'text-[#1B4F72]' : 'text-gray-300')}>
-                        {tot > 0 ? (tot / 1_000_000).toFixed(2) : '—'}
-                      </td>
-                    )
-                  })}
-                  <td className="px-2 py-2 text-right text-[#1B4F72]">{(totalTarget / 1_000_000).toFixed(2)}</td>
-                  <td />
-                </tr>
-                {/* Total Realisasi */}
-                <tr className="bg-green-50 font-bold text-xs">
-                  <td /><td className="px-2 py-2 text-green-800">Total Realisasi</td>
-                  {cashIn.map((v, i) => (
-                    <td key={i} className={cn('px-2 py-2 text-right', v > 0 ? 'text-green-700' : 'text-gray-300')}>
-                      {v > 0 ? (v / 1_000_000).toFixed(2) : '—'}
-                    </td>
-                  ))}
-                  <td className="px-2 py-2 text-right text-green-700">
-                    {(cashIn.reduce((s, v) => s + v, 0) / 1_000_000).toFixed(2)}
-                  </td>
-                  <td />
-                </tr>
-                {/* Achievement Total */}
-                <tr className="bg-gray-50 text-[10px]">
-                  <td /><td className="px-2 py-1.5 text-gray-500 italic">Achievement</td>
                   {BULAN_COLS.map((col, i) => {
-                    const tgt = displayRows.reduce((s, r) => s + (r[col] ?? 0), 0)
+                    const tgt  = displayRows.reduce((s, r) => s + (r[col] ?? 0), 0)
                     const real = cashIn[i] ?? 0
-                    const pct = tgt > 0 ? (real / tgt) * 100 : null
                     return (
-                      <td key={col} className={cn('px-2 py-1.5 text-right font-semibold',
-                        pct == null ? 'text-gray-300' : pct >= 100 ? 'text-green-700' : pct >= 75 ? 'text-yellow-600' : 'text-red-600'
-                      )}>
-                        {pct != null ? `${pct.toFixed(0)}%` : '—'}
-                      </td>
+                      <>
+                        <td key={`${col}-t`} className={cn('px-2 py-2 text-right border-l border-gray-100', tgt > 0 ? 'text-[#1B4F72]' : 'text-gray-300')}>
+                          {tgt > 0 ? (tgt / 1_000_000).toFixed(2) : '—'}
+                        </td>
+                        <td key={`${col}-r`} className={cn('px-2 py-2 text-right', real > 0 ? 'text-green-700' : 'text-gray-300')}>
+                          {real > 0 ? (real / 1_000_000).toFixed(2) : '—'}
+                        </td>
+                      </>
                     )
                   })}
+                  <td className="px-2 py-2 text-right text-[#1B4F72] border-l border-gray-100">{(totalTarget / 1_000_000).toFixed(2)}</td>
+                  <td className="px-2 py-2 text-right text-green-700">{(cashIn.reduce((s, v) => s + v, 0) / 1_000_000).toFixed(2)}</td>
+                  <td />
+                </tr>
+                {/* Achievement per bulan */}
+                <tr className="bg-gray-50 text-[10px] italic">
+                  <td /><td className="px-2 py-1.5 text-gray-400">Achievement</td>
+                  {BULAN_COLS.map((col, i) => {
+                    const tgt  = displayRows.reduce((s, r) => s + (r[col] ?? 0), 0)
+                    const real = cashIn[i] ?? 0
+                    const pct  = tgt > 0 ? (real / tgt) * 100 : null
+                    const cls  = pct == null ? 'text-gray-300' : pct >= 100 ? 'text-green-700' : pct >= 75 ? 'text-yellow-600' : 'text-red-600'
+                    return (
+                      <>
+                        <td key={`${col}-t`} className="border-l border-gray-100" />
+                        <td key={`${col}-r`} className={cn('px-2 py-1.5 text-right font-semibold', cls)}>
+                          {pct != null ? `${pct.toFixed(0)}%` : '—'}
+                        </td>
+                      </>
+                    )
+                  })}
+                  <td className="border-l border-gray-100" />
                   {(() => {
                     const totalReal = cashIn.reduce((s, v) => s + v, 0)
                     const pct = totalTarget > 0 ? (totalReal / totalTarget) * 100 : null
