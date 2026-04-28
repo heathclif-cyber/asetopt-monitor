@@ -7,6 +7,7 @@ import { kirimWA } from '@/services/waService'
 interface NotifikasiStore {
   jatuhTempoH14: Kompensasi[]
   spAktif: SuratPeringatan[]
+  allSP: SuratPeringatan[]
   logNotifikasi: LogNotifikasi[]
   isLoading: boolean
   checkJatuhTempo: (allKompensasi: Kompensasi[]) => void
@@ -14,12 +15,14 @@ interface NotifikasiStore {
   fetchLog: () => Promise<void>
   terbitkanSP: (ksId: string, kompensasiId: string | null, jenis: SPJenis) => Promise<void>
   kirimNotifWA: (params: { noWA: string; pesan: string; ksId: string; jenis: string }) => Promise<boolean>
-  fetchAllSP: () => Promise<SuratPeringatan[]>
+  fetchAllSP: () => Promise<void>
+  deleteSP: (id: string) => Promise<void>
 }
 
 export const useNotifikasiStore = create<NotifikasiStore>((set, get) => ({
   jatuhTempoH14: [],
   spAktif: [],
+  allSP: [],
   logNotifikasi: [],
   isLoading: false,
 
@@ -85,6 +88,12 @@ export const useNotifikasiStore = create<NotifikasiStore>((set, get) => ({
       .from('surat_peringatan')
       .select('*, kerja_sama(*, aset(*))')
       .order('tgl_terbit', { ascending: false })
-    return (data as SuratPeringatan[]) ?? []
+    set({ allSP: (data as SuratPeringatan[]) ?? [] })
+  },
+
+  deleteSP: async (id) => {
+    await supabase.from('surat_peringatan').delete().eq('id', id)
+    await get().fetchSPAktif()
+    await get().fetchAllSP()
   },
 }))
