@@ -314,7 +314,7 @@ export function Dashboard() {
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-100">
           <div className="flex items-center gap-2">
             <Target size={15} className="text-[#1B4F72]" />
-            <span className="text-sm font-semibold text-gray-800">RKAP 2026 — Progress YTD</span>
+            <span className="text-sm font-semibold text-gray-800">RKAP {new Date().getFullYear()} — Progress YTD</span>
             <span className="text-xs text-gray-400">s.d. {BULAN_LABELS[CURRENT_MONTH]}</span>
           </div>
           <button
@@ -327,8 +327,8 @@ export function Dashboard() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-0 divide-y lg:divide-y-0 lg:divide-x divide-gray-100">
           <div className="px-5 py-4">
-            <p className="text-[11px] text-gray-500 font-medium">Target RKAP 2026</p>
-            <CurrencyDisplay value={TOTAL_TARGET_2026} size="lg" className="text-[#1B4F72] mt-1 block" />
+            <p className="text-[11px] text-gray-500 font-medium">Target RKAP {new Date().getFullYear()}</p>
+            <CurrencyDisplay value={rkapSummary.totalTarget} size="lg" className="text-[#1B4F72] mt-1 block" />
             <p className="text-[11px] text-gray-400 mt-1">YTD: <span className="text-gray-600 font-medium"><CurrencyDisplay value={rkapSummary.ytdTarget} /></span></p>
           </div>
           <div className="px-5 py-4">
