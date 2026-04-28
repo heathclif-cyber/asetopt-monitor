@@ -70,7 +70,11 @@ export function Dashboard() {
       .reduce((sum, p) => sum + (p.nominal_bayar ?? 0), 0)
     const collectionRate = totalTagihan > 0 ? (totalCashIn / totalTagihan) * 100 : 0
 
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
     const totalPiutang = allKompensasi.reduce((sum, k) => {
+      // Hanya hitung periode yang sudah jatuh tempo
+      if (new Date(k.tgl_jatuh_tempo) > today) return sum
       const totalDibayar = (k.pembayaran ?? []).reduce((s, p) => s + p.nominal_bayar, 0)
       const sisa = Math.max(0, (k.total_tagihan ?? 0) - totalDibayar)
       return sum + sisa
@@ -81,17 +85,22 @@ export function Dashboard() {
 
   const ksWithSP = daftarKS.filter(ks => ['sp1', 'sp2', 'sp3'].includes(ks.status))
 
-  // Piutang: kompensasi yang belum lunas, dikelompokkan per KS
+  // Piutang: hanya periode yang sudah jatuh tempo tapi belum lunas, dikelompokkan per KS
   const piutangList = useMemo(() => {
-    const byKS: Record<string, { ksId: string; namaMitra: string; namaAset: string; totalTagihan: number; totalDibayar: number; sisaPiutang: number; adaTerlambat: boolean; hariTerlambat: number }> = {}
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const byKS: Record<string, { ksId: string; namaMitra: string; namaAset: string; totalTagihan: number; totalDibayar: number; sisaPiutang: number; adaTerlambat: boolean; hariTerlambat: number; jumlahPeriode: number }> = {}
     allKompensasi.forEach(k => {
+      // Skip periode yang belum jatuh tempo
+      const jtTempo = new Date(k.tgl_jatuh_tempo)
+      if (jtTempo > today) return
+
       const totalDibayar = (k.pembayaran ?? []).reduce((s, p) => s + p.nominal_bayar, 0)
       const sisa = Math.max(0, (k.total_tagihan ?? 0) - totalDibayar)
-      if (sisa <= 0) return
+      if (sisa <= 0) return  // sudah lunas
+
       const ks = daftarKS.find(x => x.id === k.ks_id)
       if (!ks) return
-      const today = new Date()
-      const jtTempo = new Date(k.tgl_jatuh_tempo)
       const hariTerlambat = Math.max(0, Math.floor((today.getTime() - jtTempo.getTime()) / (1000 * 60 * 60 * 24)))
       if (!byKS[k.ks_id]) {
         byKS[k.ks_id] = {
@@ -103,11 +112,13 @@ export function Dashboard() {
           sisaPiutang: 0,
           adaTerlambat: false,
           hariTerlambat: 0,
+          jumlahPeriode: 0,
         }
       }
       byKS[k.ks_id].totalTagihan  += k.total_tagihan ?? 0
       byKS[k.ks_id].totalDibayar  += totalDibayar
       byKS[k.ks_id].sisaPiutang   += sisa
+      byKS[k.ks_id].jumlahPeriode += 1
       if (hariTerlambat > 0) {
         byKS[k.ks_id].adaTerlambat = true
         byKS[k.ks_id].hariTerlambat = Math.max(byKS[k.ks_id].hariTerlambat, hariTerlambat)
@@ -386,6 +397,7 @@ export function Dashboard() {
                   <tr className="border-b bg-gray-50 text-gray-500 text-xs uppercase">
                     <th className="text-left px-3 py-2">Mitra</th>
                     <th className="text-left px-3 py-2 hidden md:table-cell">Aset</th>
+                    <th className="text-center px-3 py-2 hidden md:table-cell">Periode</th>
                     <th className="text-right px-3 py-2">Total Tagihan</th>
                     <th className="text-right px-3 py-2">Sudah Bayar</th>
                     <th className="text-right px-3 py-2 font-semibold text-orange-700">Sisa Piutang</th>
@@ -398,10 +410,13 @@ export function Dashboard() {
                       <td className="px-3 py-2.5">
                         <p className="font-medium text-gray-900">{item.namaMitra}</p>
                         {item.adaTerlambat && (
-                          <p className="text-xs text-red-600 mt-0.5">Terlambat {item.hariTerlambat} hari</p>
+                          <p className="text-xs text-red-600 mt-0.5">Terlambat s.d. {item.hariTerlambat} hari</p>
                         )}
                       </td>
                       <td className="px-3 py-2.5 hidden md:table-cell text-gray-500 text-xs">{item.namaAset}</td>
+                      <td className="px-3 py-2.5 text-center hidden md:table-cell">
+                        <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{item.jumlahPeriode} periode</span>
+                      </td>
                       <td className="px-3 py-2.5 text-right text-gray-600">
                         <CurrencyDisplay value={item.totalTagihan} size="sm" />
                       </td>
@@ -422,7 +437,7 @@ export function Dashboard() {
                 </tbody>
                 <tfoot>
                   <tr className="border-t-2 bg-gray-50 font-semibold">
-                    <td colSpan={2} className="px-3 py-2 text-sm text-gray-700">Total</td>
+                    <td colSpan={3} className="px-3 py-2 text-sm text-gray-700">Total</td>
                     <td className="px-3 py-2 text-right text-sm text-gray-600">
                       <CurrencyDisplay value={piutangList.reduce((s, i) => s + i.totalTagihan, 0)} size="sm" />
                     </td>
