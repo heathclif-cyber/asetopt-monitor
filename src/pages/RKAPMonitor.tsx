@@ -607,22 +607,22 @@ export function RKAPMonitor() {
                     <tr key={row.id} className="border-b hover:bg-gray-50/60 group">
                       <td className="px-2 py-1.5 text-gray-400">{row.no}</td>
                       <td className="px-2 py-1.5 text-gray-700 font-medium">
-                        <button
-                          onClick={() => { setBreakdownKode(rowKode); setBreakdownNama(row.nama) }}
-                          className="text-left hover:text-blue-700 transition-colors cursor-pointer"
-                          title="Klik untuk lihat rincian cash in"
-                        >
-                          <div className="flex items-center gap-1.5">
-                            <span>{row.nama}</span>
-                            {row.kode && (
-                              <Badge variant="outline" className="font-mono text-[10px] text-blue-600 bg-blue-50 border-blue-200 px-1.5 py-0">
-                                {row.kode}
-                              </Badge>
-                            )}
-                          </div>
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            onClick={() => { setBreakdownKode(rowKode); setBreakdownNama(row.nama) }}
+                            className="text-blue-700 hover:text-blue-900 hover:underline cursor-pointer transition-colors"
+                            title="Klik untuk lihat rincian cash in"
+                          >
+                            {row.nama}
+                          </span>
+                          {row.kode && (
+                            <Badge variant="outline" className="font-mono text-[9px] text-gray-500 bg-gray-50 border-gray-200 px-1.5 py-0 leading-tight">
+                              {row.kode}
+                            </Badge>
+                          )}
+                        </div>
                         {pctTotal != null && (
-                          <div className={cn('text-[9px] font-semibold',
+                          <div className={cn('text-[9px] font-semibold mt-0.5',
                             pctTotal >= 100 ? 'text-green-600' : pctTotal >= 75 ? 'text-yellow-600' : 'text-red-500'
                           )}>
                             {pctTotal.toFixed(1)}% tercapai
