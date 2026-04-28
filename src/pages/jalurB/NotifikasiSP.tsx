@@ -25,14 +25,15 @@ function fmtDate(d: Date) {
   return d.toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })
 }
 
-// Hitung level SP otomatis berdasarkan tanggal grace period
-// SP1: saat grace period berakhir; SP2: +14 hari; SP3: +28 hari; PUTUS: +42 hari
+// SP1 diterbitkan saat denda mencapai 5%: denda = 1/1000 per hari × 50 hari = 5%
+// SP1: grace period + 50 hari; SP2: +14; SP3: +28; PUTUS: +42
+const HARI_DENDA_SP1 = 50  // 50 × 1‰ = 5%
+
 function hitungAutoSP(tglJatuhTempo: string, maksHariBayar: number) {
-  const tglGraceEnd = addDays(tglJatuhTempo, maksHariBayar)
-  const tglSP1 = tglGraceEnd
-  const tglSP2 = addDays(tglJatuhTempo, maksHariBayar + 14)
-  const tglSP3 = addDays(tglJatuhTempo, maksHariBayar + 28)
-  const tglPutus = addDays(tglJatuhTempo, maksHariBayar + 42)
+  const tglSP1   = addDays(tglJatuhTempo, maksHariBayar + HARI_DENDA_SP1)
+  const tglSP2   = addDays(tglJatuhTempo, maksHariBayar + HARI_DENDA_SP1 + 14)
+  const tglSP3   = addDays(tglJatuhTempo, maksHariBayar + HARI_DENDA_SP1 + 28)
+  const tglPutus = addDays(tglJatuhTempo, maksHariBayar + HARI_DENDA_SP1 + 42)
   const today = new Date(); today.setHours(0,0,0,0)
 
   let level: 'BELUM' | 'SP1' | 'SP2' | 'SP3' | 'PUTUS' = 'BELUM'
@@ -239,8 +240,8 @@ export function NotifikasiSP() {
         {/* Tab Status SP Otomatis */}
         <TabsContent value="sp_auto" className="mt-4">
           <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-700">
-            <strong>Keterangan:</strong> Status SP dihitung otomatis berdasarkan tanggal grace period kompensasi yang belum lunas.
-            SP1 berlaku saat grace period berakhir, SP2 setelah +14 hari, SP3 setelah +28 hari, PUTUS setelah +42 hari.
+            <strong>Keterangan:</strong> SP1 diterbitkan saat denda keterlambatan mencapai 5% (50 hari × 1‰/hari setelah grace period).
+            SP2 setelah +14 hari dari SP1, SP3 setelah +14 hari dari SP2, PUTUS setelah +14 hari dari SP3.
           </div>
           {autoSPList.length === 0 ? (
             <EmptyState title="Tidak ada KS yang memerlukan SP" description="Semua kompensasi masih dalam batas toleransi." />
@@ -276,17 +277,29 @@ export function NotifikasiSP() {
                       </p>
                     </div>
                     <div className="text-right shrink-0">
-                      <div className={`text-[10px] space-y-0.5 ${item.level === 'PUTUS' ? 'text-gray-400' : 'text-gray-400'}`}>
-                        <div className={item.level === 'SP1' || item.level === 'SP2' || item.level === 'SP3' || item.level === 'PUTUS' ? 'font-semibold text-yellow-700' : ''}>
+                      <div className="text-[10px] space-y-0.5">
+                        <div className={
+                          item.level === 'PUTUS' ? 'font-semibold text-yellow-400' :
+                          (item.level === 'SP1' || item.level === 'SP2' || item.level === 'SP3') ? 'font-semibold text-yellow-700' :
+                          'text-gray-400'
+                        }>
                           SP1: {fmtDate(item.tglSP1)}
                         </div>
-                        <div className={item.level === 'SP2' || item.level === 'SP3' || item.level === 'PUTUS' ? 'font-semibold text-orange-600' : ''}>
+                        <div className={
+                          item.level === 'PUTUS' ? 'font-semibold text-orange-400' :
+                          (item.level === 'SP2' || item.level === 'SP3') ? 'font-semibold text-orange-600' :
+                          'text-gray-400'
+                        }>
                           SP2: {fmtDate(item.tglSP2)}
                         </div>
-                        <div className={item.level === 'SP3' || item.level === 'PUTUS' ? 'font-semibold text-red-600' : ''}>
+                        <div className={
+                          item.level === 'PUTUS' ? 'font-semibold text-red-400' :
+                          item.level === 'SP3' ? 'font-semibold text-red-600' :
+                          'text-gray-400'
+                        }>
                           SP3: {fmtDate(item.tglSP3)}
                         </div>
-                        <div className={item.level === 'PUTUS' ? 'font-semibold text-gray-300' : ''}>
+                        <div className={item.level === 'PUTUS' ? 'font-semibold text-white' : 'text-gray-400'}>
                           PUTUS: {fmtDate(item.tglPutus)}
                         </div>
                       </div>
