@@ -38,6 +38,8 @@ function toISO(date: Date): string {
   return date.toISOString().split('T')[0]
 }
 
+type Interval = 'bulanan' | 'triwulan' | 'semesteran' | 'tahunan' | 'tahun1_bulanan_sisanya_tahunan'
+
 type GeneratedPeriode = {
   label: string
   tgl_jatuh_tempo: string
@@ -51,7 +53,8 @@ function generatePeriode(params: {
   tglMulai: string
   tglSelesai: string
   nominal: number
-  interval: 'bulanan' | 'triwulan' | 'semesteran' | 'tahunan'
+  nominalTahun2?: number
+  interval: Interval
   ppnPersen: number
   pphPersen: number
   maksHariBayar: number
@@ -59,45 +62,66 @@ function generatePeriode(params: {
   offsetJatuhTempo: number
 }): (GeneratedPeriode & { ks_id: string; ppn_persen: number; pph_persen: number; maks_hari_bayar: number; persen_denda_per_hari: number })[] {
   const { tglMulai, tglSelesai, nominal, interval, ppnPersen, offsetJatuhTempo } = params
-  const stepMonths = { bulanan: 1, triwulan: 3, semesteran: 6, tahunan: 12 }[interval]
   const hasil = []
-  let current = new Date(tglMulai)
   const end = new Date(tglSelesai)
-  let idx = 1
 
-  while (current <= end) {
-    let label = ''
-    if (interval === 'bulanan') label = `${BULAN[current.getMonth()]} ${current.getFullYear()}`
-    else if (interval === 'triwulan') label = `Triwulan ${['I','II','III','IV'][Math.floor(current.getMonth() / 3)]} ${current.getFullYear()}`
-    else if (interval === 'semesteran') label = `Semester ${current.getMonth() < 6 ? 1 : 2} ${current.getFullYear()}`
-    else label = `Tahun ke-${idx}`
+  const makeItem = (current: Date, label: string, nom: number) => ({
+    ks_id: params.ksId,
+    periode_label: label,
+    label,
+    tgl_jatuh_tempo: toISO(addDays(current, offsetJatuhTempo)),
+    nominal: nom,
+    ppn_persen: params.ppnPersen,
+    pph_persen: params.pphPersen,
+    maks_hari_bayar: params.maksHariBayar,
+    persen_denda_per_hari: params.persenDenda,
+    total_tagihan: nom + (nom * ppnPersen / 100),
+  })
 
-    const tgl_jatuh_tempo = toISO(addDays(current, offsetJatuhTempo))
-    const total_tagihan = nominal + (nominal * ppnPersen / 100)
+  if (interval === 'tahun1_bulanan_sisanya_tahunan') {
+    const batasTahun1 = addMonths(new Date(tglMulai), 12)
+    let current = new Date(tglMulai)
 
-    hasil.push({
-      ks_id: params.ksId,
-      periode_label: label,
-      label,
-      tgl_jatuh_tempo,
-      nominal,
-      ppn_persen: params.ppnPersen,
-      pph_persen: params.pphPersen,
-      maks_hari_bayar: params.maksHariBayar,
-      persen_denda_per_hari: params.persenDenda,
-      total_tagihan,
-    })
+    // Tahun 1 — bulanan
+    while (current < batasTahun1 && current <= end) {
+      hasil.push(makeItem(current, `${BULAN[current.getMonth()]} ${current.getFullYear()}`, nominal))
+      current = addMonths(current, 1)
+    }
 
-    current = addMonths(current, stepMonths)
-    idx++
+    // Tahun 2+ — tahunan
+    const nomAnnual = params.nominalTahun2 ?? nominal * 12
+    let tahunIdx = 2
+    while (current <= end) {
+      hasil.push(makeItem(current, `Tahun ke-${tahunIdx}`, nomAnnual))
+      current = addMonths(current, 12)
+      tahunIdx++
+    }
+  } else {
+    const stepMonths = { bulanan: 1, triwulan: 3, semesteran: 6, tahunan: 12 }[interval]
+    let current = new Date(tglMulai)
+    let idx = 1
+
+    while (current <= end) {
+      let label = ''
+      if (interval === 'bulanan') label = `${BULAN[current.getMonth()]} ${current.getFullYear()}`
+      else if (interval === 'triwulan') label = `Triwulan ${['I','II','III','IV'][Math.floor(current.getMonth() / 3)]} ${current.getFullYear()}`
+      else if (interval === 'semesteran') label = `Semester ${current.getMonth() < 6 ? 1 : 2} ${current.getFullYear()}`
+      else label = `Tahun ke-${idx}`
+
+      hasil.push(makeItem(current, label, nominal))
+      current = addMonths(current, stepMonths)
+      idx++
+    }
   }
+
   return hasil
 }
 
 const genSchema = z.object({
   ks_id: z.string().min(1),
   nominal: z.coerce.number().min(1),
-  interval: z.enum(['bulanan', 'triwulan', 'semesteran', 'tahunan']),
+  nominal_tahun2: z.coerce.number().min(0).optional(),
+  interval: z.enum(['bulanan', 'triwulan', 'semesteran', 'tahunan', 'tahun1_bulanan_sisanya_tahunan']),
   ppn_persen: z.coerce.number().min(0).default(11),
   pph_persen: z.coerce.number().min(0).default(10),
   maks_hari_bayar: z.coerce.number().min(1).default(14),
@@ -160,6 +184,7 @@ export function Kompensasi() {
 
   const watchNominal = kompForm.watch('nominal')
   const watchPPN = kompForm.watch('ppn_persen')
+  const watchInterval = genForm.watch('interval')
 
   useEffect(() => { fetchAllKompensasi(); fetchKS() }, [])
 
@@ -243,6 +268,7 @@ export function Kompensasi() {
       tglMulai: ks.tgl_mulai,
       tglSelesai: ks.tgl_selesai,
       nominal: data.nominal,
+      nominalTahun2: data.nominal_tahun2,
       interval: data.interval,
       ppnPersen: data.ppn_persen,
       pphPersen: data.pph_persen,
@@ -420,26 +446,44 @@ export function Kompensasi() {
                 </Select>
               </div>
 
+              <div>
+                <Label>Interval Periode</Label>
+                <Select defaultValue="tahunan" onValueChange={v => genForm.setValue('interval', v as any)}>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="bulanan">Bulanan</SelectItem>
+                    <SelectItem value="triwulan">Triwulan (3 bulan)</SelectItem>
+                    <SelectItem value="semesteran">Semesteran (6 bulan)</SelectItem>
+                    <SelectItem value="tahunan">Tahunan</SelectItem>
+                    <SelectItem value="tahun1_bulanan_sisanya_tahunan">Tahun 1 Bulanan → Tahun 2+ Tahunan</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label>Nominal per Periode (Rp)</Label>
+                  <Label>
+                    {watchInterval === 'tahun1_bulanan_sisanya_tahunan' ? 'Nominal per Bulan (Tahun 1)' : 'Nominal per Periode'} (Rp)
+                  </Label>
                   <Controller control={genForm.control} name="nominal" render={({ field }) => (
                     <CurrencyInput value={field.value} onChange={field.onChange} className="mt-1" />
                   )} />
                 </div>
-                <div>
-                  <Label>Interval Periode</Label>
-                  <Select defaultValue="tahunan" onValueChange={v => genForm.setValue('interval', v as any)}>
-                    <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="bulanan">Bulanan</SelectItem>
-                      <SelectItem value="triwulan">Triwulan (3 bulan)</SelectItem>
-                      <SelectItem value="semesteran">Semesteran (6 bulan)</SelectItem>
-                      <SelectItem value="tahunan">Tahunan</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+                {watchInterval === 'tahun1_bulanan_sisanya_tahunan' && (
+                  <div>
+                    <Label>Nominal per Tahun (Tahun ke-2 dst) (Rp)</Label>
+                    <Controller control={genForm.control} name="nominal_tahun2" render={({ field }) => (
+                      <CurrencyInput value={field.value ?? 0} onChange={field.onChange} className="mt-1" />
+                    )} />
+                  </div>
+                )}
               </div>
+
+              {watchInterval === 'tahun1_bulanan_sisanya_tahunan' && (
+                <div className="bg-blue-50 border border-blue-200 rounded-md px-3 py-2 text-xs text-blue-700">
+                  12 periode bulanan untuk tahun pertama, lalu 1 periode per tahun untuk tahun berikutnya.
+                </div>
+              )}
 
               <div className="grid grid-cols-3 gap-4">
                 <div>
