@@ -165,7 +165,18 @@ export function Dashboard() {
       'Target': Math.round(m.targetAdjusted / 1_000_000),
       'Realisasi': Math.round(m.realisasi / 1_000_000),
     }))
-    return { totalTarget, ytdTarget, ytdRealisasi, achievement, currentCarryOver, chartData }
+    const triwulan = [0, 1, 2, 3].map(q => {
+      const bulanStart = q * 3
+      const bulanEnd   = bulanStart + 3
+      const label = `TW${q + 1}`
+      const isFuture = bulanStart > CURRENT_MONTH
+      const target = months.slice(bulanStart, bulanEnd).reduce((s, m) => s + m.targetOriginal, 0)
+      const realisasi = cashIn.slice(bulanStart, bulanEnd).reduce((s, v) => s + v, 0)
+      const achievement = target > 0 ? (realisasi / target) * 100 : 0
+      const isCurrent = CURRENT_MONTH >= bulanStart && CURRENT_MONTH < bulanEnd
+      return { label, target, realisasi, achievement, isFuture, isCurrent }
+    })
+    return { totalTarget, ytdTarget, ytdRealisasi, achievement, currentCarryOver, chartData, triwulan }
   }, [allKompensasi, rkapRows])
 
   const cashFlowData = useMemo(() => {
@@ -498,6 +509,59 @@ export function Dashboard() {
                 style={{ width: `${Math.min(100, rkapSummary.achievement)}%` }}
               />
             </div>
+          </div>
+        </div>
+
+        {/* Capaian Triwulan */}
+        <div className="px-5 pb-4 pt-1 border-t border-gray-100">
+          <p className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-3">Capaian per Triwulan</p>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            {rkapSummary.triwulan.map(tw => (
+              <div
+                key={tw.label}
+                className={`rounded-lg p-3 border ${
+                  tw.isFuture
+                    ? 'bg-gray-50 border-gray-200 opacity-50'
+                    : tw.achievement >= 100
+                    ? 'bg-green-50 border-green-200'
+                    : tw.achievement >= 75
+                    ? 'bg-yellow-50 border-yellow-200'
+                    : 'bg-red-50 border-red-200'
+                } ${tw.isCurrent ? 'ring-2 ring-[#1B4F72]/30' : ''}`}
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-bold text-gray-700">{tw.label}</span>
+                  {tw.isCurrent && <span className="text-[9px] bg-[#1B4F72] text-white px-1.5 py-0.5 rounded-full">Berjalan</span>}
+                  {tw.isFuture  && <span className="text-[9px] text-gray-400">Belum</span>}
+                </div>
+                <p className={`text-lg font-bold ${
+                  tw.isFuture ? 'text-gray-400'
+                  : tw.achievement >= 100 ? 'text-green-700'
+                  : tw.achievement >= 75  ? 'text-yellow-700'
+                  : 'text-red-700'
+                }`}>
+                  {tw.isFuture ? '—' : `${tw.achievement.toFixed(1)}%`}
+                </p>
+                <p className="text-[10px] text-gray-500 mt-0.5">
+                  Realisasi: <span className="font-medium text-gray-700">{Math.round(tw.realisasi / 1_000_000)}jt</span>
+                </p>
+                <p className="text-[10px] text-gray-400">
+                  Target: {Math.round(tw.target / 1_000_000)}jt
+                </p>
+                {!tw.isFuture && (
+                  <div className="mt-1.5 h-1 bg-gray-200 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${
+                        tw.achievement >= 100 ? 'bg-green-500'
+                        : tw.achievement >= 75 ? 'bg-yellow-400'
+                        : 'bg-red-500'
+                      }`}
+                      style={{ width: `${Math.min(100, tw.achievement)}%` }}
+                    />
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         </div>
 
