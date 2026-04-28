@@ -59,18 +59,21 @@ function exportRKAPExcel(
       rp(m.realisasi),
       (past || current) ? m.selisih : null,
       m.targetAdjusted > 0 ? pct(m.realisasi, m.targetAdjusted) : null,
-      (past || current) ? rp(m.realisasi) : null,   // prognosa = realisasi yg sudah lewat
+      rp(m.prognosa),
       status,
     ])
   })
+  
+  const totalPrognosa = rkapData.reduce((s, m) => s + m.prognosa, 0);
+
   sh1.push(
     [],
     ['TOTAL', rp(totalTarget), null, rp(totalTarget),
       rp(rkapData.reduce((s, m) => s + m.realisasi, 0)), null,
-      pct(ytdReal, ytdTarget), rp(ytdReal), ''],
+      pct(ytdReal, ytdTarget), rp(totalPrognosa), ''],
     [],
     [`Carry-over aktif: ${carryAktif > 0 ? formatRupiah(carryAktif) : 'Tidak ada'}`],
-    ['Prognosa = realisasi bulan yang telah lewat. Carry-over otomatis ditambahkan ke target bulan berikutnya apabila target tidak tercapai.'],
+    ['Prognosa = realisasi bulan yang telah lewat/berjalan, dan target RKAP original untuk bulan-bulan mendatang.'],
   )
 
   const ws1 = XLSX.utils.aoa_to_sheet(sh1)
