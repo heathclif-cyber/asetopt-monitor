@@ -1052,150 +1052,152 @@ export function Kompensasi() {
           <DialogHeader>
             <DialogTitle>{editTarget ? 'Edit Kompensasi' : 'Tambah Kompensasi'}</DialogTitle>
           </DialogHeader>
-          <form onSubmit={kompForm.handleSubmit(onSubmit)} className="space-y-4">
-            <div>
-              <Label>Kerja Sama</Label>
-              <Select
-                value={kompForm.watch('ks_id') ?? ''}
-                onValueChange={v => kompForm.setValue('ks_id', v, { shouldValidate: true })}
-                disabled={!!editTarget}
-              >
-                <SelectTrigger className="mt-1"><SelectValue placeholder="Pilih KS..." /></SelectTrigger>
-                <SelectContent>
-                  {daftarKS.map(ks => <SelectItem key={ks.id} value={ks.id}>{(ks.aset as any)?.nama_aset ?? '-'} — {ks.nama_mitra}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>Label Periode</Label>
-              <Input {...kompForm.register('periode_label')} className="mt-1" placeholder="cth: Tahun ke-1 2025" />
-            </div>
-            <div>
-              <Label>Nominal Kompensasi (Rp)</Label>
-              <Controller control={kompForm.control} name="nominal" render={({ field }) => (
-                <CurrencyInput value={field.value} onChange={field.onChange} className="mt-1" />
-              )} />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
+          <form onSubmit={kompForm.handleSubmit(onSubmit)}>
+            <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-2 pb-2">
               <div>
-                <Label>PPN (%)</Label>
-                <Input type="number" step="0.01" {...kompForm.register('ppn_persen')} className="mt-1" />
+                <Label>Kerja Sama</Label>
+                <Select
+                  value={kompForm.watch('ks_id') ?? ''}
+                  onValueChange={v => kompForm.setValue('ks_id', v, { shouldValidate: true })}
+                  disabled={!!editTarget}
+                >
+                  <SelectTrigger className="mt-1"><SelectValue placeholder="Pilih KS..." /></SelectTrigger>
+                  <SelectContent>
+                    {daftarKS.map(ks => <SelectItem key={ks.id} value={ks.id}>{(ks.aset as any)?.nama_aset ?? '-'} — {ks.nama_mitra}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
               <div>
-                <Label>PPh (%)</Label>
-                <Input type="number" step="0.01" {...kompForm.register('pph_persen')} className="mt-1" />
+                <Label>Label Periode</Label>
+                <Input {...kompForm.register('periode_label')} className="mt-1" placeholder="cth: Tahun ke-1 2025" />
               </div>
-            </div>
-            <div>
-              <Label>Mode PPh</Label>
-              <Select
-                value={watchPPHMode ?? 'none'}
-                onValueChange={v => kompForm.setValue('pph_mode', v as any)}
-              >
-                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Tidak dipotong dari invoice</SelectItem>
-                  <SelectItem value="bukti_potong">Bukti Potong — PPh mengurangi nilai invoice</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            {watchNominal > 0 && (
-              <div className="bg-gray-50 rounded-lg p-3 text-xs space-y-1">
-                {(() => {
-                  const nom = watchNominal ?? 0
-                  const ppn = nom * (watchPPN ?? 11) / 100
-                  const pph = nom * (watchPPH ?? 10) / 100
-                  const isBuktiPotong = watchPPHMode === 'bukti_potong'
-                  const total = nom + ppn - (isBuktiPotong ? pph : 0)
-                  const penguranganNom = adaPengurang ? (watchPengurang ?? 0) : 0
-                  return (
-                    <>
-                      <div className="flex justify-between text-gray-500">
-                        <span>Kompensasi</span><span>{formatRupiah(nom)}</span>
-                      </div>
-                      <div className="flex justify-between text-blue-700">
-                        <span>+ PPN ({watchPPN ?? 11}%)</span><span>+ {formatRupiah(ppn)}</span>
-                      </div>
-                      {isBuktiPotong && (
-                        <div className="flex justify-between text-orange-700">
-                          <span>− PPh ({watchPPH ?? 10}%) [Bukti Potong]</span><span>− {formatRupiah(pph)}</span>
+              <div>
+                <Label>Nominal Kompensasi (Rp)</Label>
+                <Controller control={kompForm.control} name="nominal" render={({ field }) => (
+                  <CurrencyInput value={field.value} onChange={field.onChange} className="mt-1" />
+                )} />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>PPN (%)</Label>
+                  <Input type="number" step="0.01" {...kompForm.register('ppn_persen')} className="mt-1" />
+                </div>
+                <div>
+                  <Label>PPh (%)</Label>
+                  <Input type="number" step="0.01" {...kompForm.register('pph_persen')} className="mt-1" />
+                </div>
+              </div>
+              <div>
+                <Label>Mode PPh</Label>
+                <Select
+                  value={watchPPHMode ?? 'none'}
+                  onValueChange={v => kompForm.setValue('pph_mode', v as any)}
+                >
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Tidak dipotong dari invoice</SelectItem>
+                    <SelectItem value="bukti_potong">Bukti Potong — PPh mengurangi nilai invoice</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {watchNominal > 0 && (
+                <div className="bg-gray-50 rounded-lg p-3 text-xs space-y-1">
+                  {(() => {
+                    const nom = watchNominal ?? 0
+                    const ppn = nom * (watchPPN ?? 11) / 100
+                    const pph = nom * (watchPPH ?? 10) / 100
+                    const isBuktiPotong = watchPPHMode === 'bukti_potong'
+                    const total = nom + ppn - (isBuktiPotong ? pph : 0)
+                    const penguranganNom = adaPengurang ? (watchPengurang ?? 0) : 0
+                    return (
+                      <>
+                        <div className="flex justify-between text-gray-500">
+                          <span>Kompensasi</span><span>{formatRupiah(nom)}</span>
                         </div>
-                      )}
-                      <div className={`flex justify-between font-semibold border-t pt-1 ${penguranganNom > 0 ? '' : ''}`}>
-                        <span>Total Tagihan</span><span>{formatRupiah(total)}</span>
-                      </div>
-                      {penguranganNom > 0 && (
-                        <>
-                          <div className="flex justify-between text-purple-700">
-                            <span>− Pengurang {watchKetPengurang ? `(${watchKetPengurang})` : ''}</span>
-                            <span>− {formatRupiah(penguranganNom)}</span>
+                        <div className="flex justify-between text-blue-700">
+                          <span>+ PPN ({watchPPN ?? 11}%)</span><span>+ {formatRupiah(ppn)}</span>
+                        </div>
+                        {isBuktiPotong && (
+                          <div className="flex justify-between text-orange-700">
+                            <span>− PPh ({watchPPH ?? 10}%) [Bukti Potong]</span><span>− {formatRupiah(pph)}</span>
                           </div>
-                          <div className="flex justify-between font-semibold text-purple-800 border-t pt-1">
-                            <span>Efektif Harus Dibayar</span>
-                            <span>{formatRupiah(Math.max(0, total - penguranganNom))}</span>
-                          </div>
-                        </>
-                      )}
-                    </>
-                  )
-                })()}
-              </div>
-            )}
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>Maks Hari Bayar</Label>
-                <Input type="number" {...kompForm.register('maks_hari_bayar')} className="mt-1" />
-              </div>
-              <div>
-                <Label>% Denda / Hari</Label>
-                <Input type="number" step="0.001" {...kompForm.register('persen_denda_per_hari')} className="mt-1" />
-              </div>
-            </div>
-            <div>
-              <Label>Tanggal Jatuh Tempo</Label>
-              <Input type="date" {...kompForm.register('tgl_jatuh_tempo')} className="mt-1" />
-            </div>
-            <div>
-              <Label>Keterangan</Label>
-              <Textarea {...kompForm.register('keterangan')} className="mt-1" rows={2} />
-            </div>
-            <div className="border rounded-lg p-3 space-y-3">
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={adaPengurang}
-                  onChange={e => {
-                    setAdaPengurang(e.target.checked)
-                    if (!e.target.checked) {
-                      kompForm.setValue('pengurang', 0)
-                      kompForm.setValue('keterangan_pengurang', '')
-                    }
-                  }}
-                  className="w-4 h-4 rounded border-gray-300 accent-[#5B2C6F] cursor-pointer"
-                />
-                <span className="text-sm font-medium text-gray-700">Ada Pengurang Kompensasi?</span>
-                <span className="text-xs text-gray-400">(uang muka, deposit, dll.)</span>
-              </label>
-              {adaPengurang && (
-                <div className="space-y-3">
-                  <div>
-                    <Label>Nominal Pengurang (Rp)</Label>
-                    <Controller control={kompForm.control} name="pengurang" render={({ field }) => (
-                      <CurrencyInput value={field.value ?? 0} onChange={field.onChange} className="mt-1" />
-                    )} />
-                  </div>
-                  <div>
-                    <Label>Keterangan Pengurang</Label>
-                    <Input
-                      {...kompForm.register('keterangan_pengurang')}
-                      className="mt-1"
-                      placeholder="cth: Uang muka, Security deposit"
-                    />
-                  </div>
+                        )}
+                        <div className={`flex justify-between font-semibold border-t pt-1 ${penguranganNom > 0 ? '' : ''}`}>
+                          <span>Total Tagihan</span><span>{formatRupiah(total)}</span>
+                        </div>
+                        {penguranganNom > 0 && (
+                          <>
+                            <div className="flex justify-between text-purple-700">
+                              <span>− Pengurang {watchKetPengurang ? `(${watchKetPengurang})` : ''}</span>
+                              <span>− {formatRupiah(penguranganNom)}</span>
+                            </div>
+                            <div className="flex justify-between font-semibold text-purple-800 border-t pt-1">
+                              <span>Efektif Harus Dibayar</span>
+                              <span>{formatRupiah(Math.max(0, total - penguranganNom))}</span>
+                            </div>
+                          </>
+                        )}
+                      </>
+                    )
+                  })()}
                 </div>
               )}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Maks Hari Bayar</Label>
+                  <Input type="number" {...kompForm.register('maks_hari_bayar')} className="mt-1" />
+                </div>
+                <div>
+                  <Label>% Denda / Hari</Label>
+                  <Input type="number" step="0.001" {...kompForm.register('persen_denda_per_hari')} className="mt-1" />
+                </div>
+              </div>
+              <div>
+                <Label>Tanggal Jatuh Tempo</Label>
+                <Input type="date" {...kompForm.register('tgl_jatuh_tempo')} className="mt-1" />
+              </div>
+              <div>
+                <Label>Keterangan</Label>
+                <Textarea {...kompForm.register('keterangan')} className="mt-1" rows={2} />
+              </div>
+              <div className="border rounded-lg p-3 space-y-3">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={adaPengurang}
+                    onChange={e => {
+                      setAdaPengurang(e.target.checked)
+                      if (!e.target.checked) {
+                        kompForm.setValue('pengurang', 0)
+                        kompForm.setValue('keterangan_pengurang', '')
+                      }
+                    }}
+                    className="w-4 h-4 rounded border-gray-300 accent-[#5B2C6F] cursor-pointer"
+                  />
+                  <span className="text-sm font-medium text-gray-700">Ada Pengurang Kompensasi?</span>
+                  <span className="text-xs text-gray-400">(uang muka, deposit, dll.)</span>
+                </label>
+                {adaPengurang && (
+                  <div className="space-y-3">
+                    <div>
+                      <Label>Nominal Pengurang (Rp)</Label>
+                      <Controller control={kompForm.control} name="pengurang" render={({ field }) => (
+                        <CurrencyInput value={field.value ?? 0} onChange={field.onChange} className="mt-1" />
+                      )} />
+                    </div>
+                    <div>
+                      <Label>Keterangan Pengurang</Label>
+                      <Input
+                        {...kompForm.register('keterangan_pengurang')}
+                        className="mt-1"
+                        placeholder="cth: Uang muka, Security deposit"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
-            <DialogFooter>
+            <DialogFooter className="mt-4">
               <Button type="button" variant="outline" onClick={() => setKompDialog(false)}>Batal</Button>
               <Button type="submit" disabled={isSavingKomp} className="bg-[#5B2C6F]">
                 {isSavingKomp ? 'Menyimpan...' : editTarget ? 'Simpan' : 'Tambah'}
