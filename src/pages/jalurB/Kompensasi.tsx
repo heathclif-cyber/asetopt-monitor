@@ -254,6 +254,8 @@ export function Kompensasi() {
   const [isSaving, setIsSaving] = useState(false)
   const [isSavingKomp, setIsSavingKomp] = useState(false)
   const [filterKS, setFilterKS] = useState<string>('semua')
+  const [filterBulan, setFilterBulan] = useState<string>('semua')
+  const [sortBy, setSortBy] = useState<string>('jatuh_tempo_asc')
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
   const kompForm = useForm<KompForm>({
@@ -289,7 +291,25 @@ export function Kompensasi() {
 
   useEffect(() => { fetchAllKompensasi(); fetchKS(); fetchAllPBB(); fetchAllCashIn() }, [])
 
-  const filtered = filterKS === 'semua' ? allKompensasi : allKompensasi.filter(k => k.ks_id === filterKS)
+  const availableBulan = useMemo(() => {
+    const months = new Set(allKompensasi.map(k => k.tgl_jatuh_tempo.slice(0, 7)))
+    return Array.from(months).sort()
+  }, [allKompensasi])
+
+  const filtered = useMemo(() => {
+    let result = allKompensasi
+    if (filterKS !== 'semua') result = result.filter(k => k.ks_id === filterKS)
+    if (filterBulan !== 'semua') result = result.filter(k => k.tgl_jatuh_tempo.startsWith(filterBulan))
+    return [...result].sort((a, b) => {
+      switch (sortBy) {
+        case 'jatuh_tempo_asc':  return a.tgl_jatuh_tempo.localeCompare(b.tgl_jatuh_tempo)
+        case 'jatuh_tempo_desc': return b.tgl_jatuh_tempo.localeCompare(a.tgl_jatuh_tempo)
+        case 'tagihan_desc':     return (b.total_tagihan ?? 0) - (a.total_tagihan ?? 0)
+        case 'tagihan_asc':      return (a.total_tagihan ?? 0) - (b.total_tagihan ?? 0)
+        default: return 0
+      }
+    })
+  }, [allKompensasi, filterKS, filterBulan, sortBy])
 
   const openAdd = () => {
     setEditTarget(null)
@@ -475,19 +495,66 @@ export function Kompensasi() {
         </div>
       </div>
 
-      <div className="flex items-center gap-3">
-        <Label className="shrink-0">Filter KS:</Label>
-        <Select value={filterKS} onValueChange={setFilterKS}>
-          <SelectTrigger className="max-w-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="semua">Semua Kerja Sama</SelectItem>
-            {daftarKS.map(ks => (
-              <SelectItem key={ks.id} value={ks.id}>{(ks.aset as any)?.nama_aset ?? '-'} — {ks.nama_mitra}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        {/* Filter KS */}
+        <div className="flex items-center gap-2">
+          <Label className="shrink-0 text-xs text-gray-500">KS:</Label>
+          <Select value={filterKS} onValueChange={setFilterKS}>
+            <SelectTrigger className="w-56 h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="semua">Semua Kerja Sama</SelectItem>
+              {daftarKS.map(ks => (
+                <SelectItem key={ks.id} value={ks.id}>
+                  {(ks.aset as any)?.nama_aset ?? '-'} — {ks.nama_mitra}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Filter Bulan */}
+        <div className="flex items-center gap-2">
+          <Label className="shrink-0 text-xs text-gray-500">Bulan:</Label>
+          <Select value={filterBulan} onValueChange={setFilterBulan}>
+            <SelectTrigger className="w-44 h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="semua">Semua Bulan</SelectItem>
+              {availableBulan.map(ym => {
+                const [year, month] = ym.split('-')
+                return (
+                  <SelectItem key={ym} value={ym}>
+                    {BULAN[parseInt(month) - 1]} {year}
+                  </SelectItem>
+                )
+              })}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Sort */}
+        <div className="flex items-center gap-2">
+          <Label className="shrink-0 text-xs text-gray-500">Urutan:</Label>
+          <Select value={sortBy} onValueChange={setSortBy}>
+            <SelectTrigger className="w-48 h-8 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="jatuh_tempo_asc">Jatuh Tempo (Terdekat)</SelectItem>
+              <SelectItem value="jatuh_tempo_desc">Jatuh Tempo (Terlama)</SelectItem>
+              <SelectItem value="tagihan_desc">Total Tagihan Terbesar</SelectItem>
+              <SelectItem value="tagihan_asc">Total Tagihan Terkecil</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Jumlah hasil */}
+        {(filterKS !== 'semua' || filterBulan !== 'semua') && (
+          <span className="text-xs text-gray-400">{filtered.length} kompensasi ditampilkan</span>
+        )}
       </div>
 
       <div className="bg-white rounded-xl border overflow-hidden">
