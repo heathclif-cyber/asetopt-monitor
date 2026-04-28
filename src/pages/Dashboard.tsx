@@ -15,8 +15,9 @@ import { RKAP_2026, BULAN_LABELS } from '@/data/rkap2026'
 import { useRKAPStore, rowToRKAPItem } from '@/store/rkapStore'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+  ComposedChart, Area, Line, ReferenceLine,
 } from 'recharts'
-import { Building2, Handshake, Clock, TrendingUp, AlertTriangle, Banknote, ReceiptText, Percent, Target, ChevronRight, WalletCards } from 'lucide-react'
+import { Building2, Handshake, Clock, TrendingUp, AlertTriangle, Banknote, ReceiptText, Percent, Target, ChevronRight, WalletCards, CalendarRange } from 'lucide-react'
 
 const CURRENT_MONTH = new Date().getMonth()
 
@@ -199,6 +200,62 @@ export function Dashboard() {
         tagihan: Math.round(tagihan / 1_000_000),
         cashIn: Math.round(cashIn / 1_000_000),
       }))
+  }, [allKompensasi])
+
+  // Proyeksi cash in 18 bulan — berdasarkan jadwal jatuh tempo KS eksisting
+  const proyeksiCashInData = useMemo(() => {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const currentYM = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
+
+    // Kumpulkan semua tagihan per bulan jatuh tempo
+    const byBulan: Record<string, { tagihan: number; cashIn: number; sisaTagihan: number }> = {}
+
+    allKompensasi.forEach(k => {
+      const bulan = k.tgl_jatuh_tempo.slice(0, 7)
+      if (!byBulan[bulan]) byBulan[bulan] = { tagihan: 0, cashIn: 0, sisaTagihan: 0 }
+      const totalDibayar = (k.pembayaran ?? []).reduce((s, p) => s + p.nominal_bayar, 0)
+      const sisa = Math.max(0, (k.total_tagihan ?? 0) - totalDibayar)
+      byBulan[bulan].tagihan     += k.total_tagihan ?? 0
+      byBulan[bulan].sisaTagihan += sisa
+      // Cash in aktual per bulan bayar
+      ;(k.pembayaran ?? []).forEach(p => {
+        const bln = p.tgl_bayar.slice(0, 7)
+        if (!byBulan[bln]) byBulan[bln] = { tagihan: 0, cashIn: 0, sisaTagihan: 0 }
+        byBulan[bln].cashIn += p.nominal_bayar
+      })
+    })
+
+    // Ambil 6 bulan lewat + bulan ini + 12 bulan ke depan
+    const months: string[] = []
+    for (let i = -6; i <= 12; i++) {
+      const d = new Date(today.getFullYear(), today.getMonth() + i, 1)
+      months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
+    }
+
+    let cumRealisasi = 0
+    let cumProyeksi  = 0
+    return months.map(ym => {
+      const d     = byBulan[ym] ?? { tagihan: 0, cashIn: 0, sisaTagihan: 0 }
+      const label = new Date(ym + '-01').toLocaleDateString('id-ID', { month: 'short', year: '2-digit' })
+      const isPast = ym < currentYM
+      const isCurrent = ym === currentYM
+
+      if (isPast || isCurrent) cumRealisasi += d.cashIn
+      else cumProyeksi += d.sisaTagihan
+
+      return {
+        bulan: label,
+        ym,
+        isFuture: ym > currentYM,
+        isCurrent,
+        realisasi:   isPast || isCurrent ? Math.round(d.cashIn / 1_000_000) : null,
+        proyeksi:    ym >= currentYM     ? Math.round(d.sisaTagihan / 1_000_000) : null,
+        tagihan:     Math.round(d.tagihan / 1_000_000),
+        cumRealisasi: Math.round(cumRealisasi / 1_000_000),
+        cumProyeksi:  Math.round((cumRealisasi + cumProyeksi) / 1_000_000),
+      }
+    })
   }, [allKompensasi])
 
   return (
@@ -629,6 +686,68 @@ export function Dashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Grafik Proyeksi Cash In KS Eksisting */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <CalendarRange size={16} className="text-[#5B2C6F]" />
+            Proyeksi Cash In — Kerja Sama Eksisting
+            <span className="ml-auto text-xs font-normal text-gray-400">6 bulan lewat + 12 bulan ke depan</span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {proyeksiCashInData.length === 0 ? (
+            <p className="text-sm text-gray-500 text-center py-8">Belum ada data kompensasi</p>
+          ) : (
+            <>
+              <ResponsiveContainer width="100%" height={260}>
+                <ComposedChart data={proyeksiCashInData} margin={{ top: 10, right: 10, left: 0, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="bulan" tick={{ fontSize: 10 }} />
+                  <YAxis yAxisId="bar" tick={{ fontSize: 10 }} tickFormatter={v => `${v}jt`} />
+                  <YAxis yAxisId="line" orientation="right" tick={{ fontSize: 10 }} tickFormatter={v => `${v}jt`} />
+                  <Tooltip
+                    formatter={(v: any, name: string) => [
+                      v != null ? `Rp ${v}jt` : '—',
+                      name === 'realisasi'   ? 'Cash In Aktual'
+                      : name === 'proyeksi' ? 'Proyeksi (Sisa Tagihan)'
+                      : name === 'cumRealisasi' ? 'Kumulatif Realisasi'
+                      : 'Kumulatif Proyeksi',
+                    ]}
+                  />
+                  <Legend
+                    formatter={v =>
+                      v === 'realisasi'    ? 'Cash In Aktual'
+                      : v === 'proyeksi' ? 'Proyeksi Tagihan'
+                      : v === 'cumRealisasi' ? 'Kumulatif Realisasi'
+                      : 'Kumulatif Proyeksi'
+                    }
+                    wrapperStyle={{ fontSize: 11 }}
+                  />
+                  {/* Garis pemisah bulan ini */}
+                  {proyeksiCashInData.find(d => d.isCurrent) && (
+                    <ReferenceLine
+                      yAxisId="bar"
+                      x={proyeksiCashInData.find(d => d.isCurrent)?.bulan}
+                      stroke="#1B4F72"
+                      strokeDasharray="4 2"
+                      label={{ value: 'Sekarang', position: 'top', fontSize: 10, fill: '#1B4F72' }}
+                    />
+                  )}
+                  <Bar yAxisId="bar" dataKey="realisasi"  fill="#117A65" radius={[3,3,0,0]} name="realisasi" />
+                  <Bar yAxisId="bar" dataKey="proyeksi"   fill="#3B82F6" radius={[3,3,0,0]} name="proyeksi" opacity={0.7} />
+                  <Line yAxisId="line" type="monotone" dataKey="cumRealisasi" stroke="#117A65" strokeWidth={2} dot={false} name="cumRealisasi" />
+                  <Line yAxisId="line" type="monotone" dataKey="cumProyeksi"  stroke="#3B82F6" strokeWidth={2} dot={false} strokeDasharray="4 2" name="cumProyeksi" />
+                </ComposedChart>
+              </ResponsiveContainer>
+              <p className="text-[10px] text-gray-400 mt-2 text-center">
+                * Proyeksi = sisa tagihan belum dibayar berdasarkan jadwal jatuh tempo KS eksisting. Garis putus-putus = proyeksi kumulatif.
+              </p>
+            </>
+          )}
+        </CardContent>
+      </Card>
     </div>
   )
 }
