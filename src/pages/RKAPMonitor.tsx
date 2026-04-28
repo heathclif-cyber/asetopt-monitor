@@ -115,7 +115,7 @@ function exportRKAPExcel(
   const prognosaPerBulanAll = Array(12).fill(0);
 
   rkapItems.forEach(item => {
-    const realPerBulan = cashInPerNama[item.nama] ?? Array(12).fill(0);
+    const realPerBulan = cashInPerNama[item.kode ?? ''] ?? cashInPerNama[item.nama] ?? Array(12).fill(0);
     const progBulan = item.bulan.map((target, i) => {
       const isFuture = i > efektifBulan;
       const prog = isFuture ? target : realPerBulan[i];
@@ -242,21 +242,24 @@ export function RKAPMonitor() {
     'Prognosa':     Math.round(m.prognosa / 1_000_000),
   }))
 
-  // Agregasi realisasi per nama aset per bulan (untuk tabel per obyek)
+  // Agregasi realisasi per kode RKAP per bulan (untuk tabel per obyek)
+  // Prioritas: rkap_kode pada kompensasi → fallback nama_aset (untuk data lama)
   const cashInPerNama = useMemo(() => {
-    const byNama: Record<string, number[]> = {}
+    const byKey: Record<string, number[]> = {}
     allKompensasi.forEach(k => {
+      const rkapKode = (k as any).rkap_kode as string | null | undefined
       const namaAset = (k.kerja_sama as any)?.aset?.nama_aset as string | undefined
-      if (!namaAset) return
-      if (!byNama[namaAset]) byNama[namaAset] = Array(12).fill(0)
+      const key = rkapKode || namaAset
+      if (!key) return
+      if (!byKey[key]) byKey[key] = Array(12).fill(0)
       ;(k.pembayaran ?? []).forEach(p => {
         const d = new Date(p.tgl_bayar)
         if (d.getFullYear() === tahunAktif) {
-          byNama[namaAset][d.getMonth()] += p.nominal_bayar
+          byKey[key][d.getMonth()] += p.nominal_bayar
         }
       })
     })
-    return byNama
+    return byKey
   }, [allKompensasi, tahunAktif])
 
   // ── Helpers form ──────────────────────────────────────────────────────────
@@ -587,7 +590,7 @@ export function RKAPMonitor() {
               </thead>
               <tbody>
                 {displayRows.map(row => {
-                  const realPerBulan: number[] = cashInPerNama[row.nama] ?? Array(12).fill(0)
+                  const realPerBulan: number[] = cashInPerNama[row.kode ?? ''] ?? cashInPerNama[row.nama] ?? Array(12).fill(0)
                   const totalReal = realPerBulan.reduce((s, v) => s + v, 0)
                   const totalTgt  = row.total ?? 0
                   const pctTotal  = totalTgt > 0 ? (totalReal / totalTgt) * 100 : null

@@ -176,6 +176,7 @@ function generatePeriode(params: {
 
 const genSchema = z.object({
   ks_id: z.string().min(1),
+  rkap_kode: z.string().optional(),
   nominal: z.coerce.number().min(1),
   interval: z.enum(['bulanan', 'triwulan', 'semesteran', 'tahunan', 'campuran']),
   campuran_interval_awal: z.enum(['bulanan', 'triwulan', 'semesteran']).default('bulanan'),
@@ -195,6 +196,7 @@ type GenForm = z.infer<typeof genSchema>
 
 const kompSchema = z.object({
   ks_id: z.string().min(1),
+  rkap_kode: z.string().optional(),
   periode_label: z.string().optional(),
   nominal: z.coerce.number().min(0),
   ppn_persen: z.coerce.number().min(0).default(11),
@@ -330,6 +332,7 @@ export function Kompensasi() {
     setAdaPengurang((k.pengurang ?? 0) > 0)
     kompForm.reset({
       ks_id: k.ks_id,
+      rkap_kode: k.rkap_kode ?? '',
       periode_label: k.periode_label ?? '',
       nominal: k.nominal,
       ppn_persen: k.ppn_persen,
@@ -487,7 +490,11 @@ export function Kompensasi() {
 
   const onGenSimpan = async () => {
     setIsSaving(true)
-    await bulkAddKompensasi(genPreview.map(({ label, total_tagihan, ...rest }) => rest) as any)
+    const rkapKode = genForm.getValues('rkap_kode') || null
+    await bulkAddKompensasi(genPreview.map(({ label, total_tagihan, ...rest }) => ({
+      ...rest,
+      rkap_kode: rkapKode,
+    })) as any)
     setIsSaving(false)
     setGenDialog(false)
     setGenStep(1)
@@ -605,6 +612,9 @@ export function Kompensasi() {
                       <td className="px-4 py-3">
                         <p className="font-medium text-gray-900">{ks?.nama_mitra ?? '-'}</p>
                         <p className="text-xs text-gray-500">{(ks?.aset as any)?.nama_aset ?? '-'}</p>
+                        {k.rkap_kode && (
+                          <span className="inline-block font-mono text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded mt-0.5">{k.rkap_kode}</span>
+                        )}
                         {ws.dendaAkumulasi.hariTerlambat > 0 && ws.statusBayar !== 'lunas' && (
                           <p className="text-xs text-red-600 mt-0.5">Terlambat {ws.dendaAkumulasi.hariTerlambat} hari</p>
                         )}
@@ -855,6 +865,24 @@ export function Kompensasi() {
                 </Select>
               </div>
 
+              {/* Program RKAP */}
+              <div>
+                <Label>Program RKAP</Label>
+                <Controller control={genForm.control} name="rkap_kode" render={({ field }) => (
+                  <Select value={field.value ?? ''} onValueChange={v => field.onChange(v || undefined)}>
+                    <SelectTrigger className="mt-1"><SelectValue placeholder="— Pilih program RKAP —" /></SelectTrigger>
+                    <SelectContent>
+                      {RKAP_2026.map(item => (
+                        <SelectItem key={item.kode} value={item.kode}>
+                          <span className="font-mono text-xs text-gray-500 mr-2">{item.kode}</span>
+                          {item.nama}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )} />
+              </div>
+
               {/* Pola pembayaran */}
               <div className="border rounded-lg p-3 space-y-3">
                 <p className="text-xs font-semibold text-gray-700">Pola Pembayaran</p>
@@ -1070,6 +1098,22 @@ export function Kompensasi() {
                   {daftarKS.map(ks => <SelectItem key={ks.id} value={ks.id}>{(ks.aset as any)?.nama_aset ?? '-'} — {ks.nama_mitra}</SelectItem>)}
                 </SelectContent>
               </Select>
+            </div>
+            <div>
+              <Label>Program RKAP</Label>
+              <Controller control={kompForm.control} name="rkap_kode" render={({ field }) => (
+                <Select value={field.value ?? ''} onValueChange={v => field.onChange(v || undefined)}>
+                  <SelectTrigger className="mt-1"><SelectValue placeholder="— Pilih program RKAP —" /></SelectTrigger>
+                  <SelectContent>
+                    {RKAP_2026.map(item => (
+                      <SelectItem key={item.kode} value={item.kode}>
+                        <span className="font-mono text-xs text-gray-500 mr-2">{item.kode}</span>
+                        {item.nama}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )} />
             </div>
             <div>
               <Label>Label Periode</Label>

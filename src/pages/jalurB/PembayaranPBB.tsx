@@ -18,9 +18,11 @@ import { useForm, Controller, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { PBB } from '@/types'
+import { RKAP_2026 } from '@/data/rkap2026'
 
 const pbbSchema = z.object({
   aset_id: z.string().min(1),
+  rkap_kode: z.string().optional(),
   tahun: z.coerce.number().min(2000),
   nilai_pbb: z.coerce.number().min(0),
   tgl_jatuh_tempo: z.string().optional(),
@@ -150,6 +152,7 @@ export function PembayaranPBB() {
     setNjopAutoFilled(null)
     reset({
       aset_id: p.aset_id,
+      rkap_kode: p.rkap_kode ?? '',
       tahun: p.tahun,
       nilai_pbb: p.nilai_pbb,
       tgl_jatuh_tempo: p.tgl_jatuh_tempo ?? '',
@@ -440,6 +443,22 @@ export function PembayaranPBB() {
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
+                <div className="col-span-2">
+                  <Label>Program RKAP</Label>
+                  <Controller control={control} name="rkap_kode" render={({ field }) => (
+                    <Select value={field.value ?? ''} onValueChange={v => field.onChange(v || undefined)}>
+                      <SelectTrigger className="mt-1"><SelectValue placeholder="— Pilih program RKAP —" /></SelectTrigger>
+                      <SelectContent>
+                        {RKAP_2026.map(item => (
+                          <SelectItem key={item.kode} value={item.kode}>
+                            <span className="font-mono text-xs text-gray-500 mr-2">{item.kode}</span>
+                            {item.nama}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )} />
                 </div>
                 <div>
                   <Label>Tahun Pajak</Label>

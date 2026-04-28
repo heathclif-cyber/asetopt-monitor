@@ -88,6 +88,7 @@ export interface KerjaSama {
 export interface Kompensasi {
   id: string
   ks_id: string
+  rkap_kode: string | null
   periode_label: string | null
   nominal: number
   ppn_persen: number
@@ -133,6 +134,7 @@ export interface SuratPeringatan {
 export interface PBB {
   id: string
   aset_id: string
+  rkap_kode: string | null
   tahun: number
   nilai_pbb: number
   // Objek Bumi
