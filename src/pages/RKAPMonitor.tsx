@@ -27,12 +27,12 @@ function exportRKAPExcel(
   totalTarget: number,
   efektifBulan: number,   // bulan terakhir yang sudah berjalan (0–11), -1 jika tahun depan
 ) {
-  const wb   = XLSX.utils.book_new()
-  const now  = new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })
-  const rp   = (v: number | null) => v != null && v !== 0 ? v : null
-  const pct  = (v: number, t: number) => t > 0 ? +((v / t) * 100).toFixed(1) : null
+  const wb = XLSX.utils.book_new()
+  const now = new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })
+  const rp = (v: number | null) => v != null && v !== 0 ? v : null
+  const pct = (v: number, t: number) => t > 0 ? +((v / t) * 100).toFixed(1) : null
 
-  const ytdReal   = rkapData.slice(0, efektifBulan + 1).reduce((s, m) => s + m.realisasi, 0)
+  const ytdReal = rkapData.slice(0, efektifBulan + 1).reduce((s, m) => s + m.realisasi, 0)
   const ytdTarget = rkapData.slice(0, efektifBulan + 1).reduce((s, m) => s + m.targetOriginal, 0)
   const carryAktif = rkapData[efektifBulan]?.carryOver ?? 0
 
@@ -42,14 +42,14 @@ function exportRKAPExcel(
     [`Diekspor pada: ${now}`],
     [],
     ['Bulan', 'Target RKAP (Rp)', 'Carry-over (Rp)', 'Target Disesuaikan (Rp)',
-     'Realisasi / Cash In (Rp)', 'Selisih (Rp)', 'Achievement (%)', 'Prognosa (Rp)', 'Status'],
+      'Realisasi / Cash In (Rp)', 'Selisih (Rp)', 'Achievement (%)', 'Prognosa (Rp)', 'Status'],
   ]
   rkapData.forEach((m, i) => {
-    const past    = i <  efektifBulan
+    const past = i < efektifBulan
     const current = i === efektifBulan
-    const status  = past    ? (m.selisih >= 0 ? 'Tercapai' : 'Tidak Tercapai (carry-over)')
-                  : current ? 'Berjalan'
-                  : '—'
+    const status = past ? (m.selisih >= 0 ? 'Tercapai' : 'Tidak Tercapai (carry-over)')
+      : current ? 'Berjalan'
+        : '—'
     sh1.push([
       m.label,
       rp(m.targetOriginal),
@@ -65,19 +65,19 @@ function exportRKAPExcel(
   sh1.push(
     [],
     ['TOTAL', rp(totalTarget), null, rp(totalTarget),
-     rp(rkapData.reduce((s, m) => s + m.realisasi, 0)), null,
-     pct(ytdReal, ytdTarget), rp(ytdReal), ''],
+      rp(rkapData.reduce((s, m) => s + m.realisasi, 0)), null,
+      pct(ytdReal, ytdTarget), rp(ytdReal), ''],
     [],
     [`Carry-over aktif: ${carryAktif > 0 ? formatRupiah(carryAktif) : 'Tidak ada'}`],
     ['Prognosa = realisasi bulan yang telah lewat. Carry-over otomatis ditambahkan ke target bulan berikutnya apabila target tidak tercapai.'],
   )
 
   const ws1 = XLSX.utils.aoa_to_sheet(sh1)
-  ws1['!cols'] = [14,22,18,26,26,20,16,22,26].map(wch => ({ wch }))
+  ws1['!cols'] = [14, 22, 18, 26, 26, 20, 16, 22, 26].map(wch => ({ wch }))
   XLSX.utils.book_append_sheet(wb, ws1, `Ringkasan ${tahun}`)
 
   // ── Sheet 2: Per Obyek ──────────────────────────────────────────────────────
-  const BL = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des']
+  const BL = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des']
   const sh2: any[][] = [
     [`Target RKAP per Obyek Kerjasama ${tahun} (Rp)`],
     [`Diekspor pada: ${now}`],
@@ -115,9 +115,9 @@ function parseRKAPCsv(text: string, tahun: number): Array<Omit<RKAPTargetRow, 'i
     if (!nama) continue
     const toRp = (v: string) => (parseFloat(v) || 0) * 1_000 // CSV dalam ribuan Rp
     // Format CSV: No, Nama, Jan, Feb, ..., Des, Total  (bulan di col[2..13], total di col[14])
-    const [jan,feb,mar,apr,mei,jun,jul,agu,sep,okt,nov,des] = cols.slice(2, 14).map(toRp)
-    const total = toRp(cols[14]) || [jan,feb,mar,apr,mei,jun,jul,agu,sep,okt,nov,des].reduce((a,b) => a+b, 0)
-    results.push({ tahun, no, nama, total, jan,feb,mar,apr,mei,jun,jul,agu,sep,okt,nov,des })
+    const [jan, feb, mar, apr, mei, jun, jul, agu, sep, okt, nov, des] = cols.slice(2, 14).map(toRp)
+    const total = toRp(cols[14]) || [jan, feb, mar, apr, mei, jun, jul, agu, sep, okt, nov, des].reduce((a, b) => a + b, 0)
+    results.push({ tahun, no, nama, total, jan, feb, mar, apr, mei, jun, jul, agu, sep, okt, nov, des })
   }
   return results
 }
@@ -125,7 +125,7 @@ function parseRKAPCsv(text: string, tahun: number): Array<Omit<RKAPTargetRow, 'i
 // ── Form schema ───────────────────────────────────────────────────────────────
 const bulanField = z.coerce.number().min(0).default(0)
 const rowSchema = z.object({
-  no:   z.coerce.number().min(1, 'Wajib diisi'),
+  no: z.coerce.number().min(1, 'Wajib diisi'),
   nama: z.string().min(1, 'Wajib diisi'),
   jan: bulanField, feb: bulanField, mar: bulanField, apr: bulanField,
   mei: bulanField, jun: bulanField, jul: bulanField, agu: bulanField,
@@ -136,11 +136,11 @@ type RowForm = z.infer<typeof rowSchema>
 // ── Warna pct ─────────────────────────────────────────────────────────────────
 function pctColor(pct: number) {
   if (pct >= 100) return 'text-green-700'
-  if (pct >= 80)  return 'text-yellow-600'
+  if (pct >= 80) return 'text-yellow-600'
   return 'text-red-600'
 }
 
-const CURRENT_YEAR  = new Date().getFullYear()
+const CURRENT_YEAR = new Date().getFullYear()
 const CURRENT_MONTH = new Date().getMonth()
 
 // ── Komponen utama ────────────────────────────────────────────────────────────
@@ -148,10 +148,10 @@ export function RKAPMonitor() {
   const { allKompensasi, fetchAllKompensasi } = useKompensasiStore()
   const { rows, tahunAktif, isLoading, fetchRKAP, upsertRow, deleteRow, bulkImport, setTahunAktif } = useRKAPStore()
 
-  const [dialogOpen, setDialogOpen]   = useState(false)
-  const [editTarget, setEditTarget]   = useState<RKAPTargetRow | null>(null)
-  const [deleteId, setDeleteId]       = useState<string | null>(null)
-  const [csvPreview, setCsvPreview]   = useState<{ count: number; rows: ReturnType<typeof parseRKAPCsv> } | null>(null)
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [editTarget, setEditTarget] = useState<RKAPTargetRow | null>(null)
+  const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [csvPreview, setCsvPreview] = useState<{ count: number; rows: ReturnType<typeof parseRKAPCsv> } | null>(null)
   const [csvDialogOpen, setCsvDialogOpen] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -174,24 +174,30 @@ export function RKAPMonitor() {
     [allKompensasi, tahunAktif]
   )
 
-  const rkapData = useMemo(() => hitungRKAP(rkapItems, cashIn), [rkapItems, cashIn])
+  // Bulan terakhir yang sudah "berjalan" — tergantung tahun yang sedang dilihat
+  const efektifBulan = tahunAktif < CURRENT_YEAR ? 11
+    : tahunAktif === CURRENT_YEAR ? CURRENT_MONTH
+      : -1
+
+  const rkapData = useMemo(
+    () => hitungRKAP(rkapItems, cashIn, efektifBulan),
+    [rkapItems, cashIn, efektifBulan]
+  )
 
   const totalTarget = useMemo(() => rkapItems.reduce((s, i) => s + i.total, 0), [rkapItems])
 
-  const ytdTargetOri  = rkapData.slice(0, CURRENT_MONTH + 1).reduce((s, m) => s + m.targetOriginal, 0)
-  const ytdRealisasi  = cashIn.slice(0, CURRENT_MONTH + 1).reduce((s, v) => s + v, 0)
-  const ytdAchievement = ytdTargetOri > 0 ? (ytdRealisasi / ytdTargetOri) * 100 : 0
-  const currentCarryOver = rkapData[CURRENT_MONTH]?.carryOver ?? 0
-
-  // Bulan terakhir yang sudah "berjalan" — tergantung tahun yang sedang dilihat
-  const efektifBulan = tahunAktif < CURRENT_YEAR ? 11
-                     : tahunAktif === CURRENT_YEAR ? CURRENT_MONTH
-                     : -1
+  const ytdTargetOri    = rkapData.slice(0, efektifBulan + 1).reduce((s, m) => s + m.targetOriginal, 0)
+  const ytdRealisasi    = cashIn.slice(0, efektifBulan + 1).reduce((s, v) => s + v, 0)
+  const ytdAchievement  = ytdTargetOri > 0 ? (ytdRealisasi / ytdTargetOri) * 100 : 0
+  const currentCarryOver = rkapData[efektifBulan]?.carryOver ?? 0
+  // Prognosa tahunan = realisasi bulan lewat + target(+carry-over) bulan mendatang
+  const totalPrognosa = rkapData.reduce((s, m) => s + m.prognosa, 0)
 
   const chartData = rkapData.map(m => ({
     bulan: m.label,
-    'Target Adj': Math.round(m.targetAdjusted / 1_000_000),
-    'Realisasi':  Math.round(m.realisasi / 1_000_000),
+    'Target Adjusted (Prognosa)': Math.round(m.targetAdjusted / 1_000_000),
+    'Realisasi': Math.round(m.realisasi / 1_000_000),
+    'Prognosa': Math.round(m.prognosa / 1_000_000),
   }))
 
   // ── Helpers form ──────────────────────────────────────────────────────────
@@ -256,9 +262,11 @@ export function RKAPMonitor() {
   // ── Seed dari hardcode 2026 ───────────────────────────────────────────────
   const seedFromHardcode = async () => {
     const items = RKAP_2026.map(item => {
-      const [jan,feb,mar,apr,mei,jun,jul,agu,sep,okt,nov,des] = item.bulan
-      return { tahun: tahunAktif, no: item.no, nama: item.nama, total: item.total,
-               jan,feb,mar,apr,mei,jun,jul,agu,sep,okt,nov,des }
+      const [jan, feb, mar, apr, mei, jun, jul, agu, sep, okt, nov, des] = item.bulan
+      return {
+        tahun: tahunAktif, no: item.no, nama: item.nama, total: item.total,
+        jan, feb, mar, apr, mei, jun, jul, agu, sep, okt, nov, des
+      }
     })
     await bulkImport(tahunAktif, items)
   }
@@ -365,6 +373,21 @@ export function RKAPMonitor() {
             </div>
           </CardContent>
         </Card>
+
+        <Card className={totalPrognosa >= totalTarget ? 'border-green-300' : 'border-orange-300'}>
+          <CardContent className="p-4">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-[11px] text-gray-500 font-medium">Prognosa Tahunan</p>
+                <CurrencyDisplay value={totalPrognosa} size="lg" className={cn('mt-1 block', totalPrognosa >= totalTarget ? 'text-green-700' : 'text-orange-600')} />
+                <p className="text-[10px] text-gray-400 mt-1">
+                  {totalTarget > 0 ? `${((totalPrognosa / totalTarget) * 100).toFixed(1)}% dari target` : '—'}
+                </p>
+              </div>
+              <TrendingUp size={18} className={cn('mt-0.5', totalPrognosa >= totalTarget ? 'text-green-600' : 'text-orange-500')} />
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Carry-over alert */}
@@ -393,8 +416,9 @@ export function RKAPMonitor() {
               <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `${v}jt`} />
               <Tooltip formatter={(v: number) => `Rp ${v.toLocaleString('id-ID')}jt`} />
               <Legend wrapperStyle={{ fontSize: 12 }} />
-              <Bar dataKey="Target Adj" fill="#94a3b8" radius={[4,4,0,0]} />
+              <Bar dataKey="Target Adjusted (Prognosa)" fill="#94a3b8" radius={[4,4,0,0]} />
               <Bar dataKey="Realisasi"  fill="#117A65" radius={[4,4,0,0]} />
+              <Bar dataKey="Prognosa"   fill="#3B82F6" radius={[4,4,0,0]} opacity={0.7} />
             </BarChart>
           </ResponsiveContainer>
         </CardContent>
@@ -410,14 +434,14 @@ export function RKAPMonitor() {
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b bg-gray-50">
-                  {['Bulan','Target Ori','Carry-over','Target Adj','Realisasi','Selisih','%'].map(h => (
-                    <th key={h} className={cn('px-3 py-2 font-semibold text-gray-600', h === 'Bulan' ? 'text-left' : 'text-right')}>{h}</th>
+                  {['Bulan','Target Ori','Carry-over','Target Adjusted (Prognosa)','Realisasi','Prognosa','Selisih','%'].map(h => (
+                    <th key={h} className={cn('px-3 py-2 font-semibold text-gray-600 whitespace-nowrap', h === 'Bulan' ? 'text-left' : 'text-right')}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {rkapData.map((m, i) => {
-                  const isFuture = i > CURRENT_MONTH
+                  const isFuture = m.isFuture
                   return (
                     <tr key={i} className={cn('border-b', isFuture ? 'text-gray-400' : '', i === CURRENT_MONTH ? 'bg-blue-50/40' : 'hover:bg-gray-50/50')}>
                       <td className="px-3 py-2 font-semibold">
@@ -428,6 +452,16 @@ export function RKAPMonitor() {
                       <td className="px-3 py-2 text-right text-orange-600 font-medium">{m.carryOver > 0 ? `+${formatRupiah(m.carryOver)}` : '—'}</td>
                       <td className="px-3 py-2 text-right font-semibold">{m.targetAdjusted > 0 ? formatRupiah(m.targetAdjusted) : '—'}</td>
                       <td className="px-3 py-2 text-right text-green-700">{m.realisasi > 0 ? formatRupiah(m.realisasi) : '—'}</td>
+                      <td className={cn('px-3 py-2 text-right font-semibold',
+                        m.isFuture ? 'text-blue-600 italic' : m.prognosa > 0 ? 'text-green-700' : 'text-gray-400'
+                      )}>
+                        {m.prognosa > 0
+                          ? <span title={m.isFuture ? 'Proyeksi berdasarkan target RKAP + carry-over' : 'Realisasi aktual'}>
+                              {formatRupiah(m.prognosa)}{m.isFuture ? ' *' : ''}
+                            </span>
+                          : '—'
+                        }
+                      </td>
                       <td className={cn('px-3 py-2 text-right font-semibold', m.selisih >= 0 ? 'text-green-700' : 'text-red-600')}>
                         {m.targetAdjusted === 0 && m.realisasi === 0 ? '—' : (m.selisih >= 0 ? '+' : '') + formatRupiah(m.selisih)}
                       </td>
@@ -444,7 +478,10 @@ export function RKAPMonitor() {
                   <td className="px-3 py-2 text-right">{formatRupiah(totalTarget)}</td>
                   <td className="px-3 py-2 text-right text-orange-600">—</td>
                   <td className="px-3 py-2 text-right">{formatRupiah(totalTarget)}</td>
-                  <td className="px-3 py-2 text-right text-green-700">{formatRupiah(cashIn.reduce((s,v)=>s+v,0))}</td>
+                  <td className="px-3 py-2 text-right text-green-700">{formatRupiah(cashIn.reduce((s, v) => s + v, 0))}</td>
+                  <td className={cn('px-3 py-2 text-right font-bold', totalPrognosa >= totalTarget ? 'text-green-700' : 'text-orange-600')}>
+                    {formatRupiah(totalPrognosa)}
+                  </td>
                   <td colSpan={2} />
                 </tr>
               </tfoot>

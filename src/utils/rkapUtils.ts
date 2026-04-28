@@ -9,9 +9,15 @@ export interface MonthSummary {
   realisasi: number
   selisih: number
   achievement: number
+  prognosa: number      // realisasi jika sudah lewat/berjalan, targetAdjusted jika belum
+  isFuture: boolean     // true jika belum berjalan
 }
 
-export function hitungRKAP(items: RKAPItem[], cashInPerBulan: number[]): MonthSummary[] {
+export function hitungRKAP(
+  items: RKAPItem[],
+  cashInPerBulan: number[],
+  bulanSekarang: number = new Date().getMonth(),
+): MonthSummary[] {
   const results: MonthSummary[] = []
   let carryOver = 0
 
@@ -23,6 +29,10 @@ export function hitungRKAP(items: RKAPItem[], cashInPerBulan: number[]): MonthSu
     const selisih = realisasi - targetAdjusted
     carryOver = selisih < 0 ? Math.abs(selisih) : 0
 
+    const isFuture = i > bulanSekarang
+    // Prognosa: bulan lewat/berjalan → realisasi aktual; bulan mendatang → targetAdjusted
+    const prognosa = isFuture ? targetAdjusted : realisasi
+
     results.push({
       bulanIdx: i,
       label: BULAN_LABELS[i],
@@ -32,6 +42,8 @@ export function hitungRKAP(items: RKAPItem[], cashInPerBulan: number[]): MonthSu
       realisasi,
       selisih,
       achievement: targetAdjusted > 0 ? Math.min(999, (realisasi / targetAdjusted) * 100) : 100,
+      prognosa,
+      isFuture,
     })
   }
   return results
