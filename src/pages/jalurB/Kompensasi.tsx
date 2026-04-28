@@ -858,7 +858,7 @@ export function Kompensasi() {
       </Dialog>
 
       {/* Dialog tambah / edit kompensasi */}
-      <Dialog open={kompDialog} onOpenChange={setKompDialog}>
+      <Dialog key={editTarget?.id ?? 'new'} open={kompDialog} onOpenChange={setKompDialog}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>{editTarget ? 'Edit Kompensasi' : 'Tambah Kompensasi'}</DialogTitle>
@@ -867,8 +867,8 @@ export function Kompensasi() {
             <div>
               <Label>Kerja Sama</Label>
               <Select
-                defaultValue={editTarget?.ks_id}
-                onValueChange={v => kompForm.setValue('ks_id', v)}
+                value={kompForm.watch('ks_id') ?? ''}
+                onValueChange={v => kompForm.setValue('ks_id', v, { shouldValidate: true })}
                 disabled={!!editTarget}
               >
                 <SelectTrigger className="mt-1"><SelectValue placeholder="Pilih KS..." /></SelectTrigger>
