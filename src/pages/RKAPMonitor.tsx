@@ -436,7 +436,7 @@ export function RKAPMonitor() {
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b bg-gray-50">
-                  {['Bulan','Target Ori','Carry-over','Target Adjusted (Prognosa)','Realisasi','Prognosa','Selisih','%'].map(h => (
+                  {['Bulan','Target Ori','Carry-over','Target Adjusted','Realisasi','Prognosa','Selisih','%'].map(h => (
                     <th key={h} className={cn('px-3 py-2 font-semibold text-gray-600 whitespace-nowrap', h === 'Bulan' ? 'text-left' : 'text-right')}>{h}</th>
                   ))}
                 </tr>
