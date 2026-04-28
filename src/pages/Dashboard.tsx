@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useAsetStore } from '@/store/asetStore'
 import { useKerjaSamaStore } from '@/store/kerjaSamaStore'
 import { useKompensasiStore } from '@/store/kompensasiStore'
@@ -32,15 +32,22 @@ export function Dashboard() {
   const { rows: rkapRows, fetchRKAP } = useRKAPStore()
   const { allPBB, fetchAllPBB } = usePBBStore()
 
+  const location = useLocation()
+
+  // Fetch sekali saat pertama mount (data statis)
   useEffect(() => {
     fetchAset()
-    fetchKS()
-    fetchAllKompensasi()
     fetchSPAktif()
     fetchAllNJOP()
     fetchAllPBB()
     fetchRKAP(CURRENT_MONTH >= 0 ? new Date().getFullYear() : 2026)
   }, [])
+
+  // Re-fetch data yang berubah setiap kali dashboard dikunjungi (fix: status lunas tidak terupdate)
+  useEffect(() => {
+    fetchAllKompensasi()
+    fetchKS()
+  }, [location.key])
 
   useEffect(() => {
     checkJatuhTempo(allKompensasi)

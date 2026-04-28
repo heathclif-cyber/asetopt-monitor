@@ -543,8 +543,9 @@ export function RKAPMonitor() {
                 ))}
               </tbody>
               <tfoot>
+                {/* Baris Target */}
                 <tr className="border-t-2 bg-gray-50 font-bold text-xs">
-                  <td /><td className="px-2 py-2 text-gray-800">TOTAL</td>
+                  <td /><td className="px-2 py-2 text-gray-800">Target RKAP</td>
                   {BULAN_COLS.map((col, i) => {
                     const tot = displayRows.reduce((s, r) => s + (r[col] ?? 0), 0)
                     return (
@@ -556,6 +557,55 @@ export function RKAPMonitor() {
                   <td className="px-2 py-2 text-right text-[#1B4F72]">
                     {(totalTarget / 1_000_000).toFixed(2)}
                   </td>
+                  <td />
+                </tr>
+
+                {/* Baris Realisasi Aktual */}
+                <tr className="bg-green-50/60 font-bold text-xs">
+                  <td /><td className="px-2 py-2 text-green-800">Realisasi Aktual</td>
+                  {cashIn.map((v, i) => (
+                    <td key={i} className={cn('px-2 py-2 text-right', v > 0 ? 'text-green-700' : 'text-gray-300')}>
+                      {v > 0 ? (v / 1_000_000).toFixed(2) : '—'}
+                    </td>
+                  ))}
+                  <td className="px-2 py-2 text-right text-green-700 font-bold">
+                    {(cashIn.reduce((s, v) => s + v, 0) / 1_000_000).toFixed(2)}
+                  </td>
+                  <td />
+                </tr>
+
+                {/* Baris Achievement per bulan */}
+                <tr className="bg-gray-50/40 text-[10px]">
+                  <td /><td className="px-2 py-2 text-gray-500 italic">Achievement</td>
+                  {BULAN_COLS.map((col, i) => {
+                    const target = displayRows.reduce((s, r) => s + (r[col] ?? 0), 0)
+                    const real   = cashIn[i] ?? 0
+                    const pct    = target > 0 ? (real / target) * 100 : null
+                    return (
+                      <td key={col} className={cn('px-2 py-2 text-right font-semibold',
+                        pct == null ? 'text-gray-300'
+                        : pct >= 100 ? 'text-green-700'
+                        : pct >= 75  ? 'text-yellow-600'
+                        : 'text-red-600'
+                      )}>
+                        {pct != null ? `${pct.toFixed(0)}%` : '—'}
+                      </td>
+                    )
+                  })}
+                  {(() => {
+                    const totalReal = cashIn.reduce((s, v) => s + v, 0)
+                    const pct = totalTarget > 0 ? (totalReal / totalTarget) * 100 : null
+                    return (
+                      <td className={cn('px-2 py-2 text-right font-bold',
+                        pct == null ? 'text-gray-300'
+                        : pct >= 100 ? 'text-green-700'
+                        : pct >= 75  ? 'text-yellow-600'
+                        : 'text-red-600'
+                      )}>
+                        {pct != null ? `${pct.toFixed(1)}%` : '—'}
+                      </td>
+                    )
+                  })()}
                   <td />
                 </tr>
               </tfoot>
