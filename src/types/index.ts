@@ -133,7 +133,17 @@ export interface PBB {
   aset_id: string
   tahun: number
   nilai_pbb: number
+  // Objek Bumi
+  luas_tanah_sppt: number | null
+  luas_tanah_ks: number | null
+  njop_tanah_per_m2: number | null
+  // Objek Bangunan
+  luas_bangunan_sppt: number | null
+  luas_bangunan_ks: number | null
+  njop_bangunan_per_m2: number | null
   tgl_jatuh_tempo: string | null
+  tgl_bayar_pbb: string | null
+  jumlah_pbb_dibayar: number | null
   status_bayar: string
   created_at: string
   aset?: Aset
@@ -162,10 +172,18 @@ export interface PotensiPendapatan {
 export interface PBBProporsionalResult {
   tahun: number
   nilaiPBB: number
-  proporsi: number
-  pbbProporsional: number
+  // Proporsi luasan (NJOP KS / NJOP SPPT)
+  njopSppt: number
+  njopKS: number
+  proporsiArea: number
+  hasAreaData: boolean
+  // Proporsi waktu (hari KS / hari tahun)
   hariKS: number
   hariDalamTahun: number
+  proporsiWaktu: number
+  // Gabungan
+  proporsi: number
+  pbbProporsional: number
 }
 
 export interface DendaResult {
