@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { useKompensasiStore } from '@/store/kompensasiStore'
+import { useCashInStore } from '@/store/cashInStore'
 import { useRKAPStore, rowToRKAPItem, BULAN_COLS, RKAPTargetRow } from '@/store/rkapStore'
 import { RKAP_2026, BULAN_LABELS } from '@/data/rkap2026'
 import { hitungRKAP, getCashInPerBulanByYear, MonthSummary } from '@/utils/rkapUtils'
@@ -9,11 +10,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { CurrencyDisplay } from '@/components/common/CurrencyDisplay'
 import { formatRupiah } from '@/lib/utils'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
-import { Target, TrendingUp, AlertTriangle, CheckCircle, Plus, Pencil, Trash2, Upload, Download, ChevronLeft, ChevronRight, FileDown } from 'lucide-react'
+import { Target, TrendingUp, AlertTriangle, CheckCircle, Plus, Pencil, Trash2, Upload, Download, ChevronLeft, ChevronRight, FileDown, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -63,7 +65,7 @@ function exportRKAPExcel(
       status,
     ])
   })
-  
+
   const totalPrognosa = rkapData.reduce((s, m) => s + m.prognosa, 0);
 
   sh1.push(
@@ -188,6 +190,7 @@ const CURRENT_MONTH = new Date().getMonth()
 export function RKAPMonitor() {
   const { allKompensasi, fetchAllKompensasi } = useKompensasiStore()
   const { rows, tahunAktif, isLoading, fetchRKAP, upsertRow, deleteRow, bulkImport, setTahunAktif } = useRKAPStore()
+  const { allCashIn, fetchAllCashIn } = useCashInStore()
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<RKAPTargetRow | null>(null)
@@ -196,12 +199,17 @@ export function RKAPMonitor() {
   const [csvDialogOpen, setCsvDialogOpen] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
+  // State untuk dialog breakdown cash-in per proker
+  const [breakdownKode, setBreakdownKode] = useState<string | null>(null)
+  const [breakdownNama, setBreakdownNama] = useState('')
+
   const { register, handleSubmit, reset, watch, formState: { errors } } = useForm<RowForm>({
     resolver: zodResolver(rowSchema),
     defaultValues: { no: rows.length + 1 },
   })
 
   useEffect(() => { fetchAllKompensasi() }, [])
+  useEffect(() => { fetchAllCashIn() }, [])
   useEffect(() => { fetchRKAP(tahunAktif) }, [tahunAktif])
 
   // ── Computed data ──────────────────────────────────────────────────────────
@@ -227,19 +235,19 @@ export function RKAPMonitor() {
 
   const totalTarget = useMemo(() => rkapItems.reduce((s, i) => s + i.total, 0), [rkapItems])
 
-  const ytdTargetOri    = rkapData.slice(0, efektifBulan + 1).reduce((s, m) => s + m.targetOriginal, 0)
-  const ytdRealisasi    = cashIn.slice(0, efektifBulan + 1).reduce((s, v) => s + v, 0)
-  const ytdAchievement  = ytdTargetOri > 0 ? (ytdRealisasi / ytdTargetOri) * 100 : 0
+  const ytdTargetOri = rkapData.slice(0, efektifBulan + 1).reduce((s, m) => s + m.targetOriginal, 0)
+  const ytdRealisasi = cashIn.slice(0, efektifBulan + 1).reduce((s, v) => s + v, 0)
+  const ytdAchievement = ytdTargetOri > 0 ? (ytdRealisasi / ytdTargetOri) * 100 : 0
   const currentCarryOver = rkapData[efektifBulan]?.carryOver ?? 0
   // Prognosa tahunan = realisasi bulan lewat + target(+carry-over) bulan mendatang
   const totalPrognosa = rkapData.reduce((s, m) => s + m.prognosa, 0)
 
   const chartData = rkapData.map(m => ({
     bulan: m.label,
-    'Target RKAP':  Math.round(m.targetOriginal / 1_000_000),
+    'Target RKAP': Math.round(m.targetOriginal / 1_000_000),
     'Target + C/O': Math.round(m.targetAdjusted / 1_000_000),
-    'Realisasi':    Math.round(m.realisasi / 1_000_000),
-    'Prognosa':     Math.round(m.prognosa / 1_000_000),
+    'Realisasi': Math.round(m.realisasi / 1_000_000),
+    'Prognosa': Math.round(m.prognosa / 1_000_000),
   }))
 
   // Agregasi realisasi per kode RKAP per bulan (untuk tabel per obyek)
@@ -252,12 +260,12 @@ export function RKAPMonitor() {
       const key = rkapKode || namaAset
       if (!key) return
       if (!byKey[key]) byKey[key] = Array(12).fill(0)
-      ;(k.pembayaran ?? []).forEach(p => {
-        const d = new Date(p.tgl_bayar)
-        if (d.getFullYear() === tahunAktif) {
-          byKey[key][d.getMonth()] += p.nominal_bayar
-        }
-      })
+        ; (k.pembayaran ?? []).forEach(p => {
+          const d = new Date(p.tgl_bayar)
+          if (d.getFullYear() === tahunAktif) {
+            byKey[key][d.getMonth()] += p.nominal_bayar
+          }
+        })
     })
     return byKey
   }, [allKompensasi, tahunAktif])
@@ -478,10 +486,10 @@ export function RKAPMonitor() {
               <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `${v}jt`} />
               <Tooltip formatter={(v: number) => `Rp ${v.toLocaleString('id-ID')}jt`} />
               <Legend wrapperStyle={{ fontSize: 12 }} />
-              <Bar dataKey="Target RKAP"  fill="#cbd5e1" radius={[4,4,0,0]} />
-              <Bar dataKey="Target + C/O" fill="#94a3b8" radius={[4,4,0,0]} />
-              <Bar dataKey="Realisasi"    fill="#117A65" radius={[4,4,0,0]} />
-              <Bar dataKey="Prognosa"     fill="#3B82F6" radius={[4,4,0,0]} opacity={0.7} />
+              <Bar dataKey="Target RKAP" fill="#cbd5e1" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="Target + C/O" fill="#94a3b8" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="Realisasi" fill="#117A65" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="Prognosa" fill="#3B82F6" radius={[4, 4, 0, 0]} opacity={0.7} />
             </BarChart>
           </ResponsiveContainer>
         </CardContent>
@@ -497,7 +505,7 @@ export function RKAPMonitor() {
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b bg-gray-50">
-                  {['Bulan','Target Ori','Carry-over','Target Adjusted','Realisasi','Prognosa','Selisih','%'].map(h => (
+                  {['Bulan', 'Target Ori', 'Carry-over', 'Target Adjusted', 'Realisasi', 'Prognosa', 'Selisih', '%'].map(h => (
                     <th key={h} className={cn('px-3 py-2 font-semibold text-gray-600 whitespace-nowrap', h === 'Bulan' ? 'text-left' : 'text-right')}>{h}</th>
                   ))}
                 </tr>
@@ -520,8 +528,8 @@ export function RKAPMonitor() {
                       )}>
                         {m.prognosa > 0
                           ? <span title={m.isFuture ? 'Proyeksi berdasarkan target RKAP + carry-over' : 'Realisasi aktual'}>
-                              {formatRupiah(m.prognosa)}{m.isFuture ? ' *' : ''}
-                            </span>
+                            {formatRupiah(m.prognosa)}{m.isFuture ? ' *' : ''}
+                          </span>
                           : '—'
                         }
                       </td>
@@ -592,13 +600,27 @@ export function RKAPMonitor() {
                 {displayRows.map(row => {
                   const realPerBulan: number[] = cashInPerNama[row.kode ?? ''] ?? cashInPerNama[row.nama] ?? Array(12).fill(0)
                   const totalReal = realPerBulan.reduce((s, v) => s + v, 0)
-                  const totalTgt  = row.total ?? 0
-                  const pctTotal  = totalTgt > 0 ? (totalReal / totalTgt) * 100 : null
+                  const totalTgt = row.total ?? 0
+                  const pctTotal = totalTgt > 0 ? (totalReal / totalTgt) * 100 : null
+                  const rowKode = row.kode || row.nama
                   return (
                     <tr key={row.id} className="border-b hover:bg-gray-50/60 group">
                       <td className="px-2 py-1.5 text-gray-400">{row.no}</td>
                       <td className="px-2 py-1.5 text-gray-700 font-medium">
-                        <div>{row.nama}</div>
+                        <button
+                          onClick={() => { setBreakdownKode(rowKode); setBreakdownNama(row.nama) }}
+                          className="text-left hover:text-blue-700 transition-colors cursor-pointer"
+                          title="Klik untuk lihat rincian cash in"
+                        >
+                          <div className="flex items-center gap-1.5">
+                            <span>{row.nama}</span>
+                            {row.kode && (
+                              <Badge variant="outline" className="font-mono text-[10px] text-blue-600 bg-blue-50 border-blue-200 px-1.5 py-0">
+                                {row.kode}
+                              </Badge>
+                            )}
+                          </div>
+                        </button>
                         {pctTotal != null && (
                           <div className={cn('text-[9px] font-semibold',
                             pctTotal >= 100 ? 'text-green-600' : pctTotal >= 75 ? 'text-yellow-600' : 'text-red-500'
@@ -608,9 +630,9 @@ export function RKAPMonitor() {
                         )}
                       </td>
                       {BULAN_COLS.map((col, i) => {
-                        const tgt  = row[col] ?? 0
+                        const tgt = row[col] ?? 0
                         const real = realPerBulan[i] ?? 0
-                        const hit  = tgt > 0 && real >= tgt
+                        const hit = tgt > 0 && real >= tgt
                         return (
                           <>
                             <td key={`${col}-t`} className={cn('px-2 py-1.5 text-right border-l border-gray-100',
@@ -658,7 +680,7 @@ export function RKAPMonitor() {
                 <tr className="border-t-2 bg-[#1B4F72]/5 font-bold text-xs">
                   <td /><td className="px-2 py-2 text-[#1B4F72]">Total Target</td>
                   {BULAN_COLS.map((col, i) => {
-                    const tgt  = displayRows.reduce((s, r) => s + (r[col] ?? 0), 0)
+                    const tgt = displayRows.reduce((s, r) => s + (r[col] ?? 0), 0)
                     const real = cashIn[i] ?? 0
                     return (
                       <>
@@ -679,10 +701,10 @@ export function RKAPMonitor() {
                 <tr className="bg-gray-50 text-[10px] italic">
                   <td /><td className="px-2 py-1.5 text-gray-400">Achievement</td>
                   {BULAN_COLS.map((col, i) => {
-                    const tgt  = displayRows.reduce((s, r) => s + (r[col] ?? 0), 0)
+                    const tgt = displayRows.reduce((s, r) => s + (r[col] ?? 0), 0)
                     const real = cashIn[i] ?? 0
-                    const pct  = tgt > 0 ? (real / tgt) * 100 : null
-                    const cls  = pct == null ? 'text-gray-300' : pct >= 100 ? 'text-green-700' : pct >= 75 ? 'text-yellow-600' : 'text-red-600'
+                    const pct = tgt > 0 ? (real / tgt) * 100 : null
+                    const cls = pct == null ? 'text-gray-300' : pct >= 100 ? 'text-green-700' : pct >= 75 ? 'text-yellow-600' : 'text-red-600'
                     return (
                       <>
                         <td key={`${col}-t`} className="border-l border-gray-100" />
@@ -819,6 +841,243 @@ export function RKAPMonitor() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {/* ── Dialog Rincian Cash In per Proker ──────────────────────────────── */}
+      <Dialog open={!!breakdownKode} onOpenChange={() => { setBreakdownKode(null); setBreakdownNama('') }}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <div className="flex items-center justify-between pr-8">
+              <div>
+                <DialogTitle>Rincian Cash In</DialogTitle>
+                <p className="text-sm text-gray-500 mt-1">{breakdownNama}</p>
+              </div>
+            </div>
+          </DialogHeader>
+
+          {(() => {
+            const kode = breakdownKode
+            if (!kode) return null
+
+            // Filter kompensasi by rkap_kode
+            const kompensasiList = allKompensasi.filter(k => k.rkap_kode === kode)
+            // Filter cash_in by rkap_kode
+            const cashInList = allCashIn.filter(ci => ci.rkap_kode === kode)
+
+            const hasData = kompensasiList.length > 0 || cashInList.length > 0
+            if (!hasData) {
+              return (
+                <div className="py-8 text-center text-sm text-gray-400">
+                  Belum ada data cash in untuk program ini.
+                </div>
+              )
+            }
+
+            // ── Hitung total per komponen ──
+            let totalPokok = 0
+            let totalPPN = 0
+            let totalPPh = 0
+            let totalPengurang = 0
+            let totalRealisasi = 0
+            let totalDenda = 0
+            let totalCashInLain = 0
+
+            // Baris kompensasi
+            const kompRows = kompensasiList.map(k => {
+              const pokok = k.nominal
+              const ppn = k.nominal_ppn
+              const pph = k.nominal_pph
+              const pengurang = k.pengurang ?? 0
+              const totalTagihan = k.total_tagihan
+              const realisasi = (k.pembayaran ?? []).reduce((s, p) => s + p.nominal_bayar, 0)
+              totalPokok += pokok
+              totalPPN += ppn
+              totalPPh += pph
+              totalPengurang += pengurang
+              totalRealisasi += realisasi
+              return { k, pokok, ppn, pph, pengurang, totalTagihan, realisasi }
+            })
+
+            // Baris cash in
+            const dendaRows = cashInList.filter(ci => ci.jenis === 'denda')
+            const lainRows = cashInList.filter(ci => ci.jenis === 'lainnya')
+            dendaRows.forEach(d => { totalDenda += d.nominal })
+            lainRows.forEach(l => { totalCashInLain += l.nominal })
+
+            return (
+              <div className="space-y-4">
+                {/* ── Tabel Kompensasi ── */}
+                {kompRows.length > 0 && (
+                  <div>
+                    <h4 className="text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wide">
+                      Kompensasi / Tagihan
+                    </h4>
+                    <div className="overflow-x-auto rounded-lg border">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="bg-gray-50 border-b">
+                            <th className="px-3 py-2 text-left font-semibold text-gray-500">Periode</th>
+                            <th className="px-3 py-2 text-right font-semibold text-gray-500">Pokok</th>
+                            <th className="px-3 py-2 text-right font-semibold text-gray-500">PPN</th>
+                            <th className="px-3 py-2 text-right font-semibold text-gray-500">PPh</th>
+                            <th className="px-3 py-2 text-right font-semibold text-gray-500">Pengurang</th>
+                            <th className="px-3 py-2 text-right font-semibold text-[#1B4F72]">Total Tagihan</th>
+                            <th className="px-3 py-2 text-right font-semibold text-green-700">Realisasi</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {kompRows.map(({ k, pokok, ppn, pph, pengurang, totalTagihan, realisasi }) => (
+                            <tr key={k.id} className="border-b hover:bg-gray-50/60">
+                              <td className="px-3 py-2 text-gray-700">
+                                <div className="flex items-center gap-1.5">
+                                  <span>{k.periode_label || '-'}</span>
+                                  {k.rkap_kode && (
+                                    <Badge variant="outline" className="font-mono text-[9px] text-blue-600 bg-blue-50 border-blue-200 px-1 py-0">
+                                      {k.rkap_kode}
+                                    </Badge>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="px-3 py-2 text-right text-gray-700">{formatRupiah(pokok)}</td>
+                              <td className="px-3 py-2 text-right text-gray-700">{formatRupiah(ppn)}</td>
+                              <td className="px-3 py-2 text-right text-gray-700">{formatRupiah(pph)}</td>
+                              <td className="px-3 py-2 text-right text-red-600">{pengurang > 0 ? `(${formatRupiah(pengurang)})` : '—'}</td>
+                              <td className="px-3 py-2 text-right font-semibold text-[#1B4F72]">{formatRupiah(totalTagihan)}</td>
+                              <td className="px-3 py-2 text-right font-semibold text-green-700">{realisasi > 0 ? formatRupiah(realisasi) : '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr className="bg-gray-50/80 border-t-2 font-semibold text-xs">
+                            <td className="px-3 py-2 text-gray-600">Subtotal</td>
+                            <td className="px-3 py-2 text-right">{formatRupiah(totalPokok)}</td>
+                            <td className="px-3 py-2 text-right">{formatRupiah(totalPPN)}</td>
+                            <td className="px-3 py-2 text-right">{formatRupiah(totalPPh)}</td>
+                            <td className="px-3 py-2 text-right text-red-600">{totalPengurang > 0 ? `(${formatRupiah(totalPengurang)})` : '—'}</td>
+                            <td className="px-3 py-2 text-right text-[#1B4F72]">{formatRupiah(kompRows.reduce((s, r) => s + r.totalTagihan, 0))}</td>
+                            <td className="px-3 py-2 text-right text-green-700">{formatRupiah(totalRealisasi)}</td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* ── Denda ── */}
+                  {dendaRows.length > 0 && (
+                    <div>
+                      <h4 className="text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wide">Denda</h4>
+                      <div className="overflow-x-auto rounded-lg border">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="bg-gray-50 border-b">
+                              <th className="px-3 py-2 text-left font-semibold text-gray-500">Tanggal</th>
+                              <th className="px-3 py-2 text-right font-semibold text-gray-500">Nominal</th>
+                              <th className="px-3 py-2 text-left font-semibold text-gray-500">Keterangan</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {dendaRows.map(ci => (
+                              <tr key={ci.id} className="border-b hover:bg-gray-50/60">
+                                <td className="px-3 py-2 text-gray-700">{new Date(ci.tgl_terima).toLocaleDateString('id-ID')}</td>
+                                <td className="px-3 py-2 text-right text-orange-600 font-medium">{formatRupiah(ci.nominal)}</td>
+                                <td className="px-3 py-2 text-gray-500">{ci.keterangan || '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot>
+                            <tr className="bg-gray-50/80 border-t-2 font-semibold text-xs">
+                              <td className="px-3 py-2 text-gray-600">Subtotal Denda</td>
+                              <td className="px-3 py-2 text-right text-orange-600">{formatRupiah(totalDenda)}</td>
+                              <td />
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── Cash In Lainnya ── */}
+                  {lainRows.length > 0 && (
+                    <div>
+                      <h4 className="text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wide">Cash In Lainnya</h4>
+                      <div className="overflow-x-auto rounded-lg border">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="bg-gray-50 border-b">
+                              <th className="px-3 py-2 text-left font-semibold text-gray-500">Tanggal</th>
+                              <th className="px-3 py-2 text-right font-semibold text-gray-500">Nominal</th>
+                              <th className="px-3 py-2 text-left font-semibold text-gray-500">Keterangan</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {lainRows.map(ci => (
+                              <tr key={ci.id} className="border-b hover:bg-gray-50/60">
+                                <td className="px-3 py-2 text-gray-700">{new Date(ci.tgl_terima).toLocaleDateString('id-ID')}</td>
+                                <td className="px-3 py-2 text-right text-green-600 font-medium">{formatRupiah(ci.nominal)}</td>
+                                <td className="px-3 py-2 text-gray-500">{ci.keterangan || '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot>
+                            <tr className="bg-gray-50/80 border-t-2 font-semibold text-xs">
+                              <td className="px-3 py-2 text-gray-600">Subtotal Lainnya</td>
+                              <td className="px-3 py-2 text-right text-green-600">{formatRupiah(totalCashInLain)}</td>
+                              <td />
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* ── Grand Total ── */}
+                {(dendaRows.length > 0 || lainRows.length > 0) && (
+                  <div className="bg-blue-50/60 rounded-lg border border-blue-200 p-4">
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-xs">
+                      <div>
+                        <span className="text-gray-500">Total Pokok</span>
+                        <p className="font-bold text-gray-800">{formatRupiah(totalPokok)}</p>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">Total PPN</span>
+                        <p className="font-bold text-gray-800">{formatRupiah(totalPPN)}</p>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">Total PPh</span>
+                        <p className="font-bold text-gray-800">{formatRupiah(totalPPh)}</p>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">Total Denda</span>
+                        <p className="font-bold text-orange-600">{formatRupiah(totalDenda)}</p>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">Total Cash In Lain</span>
+                        <p className="font-bold text-green-600">{formatRupiah(totalCashInLain)}</p>
+                      </div>
+                    </div>
+                    <div className="border-t border-blue-200 mt-3 pt-3 text-xs">
+                      <div className="flex justify-between items-center">
+                        <span className="text-gray-500 font-semibold">Total Penerimaan</span>
+                        <p className="text-sm font-bold text-[#1B4F72]">
+                          {formatRupiah(totalRealisasi + totalDenda + totalCashInLain)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })()}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setBreakdownKode(null); setBreakdownNama('') }}>
+              <X size={14} className="mr-1" /> Tutup
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
     </div>
   )
 }
