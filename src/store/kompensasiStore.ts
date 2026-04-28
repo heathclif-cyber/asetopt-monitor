@@ -56,39 +56,47 @@ export const useKompensasiStore = create<KompensasiStore>((set, get) => ({
   },
 
   addKompensasi: async (data) => {
-    await supabase.from('kompensasi').insert(data)
+    const { error } = await supabase.from('kompensasi').insert(data)
+    if (error) throw new Error(`Gagal menambah kompensasi: ${error.message}`)
     await get().fetchAllKompensasi()
   },
 
   bulkAddKompensasi: async (items) => {
-    await supabase.from('kompensasi').insert(items)
+    const { error } = await supabase.from('kompensasi').insert(items)
+    if (error) throw new Error(`Gagal bulk insert kompensasi: ${error.message}`)
     await get().fetchAllKompensasi()
   },
 
   updateKompensasi: async (id, data) => {
-    await supabase.from('kompensasi').update(stripKompensasiMeta(data)).eq('id', id)
+    const payload = stripKompensasiMeta(data)
+    const { error } = await supabase.from('kompensasi').update(payload).eq('id', id)
+    if (error) throw new Error(`Gagal update kompensasi: ${error.message}`)
     await get().fetchAllKompensasi()
   },
 
   deleteKompensasi: async (id) => {
-    await supabase.from('kompensasi').delete().eq('id', id)
+    const { error } = await supabase.from('kompensasi').delete().eq('id', id)
+    if (error) throw new Error(`Gagal hapus kompensasi: ${error.message}`)
     await get().fetchAllKompensasi()
   },
 
   catatPembayaran: async (data) => {
-    await supabase.from('pembayaran').insert(data)
+    const { error } = await supabase.from('pembayaran').insert(data)
+    if (error) throw new Error(`Gagal catat pembayaran: ${error.message}`)
     const kompensasi = Object.values(get().daftarKompensasi).flat().find(k => k.id === data.kompensasi_id)
     if (kompensasi) await get().fetchKompensasi(kompensasi.ks_id)
     await get().fetchAllKompensasi()
   },
 
   updatePembayaran: async (id, data) => {
-    await supabase.from('pembayaran').update(data).eq('id', id)
+    const { error } = await supabase.from('pembayaran').update(data).eq('id', id)
+    if (error) throw new Error(`Gagal update pembayaran: ${error.message}`)
     await get().fetchAllKompensasi()
   },
 
   deletePembayaran: async (id) => {
-    await supabase.from('pembayaran').delete().eq('id', id)
+    const { error } = await supabase.from('pembayaran').delete().eq('id', id)
+    if (error) throw new Error(`Gagal hapus pembayaran: ${error.message}`)
     await get().fetchAllKompensasi()
   },
 

@@ -235,6 +235,7 @@ export function Kompensasi() {
   const [genStep, setGenStep] = useState<1 | 2>(1)
   const [genPreview, setGenPreview] = useState<ReturnType<typeof generatePeriode>>([])
   const [isSaving, setIsSaving] = useState(false)
+  const [isSavingKomp, setIsSavingKomp] = useState(false)
   const [filterKS, setFilterKS] = useState<string>('semua')
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
@@ -293,13 +294,19 @@ export function Kompensasi() {
   }
 
   const onSubmit = async (data: KompForm) => {
-    if (editTarget) {
-      await updateKompensasi(editTarget.id, data as any)
-    } else {
-      await addKompensasi(data as any)
+    setIsSavingKomp(true)
+    try {
+      if (editTarget) {
+        await updateKompensasi(editTarget.id, data as any)
+      } else {
+        await addKompensasi(data as any)
+      }
+      setKompDialog(false)
+    } catch (e: any) {
+      alert(e.message ?? 'Gagal menyimpan kompensasi.')
+    } finally {
+      setIsSavingKomp(false)
     }
-    setKompDialog(false)
-    await fetchAllKompensasi()
   }
 
   const openBayar = (k: KType) => {
@@ -310,9 +317,12 @@ export function Kompensasi() {
 
   const onBayar = async (data: BayarForm) => {
     if (!bayarTarget) return
-    await catatPembayaran({ ...data, kompensasi_id: bayarTarget.id } as Omit<Pembayaran, 'id' | 'created_at'>)
-    setBayarDialog(false)
-    await fetchAllKompensasi()
+    try {
+      await catatPembayaran({ ...data, kompensasi_id: bayarTarget.id } as Omit<Pembayaran, 'id' | 'created_at'>)
+      setBayarDialog(false)
+    } catch (e: any) {
+      alert(e.message ?? 'Gagal mencatat pembayaran.')
+    }
   }
 
   const openEditBayar = (p: Pembayaran) => {
@@ -328,8 +338,12 @@ export function Kompensasi() {
 
   const onEditBayar = async (data: BayarForm) => {
     if (!editBayarTarget) return
-    await updatePembayaran(editBayarTarget.id, data)
-    setEditBayarDialog(false)
+    try {
+      await updatePembayaran(editBayarTarget.id, data)
+      setEditBayarDialog(false)
+    } catch (e: any) {
+      alert(e.message ?? 'Gagal update pembayaran.')
+    }
   }
 
   const handleDeleteBayar = async () => {
@@ -959,7 +973,9 @@ export function Kompensasi() {
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setKompDialog(false)}>Batal</Button>
-              <Button type="submit" className="bg-[#5B2C6F]">{editTarget ? 'Simpan' : 'Tambah'}</Button>
+              <Button type="submit" disabled={isSavingKomp} className="bg-[#5B2C6F]">
+                {isSavingKomp ? 'Menyimpan...' : editTarget ? 'Simpan' : 'Tambah'}
+              </Button>
             </DialogFooter>
           </form>
         </DialogContent>
