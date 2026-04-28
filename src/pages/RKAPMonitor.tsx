@@ -121,12 +121,15 @@ export function RKAPMonitor() {
     setDialogOpen(true)
   }
 
+  const isSeedRow = (id: string) => id.startsWith('seed-')
+
   const onSubmit = async (values: RowForm) => {
     const toRp = (v: number) => v * 1_000
     const bulanVals = BULAN_COLS.map(col => toRp(values[col as keyof RowForm] as number))
     const total = bulanVals.reduce((a, b) => a + b, 0)
+    const hasRealId = editTarget && !isSeedRow(editTarget.id)
     await upsertRow({
-      ...(editTarget ? { id: editTarget.id } : {}),
+      ...(hasRealId ? { id: editTarget!.id } : {}),
       tahun: tahunAktif,
       no: values.no, nama: values.nama, total,
       jan: toRp(values.jan), feb: toRp(values.feb), mar: toRp(values.mar), apr: toRp(values.apr),
@@ -388,16 +391,16 @@ export function RKAPMonitor() {
                       {row.total > 0 ? (row.total / 1_000_000).toFixed(2) : '—'}
                     </td>
                     <td className="px-2 py-1.5">
-                      {rows.length > 0 && (
-                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button onClick={() => openEdit(row)} className="p-1 rounded hover:bg-gray-200 text-gray-500">
-                            <Pencil size={12} />
-                          </button>
-                          <button onClick={() => setDeleteId(row.id)} className="p-1 rounded hover:bg-red-100 text-red-500">
+                      <div className="flex gap-1">
+                        <button onClick={() => openEdit(row)} className="p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-700" title="Edit">
+                          <Pencil size={12} />
+                        </button>
+                        {!isSeedRow(row.id) && (
+                          <button onClick={() => setDeleteId(row.id)} className="p-1 rounded hover:bg-red-100 text-gray-400 hover:text-red-500" title="Hapus">
                             <Trash2 size={12} />
                           </button>
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
