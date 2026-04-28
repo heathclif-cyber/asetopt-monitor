@@ -101,8 +101,9 @@ export const useKompensasiStore = create<KompensasiStore>((set, get) => ({
   },
 
   getKompensasiWithStatus: (kompensasi, pembayaran) => {
+    const efektifTagihan = Math.max(0, kompensasi.total_tagihan - (kompensasi.pengurang ?? 0))
     const totalDibayar = pembayaran.reduce((sum, p) => sum + p.nominal_bayar, 0)
-    const sisaTagihan = Math.max(0, kompensasi.total_tagihan - totalDibayar)
+    const sisaTagihan = Math.max(0, efektifTagihan - totalDibayar)
     const dendaAkumulasi = hitungDenda({
       nominal: kompensasi.nominal,
       tglJatuhTempo: kompensasi.tgl_jatuh_tempo,
@@ -112,7 +113,7 @@ export const useKompensasiStore = create<KompensasiStore>((set, get) => ({
     })
 
     let statusBayar: KompensasiWithStatus['statusBayar'] = 'belum_bayar'
-    if (totalDibayar >= kompensasi.total_tagihan) {
+    if (totalDibayar >= efektifTagihan) {
       statusBayar = 'lunas'
     } else if (totalDibayar > 0) {
       statusBayar = dendaAkumulasi.hariTerlambat > 0 ? 'terlambat' : 'sebagian'
@@ -120,6 +121,6 @@ export const useKompensasiStore = create<KompensasiStore>((set, get) => ({
       statusBayar = 'terlambat'
     }
 
-    return { ...kompensasi, totalDibayar, sisaTagihan, dendaAkumulasi, statusBayar }
+    return { ...kompensasi, efektifTagihan, totalDibayar, sisaTagihan, dendaAkumulasi, statusBayar }
   },
 }))

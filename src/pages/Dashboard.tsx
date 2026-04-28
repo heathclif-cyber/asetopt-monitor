@@ -88,7 +88,8 @@ export function Dashboard() {
       // Hanya hitung periode yang sudah jatuh tempo
       if (new Date(k.tgl_jatuh_tempo) > today) return sum
       const totalDibayar = (k.pembayaran ?? []).reduce((s, p) => s + p.nominal_bayar, 0)
-      const sisa = Math.max(0, (k.total_tagihan ?? 0) - totalDibayar)
+      const efektif = (k.total_tagihan ?? 0) - (k.pengurang ?? 0)
+      const sisa = Math.max(0, efektif - totalDibayar)
       return sum + sisa
     }, 0)
 
@@ -120,7 +121,7 @@ export function Dashboard() {
       if (jtTempo > today) return
 
       const totalDibayar = (k.pembayaran ?? []).reduce((s, p) => s + p.nominal_bayar, 0)
-      const sisa = Math.max(0, (k.total_tagihan ?? 0) - totalDibayar)
+      const sisa = Math.max(0, ((k.total_tagihan ?? 0) - (k.pengurang ?? 0)) - totalDibayar)
       if (sisa <= 0) return  // sudah lunas
 
       const ks = daftarKS.find(x => x.id === k.ks_id)
@@ -292,7 +293,7 @@ export function Dashboard() {
       const bulan = k.tgl_jatuh_tempo.slice(0, 7)
       if (!byBulan[bulan]) byBulan[bulan] = { tagihan: 0, cashIn: 0, sisaTagihan: 0 }
       const totalDibayar = (k.pembayaran ?? []).reduce((s, p) => s + p.nominal_bayar, 0)
-      const sisa = Math.max(0, (k.total_tagihan ?? 0) - totalDibayar)
+      const sisa = Math.max(0, ((k.total_tagihan ?? 0) - (k.pengurang ?? 0)) - totalDibayar)
       byBulan[bulan].tagihan     += k.total_tagihan ?? 0
       byBulan[bulan].sisaTagihan += sisa
       // Cash in aktual per bulan bayar

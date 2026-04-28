@@ -96,6 +96,8 @@ export interface Kompensasi {
   nominal_ppn: number
   nominal_pph: number
   total_tagihan: number
+  pengurang: number | null
+  keterangan_pengurang: string | null
   maks_hari_bayar: number
   persen_denda_per_hari: number
   tgl_jatuh_tempo: string
@@ -193,6 +195,7 @@ export interface DendaResult {
 }
 
 export interface KompensasiWithStatus extends Kompensasi {
+  efektifTagihan: number
   totalDibayar: number
   sisaTagihan: number
   dendaAkumulasi: DendaResult

@@ -203,6 +203,8 @@ const kompSchema = z.object({
   persen_denda_per_hari: z.coerce.number().min(0).default(0.1),
   tgl_jatuh_tempo: z.string().min(1),
   keterangan: z.string().optional(),
+  pengurang: z.coerce.number().min(0).default(0),
+  keterangan_pengurang: z.string().optional(),
 })
 
 const bayarSchema = z.object({
@@ -233,6 +235,7 @@ export function Kompensasi() {
 
   const [kompDialog, setKompDialog] = useState(false)
   const [editTarget, setEditTarget] = useState<KType | null>(null)
+  const [adaPengurang, setAdaPengurang] = useState(false)
   const [bayarDialog, setBayarDialog] = useState(false)
   const [bayarTarget, setBayarTarget] = useState<KType | null>(null)
 
@@ -279,10 +282,12 @@ export function Kompensasi() {
   }
   const genForm = useForm<GenForm>({ resolver: zodResolver(genSchema), defaultValues: GEN_DEFAULTS })
 
-  const watchNominal   = kompForm.watch('nominal')
-  const watchPPN       = kompForm.watch('ppn_persen')
-  const watchPPH       = kompForm.watch('pph_persen')
-  const watchPPHMode   = kompForm.watch('pph_mode')
+  const watchNominal       = kompForm.watch('nominal')
+  const watchPPN           = kompForm.watch('ppn_persen')
+  const watchPPH           = kompForm.watch('pph_persen')
+  const watchPPHMode       = kompForm.watch('pph_mode')
+  const watchPengurang     = kompForm.watch('pengurang')
+  const watchKetPengurang  = kompForm.watch('keterangan_pengurang')
   const watchInterval  = genForm.watch('interval')
   const watchGrace      = genForm.watch('ada_grace_period')
   const watchGraceMulai = genForm.watch('grace_mulai')
@@ -313,12 +318,14 @@ export function Kompensasi() {
 
   const openAdd = () => {
     setEditTarget(null)
-    kompForm.reset({ ppn_persen: 11, pph_persen: 10, pph_mode: 'none', maks_hari_bayar: 14, persen_denda_per_hari: 0.1 })
+    setAdaPengurang(false)
+    kompForm.reset({ ppn_persen: 11, pph_persen: 10, pph_mode: 'none', maks_hari_bayar: 14, persen_denda_per_hari: 0.1, pengurang: 0, keterangan_pengurang: '' })
     setKompDialog(true)
   }
 
   const openEdit = (k: KType) => {
     setEditTarget(k)
+    setAdaPengurang((k.pengurang ?? 0) > 0)
     kompForm.reset({
       ks_id: k.ks_id,
       periode_label: k.periode_label ?? '',
@@ -330,6 +337,8 @@ export function Kompensasi() {
       persen_denda_per_hari: k.persen_denda_per_hari,
       tgl_jatuh_tempo: k.tgl_jatuh_tempo,
       keterangan: k.keterangan ?? '',
+      pengurang: k.pengurang ?? 0,
+      keterangan_pengurang: k.keterangan_pengurang ?? '',
     })
     setKompDialog(true)
   }
@@ -337,10 +346,15 @@ export function Kompensasi() {
   const onSubmit = async (data: KompForm) => {
     setIsSavingKomp(true)
     try {
+      const payload = {
+        ...data,
+        pengurang: adaPengurang ? (data.pengurang ?? 0) : 0,
+        keterangan_pengurang: adaPengurang ? (data.keterangan_pengurang ?? null) : null,
+      }
       if (editTarget) {
-        await updateKompensasi(editTarget.id, data as any)
+        await updateKompensasi(editTarget.id, payload as any)
       } else {
-        await addKompensasi(data as any)
+        await addKompensasi(payload as any)
       }
       setKompDialog(false)
     } catch (e: any) {
@@ -659,6 +673,18 @@ export function Kompensasi() {
                                   <span>Total Tagihan</span>
                                   <span>{formatRupiah(k.total_tagihan)}</span>
                                 </div>
+                                {(k.pengurang ?? 0) > 0 && (
+                                  <>
+                                    <div className="flex justify-between text-purple-700">
+                                      <span>− Pengurang {k.keterangan_pengurang ? `(${k.keterangan_pengurang})` : ''}</span>
+                                      <span>− {formatRupiah(k.pengurang!)}</span>
+                                    </div>
+                                    <div className="flex justify-between font-semibold text-purple-800 border-t pt-1 mt-1">
+                                      <span>Efektif Harus Dibayar</span>
+                                      <span>{formatRupiah(ws.efektifTagihan)}</span>
+                                    </div>
+                                  </>
+                                )}
                               </div>
 
                               {ws.dendaAkumulasi.hariTerlambat > 0 && ws.statusBayar !== 'lunas' && (
@@ -1081,6 +1107,7 @@ export function Kompensasi() {
                   const pph = nom * (watchPPH ?? 10) / 100
                   const isBuktiPotong = watchPPHMode === 'bukti_potong'
                   const total = nom + ppn - (isBuktiPotong ? pph : 0)
+                  const penguranganNom = adaPengurang ? (watchPengurang ?? 0) : 0
                   return (
                     <>
                       <div className="flex justify-between text-gray-500">
@@ -1094,9 +1121,21 @@ export function Kompensasi() {
                           <span>− PPh ({watchPPH ?? 10}%) [Bukti Potong]</span><span>− {formatRupiah(pph)}</span>
                         </div>
                       )}
-                      <div className="flex justify-between font-semibold border-t pt-1">
+                      <div className={`flex justify-between font-semibold border-t pt-1 ${penguranganNom > 0 ? '' : ''}`}>
                         <span>Total Tagihan</span><span>{formatRupiah(total)}</span>
                       </div>
+                      {penguranganNom > 0 && (
+                        <>
+                          <div className="flex justify-between text-purple-700">
+                            <span>− Pengurang {watchKetPengurang ? `(${watchKetPengurang})` : ''}</span>
+                            <span>− {formatRupiah(penguranganNom)}</span>
+                          </div>
+                          <div className="flex justify-between font-semibold text-purple-800 border-t pt-1">
+                            <span>Efektif Harus Dibayar</span>
+                            <span>{formatRupiah(Math.max(0, total - penguranganNom))}</span>
+                          </div>
+                        </>
+                      )}
                     </>
                   )
                 })()}
@@ -1119,6 +1158,42 @@ export function Kompensasi() {
             <div>
               <Label>Keterangan</Label>
               <Textarea {...kompForm.register('keterangan')} className="mt-1" rows={2} />
+            </div>
+            <div className="border rounded-lg p-3 space-y-3">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={adaPengurang}
+                  onChange={e => {
+                    setAdaPengurang(e.target.checked)
+                    if (!e.target.checked) {
+                      kompForm.setValue('pengurang', 0)
+                      kompForm.setValue('keterangan_pengurang', '')
+                    }
+                  }}
+                  className="w-4 h-4 rounded border-gray-300 accent-[#5B2C6F] cursor-pointer"
+                />
+                <span className="text-sm font-medium text-gray-700">Ada Pengurang Kompensasi?</span>
+                <span className="text-xs text-gray-400">(uang muka, deposit, dll.)</span>
+              </label>
+              {adaPengurang && (
+                <div className="space-y-3">
+                  <div>
+                    <Label>Nominal Pengurang (Rp)</Label>
+                    <Controller control={kompForm.control} name="pengurang" render={({ field }) => (
+                      <CurrencyInput value={field.value ?? 0} onChange={field.onChange} className="mt-1" />
+                    )} />
+                  </div>
+                  <div>
+                    <Label>Keterangan Pengurang</Label>
+                    <Input
+                      {...kompForm.register('keterangan_pengurang')}
+                      className="mt-1"
+                      placeholder="cth: Uang muka, Security deposit"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setKompDialog(false)}>Batal</Button>
