@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import * as XLSX from 'xlsx'
 import { useKompensasiStore } from '@/store/kompensasiStore'
 import { useRKAPStore, rowToRKAPItem, BULAN_COLS, RKAPTargetRow } from '@/store/rkapStore'
 import { RKAP_2026, BULAN_LABELS } from '@/data/rkap2026'
-import { hitungRKAP, getCashInPerBulanByYear } from '@/utils/rkapUtils'
+import { hitungRKAP, getCashInPerBulanByYear, MonthSummary } from '@/utils/rkapUtils'
+import { RKAPItem } from '@/data/rkap2026'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -11,11 +13,94 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { CurrencyDisplay } from '@/components/common/CurrencyDisplay'
 import { formatRupiah } from '@/lib/utils'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
-import { Target, TrendingUp, AlertTriangle, CheckCircle, Plus, Pencil, Trash2, Upload, Download, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Target, TrendingUp, AlertTriangle, CheckCircle, Plus, Pencil, Trash2, Upload, Download, ChevronLeft, ChevronRight, FileDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
+
+// ── Excel export ──────────────────────────────────────────────────────────────
+function exportRKAPExcel(
+  tahun: number,
+  rkapData: MonthSummary[],
+  rkapItems: RKAPItem[],
+  totalTarget: number,
+  efektifBulan: number,   // bulan terakhir yang sudah berjalan (0–11), -1 jika tahun depan
+) {
+  const wb   = XLSX.utils.book_new()
+  const now  = new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })
+  const rp   = (v: number | null) => v != null && v !== 0 ? v : null
+  const pct  = (v: number, t: number) => t > 0 ? +((v / t) * 100).toFixed(1) : null
+
+  const ytdReal   = rkapData.slice(0, efektifBulan + 1).reduce((s, m) => s + m.realisasi, 0)
+  const ytdTarget = rkapData.slice(0, efektifBulan + 1).reduce((s, m) => s + m.targetOriginal, 0)
+  const carryAktif = rkapData[efektifBulan]?.carryOver ?? 0
+
+  // ── Sheet 1: Ringkasan Prognosa ─────────────────────────────────────────────
+  const sh1: any[][] = [
+    [`RKAP Monitor ${tahun} — Laporan Prognosa`],
+    [`Diekspor pada: ${now}`],
+    [],
+    ['Bulan', 'Target RKAP (Rp)', 'Carry-over (Rp)', 'Target Disesuaikan (Rp)',
+     'Realisasi / Cash In (Rp)', 'Selisih (Rp)', 'Achievement (%)', 'Prognosa (Rp)', 'Status'],
+  ]
+  rkapData.forEach((m, i) => {
+    const past    = i <  efektifBulan
+    const current = i === efektifBulan
+    const status  = past    ? (m.selisih >= 0 ? 'Tercapai' : 'Tidak Tercapai (carry-over)')
+                  : current ? 'Berjalan'
+                  : '—'
+    sh1.push([
+      m.label,
+      rp(m.targetOriginal),
+      rp(m.carryOver),
+      rp(m.targetAdjusted),
+      rp(m.realisasi),
+      (past || current) ? m.selisih : null,
+      m.targetAdjusted > 0 ? pct(m.realisasi, m.targetAdjusted) : null,
+      (past || current) ? rp(m.realisasi) : null,   // prognosa = realisasi yg sudah lewat
+      status,
+    ])
+  })
+  sh1.push(
+    [],
+    ['TOTAL', rp(totalTarget), null, rp(totalTarget),
+     rp(rkapData.reduce((s, m) => s + m.realisasi, 0)), null,
+     pct(ytdReal, ytdTarget), rp(ytdReal), ''],
+    [],
+    [`Carry-over aktif: ${carryAktif > 0 ? formatRupiah(carryAktif) : 'Tidak ada'}`],
+    ['Prognosa = realisasi bulan yang telah lewat. Carry-over otomatis ditambahkan ke target bulan berikutnya apabila target tidak tercapai.'],
+  )
+
+  const ws1 = XLSX.utils.aoa_to_sheet(sh1)
+  ws1['!cols'] = [14,22,18,26,26,20,16,22,26].map(wch => ({ wch }))
+  XLSX.utils.book_append_sheet(wb, ws1, `Ringkasan ${tahun}`)
+
+  // ── Sheet 2: Per Obyek ──────────────────────────────────────────────────────
+  const BL = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des']
+  const sh2: any[][] = [
+    [`Target RKAP per Obyek Kerjasama ${tahun} (Rp)`],
+    [`Diekspor pada: ${now}`],
+    [],
+    ['No', 'Obyek Kerjasama', ...BL, 'Total'],
+  ]
+  rkapItems.forEach(item =>
+    sh2.push([item.no, item.nama, ...item.bulan.map(rp), rp(item.total)])
+  )
+  sh2.push(
+    [],
+    ['', 'TOTAL',
+      ...BL.map((_, i) => rp(rkapItems.reduce((s, it) => s + (it.bulan[i] ?? 0), 0))),
+      rp(totalTarget),
+    ],
+  )
+
+  const ws2 = XLSX.utils.aoa_to_sheet(sh2)
+  ws2['!cols'] = [{ wch: 5 }, { wch: 42 }, ...BL.map(() => ({ wch: 16 })), { wch: 18 }]
+  XLSX.utils.book_append_sheet(wb, ws2, `Per Obyek ${tahun}`)
+
+  XLSX.writeFile(wb, `RKAP_Prognosa_${tahun}_${new Date().toISOString().slice(0, 10)}.xlsx`)
+}
 
 // ── CSV parser ────────────────────────────────────────────────────────────────
 function parseRKAPCsv(text: string, tahun: number): Array<Omit<RKAPTargetRow, 'id' | 'created_at'>> {
@@ -55,6 +140,7 @@ function pctColor(pct: number) {
   return 'text-red-600'
 }
 
+const CURRENT_YEAR  = new Date().getFullYear()
 const CURRENT_MONTH = new Date().getMonth()
 
 // ── Komponen utama ────────────────────────────────────────────────────────────
@@ -96,6 +182,11 @@ export function RKAPMonitor() {
   const ytdRealisasi  = cashIn.slice(0, CURRENT_MONTH + 1).reduce((s, v) => s + v, 0)
   const ytdAchievement = ytdTargetOri > 0 ? (ytdRealisasi / ytdTargetOri) * 100 : 0
   const currentCarryOver = rkapData[CURRENT_MONTH]?.carryOver ?? 0
+
+  // Bulan terakhir yang sudah "berjalan" — tergantung tahun yang sedang dilihat
+  const efektifBulan = tahunAktif < CURRENT_YEAR ? 11
+                     : tahunAktif === CURRENT_YEAR ? CURRENT_MONTH
+                     : -1
 
   const chartData = rkapData.map(m => ({
     bulan: m.label,
@@ -206,6 +297,12 @@ export function RKAPMonitor() {
         </Button>
         <Button size="sm" variant="outline" onClick={() => fileRef.current?.click()}>
           <Upload size={14} /> Upload CSV
+        </Button>
+        <Button
+          size="sm" variant="outline"
+          onClick={() => exportRKAPExcel(tahunAktif, rkapData, rkapItems, totalTarget, efektifBulan)}
+        >
+          <FileDown size={14} /> Export Excel
         </Button>
         {rows.length === 0 && tahunAktif === 2026 && (
           <Button size="sm" variant="outline" onClick={seedFromHardcode}>
