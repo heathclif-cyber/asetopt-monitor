@@ -181,7 +181,7 @@ const genSchema = z.object({
   campuran_nominal_tahunan: z.coerce.number().min(0).optional(),
   ada_grace_period: z.boolean().default(false),
   grace_mulai: z.string().optional(),
-  grace_selesai: z.string().optional(),
+  grace_bulan: z.coerce.number().min(1).optional(),
   ppn_persen: z.coerce.number().min(0).default(11),
   pph_persen: z.coerce.number().min(0).default(10),
   pph_mode: z.enum(['none', 'bukti_potong']).default('none'),
@@ -260,8 +260,10 @@ export function Kompensasi() {
   const watchPPH       = kompForm.watch('pph_persen')
   const watchPPHMode   = kompForm.watch('pph_mode')
   const watchInterval  = genForm.watch('interval')
-  const watchGrace     = genForm.watch('ada_grace_period')
-  const watchCampTahun = genForm.watch('campuran_tahun_peralihan')
+  const watchGrace      = genForm.watch('ada_grace_period')
+  const watchGraceMulai = genForm.watch('grace_mulai')
+  const watchGraceBulan = genForm.watch('grace_bulan')
+  const watchCampTahun  = genForm.watch('campuran_tahun_peralihan')
 
   useEffect(() => { fetchAllKompensasi(); fetchKS(); fetchAllPBB() }, [])
 
@@ -370,11 +372,9 @@ export function Kompensasi() {
   const onGenPreview = (data: GenForm) => {
     const ks = daftarKS.find(x => x.id === data.ks_id)
     if (!ks) return
-    const monthToFirstDay = (ym: string) => `${ym}-01`
-    const monthToLastDay  = (ym: string) => {
-      const [y, m] = ym.split('-').map(Number)
-      return toISO(new Date(y, m, 0)) // hari ke-0 bulan berikutnya = hari terakhir bulan ini
-    }
+    const graceSelesai = data.ada_grace_period && data.grace_mulai && data.grace_bulan
+      ? toISO(addDays(addMonths(new Date(data.grace_mulai), data.grace_bulan), -1))
+      : undefined
     const preview = generatePeriode({
       ksId: data.ks_id,
       tglMulai: ks.tgl_mulai,
@@ -384,8 +384,8 @@ export function Kompensasi() {
       campuranIntervalAwal: data.campuran_interval_awal,
       campuranTahunPeralihan: data.campuran_tahun_peralihan,
       campuranNominalTahunan: data.campuran_nominal_tahunan,
-      graceMulai:   data.ada_grace_period && data.grace_mulai   ? monthToFirstDay(data.grace_mulai)  : undefined,
-      graceSelesai: data.ada_grace_period && data.grace_selesai ? monthToLastDay(data.grace_selesai)  : undefined,
+      graceMulai:   data.ada_grace_period ? data.grace_mulai : undefined,
+      graceSelesai: data.ada_grace_period ? graceSelesai     : undefined,
       ppnPersen: data.ppn_persen,
       pphPersen: data.pph_persen,
       maksHariBayar: data.maks_hari_bayar,
@@ -738,17 +738,28 @@ export function Kompensasi() {
                   <div className="space-y-3">
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <Label className="text-xs text-gray-600">Mulai Grace Period</Label>
-                        <Input type="month" {...genForm.register('grace_mulai')} className="mt-1 h-8 text-xs" />
+                        <Label className="text-xs text-gray-600">Tanggal Mulai Grace Period</Label>
+                        <Input type="date" {...genForm.register('grace_mulai')} className="mt-1 h-8 text-xs" />
                       </div>
                       <div>
-                        <Label className="text-xs text-gray-600">Selesai Grace Period</Label>
-                        <Input type="month" {...genForm.register('grace_selesai')} className="mt-1 h-8 text-xs" />
+                        <Label className="text-xs text-gray-600">Durasi Grace Period (bulan)</Label>
+                        <Input type="number" min={1} placeholder="cth: 3" {...genForm.register('grace_bulan')} className="mt-1 h-8 text-xs" />
                       </div>
                     </div>
+                    {watchGraceMulai && (watchGraceBulan ?? 0) > 0 && (
+                      <div className="bg-white border border-orange-200 rounded px-2 py-1.5 text-[11px] text-orange-800 flex items-center gap-2">
+                        <span>Grace period:</span>
+                        <span className="font-semibold">{formatTanggal(watchGraceMulai)}</span>
+                        <span>s.d.</span>
+                        <span className="font-semibold">
+                          {formatTanggal(toISO(addDays(addMonths(new Date(watchGraceMulai), watchGraceBulan ?? 0), -1)))}
+                        </span>
+                        <span className="text-orange-500">({watchGraceBulan} bulan)</span>
+                      </div>
+                    )}
                     <p className="text-[11px] text-orange-700 bg-orange-50 rounded px-2 py-1.5">
-                      Periode yang seluruhnya jatuh dalam grace period tidak dikenakan kompensasi.
-                      Periode yang terpotong grace period dihitung proporsional per hari.
+                      Periode yang seluruhnya dalam grace period tidak dikenakan kompensasi.
+                      Periode yang terpotong dihitung proporsional per bulan.
                     </p>
                   </div>
                 )}
