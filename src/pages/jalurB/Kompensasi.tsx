@@ -38,7 +38,8 @@ function toISO(date: Date): string {
   return date.toISOString().split('T')[0]
 }
 
-type Interval = 'bulanan' | 'triwulan' | 'semesteran' | 'tahunan' | 'tahun1_bulanan_sisanya_tahunan'
+type BaseInterval = 'bulanan' | 'triwulan' | 'semesteran' | 'tahunan'
+type Interval = BaseInterval | 'campuran'
 
 type GeneratedPeriode = {
   label: string
@@ -48,13 +49,41 @@ type GeneratedPeriode = {
   total_tagihan: number
 }
 
+interface RawPeriode {
+  periodeStart: Date
+  periodeEnd: Date
+  label: string
+  nominal: number
+}
+
+function applyGracePeriod(periods: RawPeriode[], graceMulai: Date, graceSelesai: Date): RawPeriode[] {
+  const MS_PER_DAY = 86_400_000
+  return periods.flatMap(p => {
+    const overlapStart = new Date(Math.max(p.periodeStart.getTime(), graceMulai.getTime()))
+    const overlapEnd   = new Date(Math.min(p.periodeEnd.getTime(),   graceSelesai.getTime()))
+    if (overlapStart > overlapEnd) return [p]  // tidak tumpang tindih
+    const overlapDays = Math.round((overlapEnd.getTime() - overlapStart.getTime()) / MS_PER_DAY) + 1
+    const totalDays   = Math.round((p.periodeEnd.getTime() - p.periodeStart.getTime()) / MS_PER_DAY) + 1
+    if (overlapDays >= totalDays) return []    // seluruh periode dalam grace — hilangkan
+    const payableDays = totalDays - overlapDays
+    return [{ ...p,
+      nominal: Math.round(p.nominal * payableDays / totalDays),
+      label: `${p.label} (prop. ${payableDays}/${totalDays} hr)`,
+    }]
+  })
+}
+
 function generatePeriode(params: {
   ksId: string
   tglMulai: string
   tglSelesai: string
   nominal: number
-  nominalTahun2?: number
   interval: Interval
+  campuranIntervalAwal?: BaseInterval
+  campuranTahunPeralihan?: number
+  campuranNominalTahunan?: number
+  graceMulai?: string
+  graceSelesai?: string
   ppnPersen: number
   pphPersen: number
   maksHariBayar: number
@@ -62,66 +91,85 @@ function generatePeriode(params: {
   offsetJatuhTempo: number
 }): (GeneratedPeriode & { ks_id: string; ppn_persen: number; pph_persen: number; maks_hari_bayar: number; persen_denda_per_hari: number })[] {
   const { tglMulai, tglSelesai, nominal, interval, ppnPersen, offsetJatuhTempo } = params
-  const hasil = []
   const end = new Date(tglSelesai)
+  const raw: RawPeriode[] = []
 
-  const makeItem = (current: Date, label: string, nom: number) => ({
-    ks_id: params.ksId,
-    periode_label: label,
-    label,
-    tgl_jatuh_tempo: toISO(addDays(current, offsetJatuhTempo)),
-    nominal: nom,
-    ppn_persen: params.ppnPersen,
-    pph_persen: params.pphPersen,
-    maks_hari_bayar: params.maksHariBayar,
-    persen_denda_per_hari: params.persenDenda,
-    total_tagihan: nom + (nom * ppnPersen / 100),
-  })
+  const pushPeriode = (start: Date, stepMonths: number, label: string, nom: number) => {
+    raw.push({
+      periodeStart: new Date(start),
+      periodeEnd: addDays(addMonths(start, stepMonths), -1),
+      label,
+      nominal: nom,
+    })
+  }
 
-  if (interval === 'tahun1_bulanan_sisanya_tahunan') {
-    const batasTahun1 = addMonths(new Date(tglMulai), 12)
-    let current = new Date(tglMulai)
+  const labelFor = (interval: BaseInterval, current: Date, idx: number) => {
+    if (interval === 'bulanan')    return `${BULAN[current.getMonth()]} ${current.getFullYear()}`
+    if (interval === 'triwulan')   return `Triwulan ${['I','II','III','IV'][Math.floor(current.getMonth() / 3)]} ${current.getFullYear()}`
+    if (interval === 'semesteran') return `Semester ${current.getMonth() < 6 ? 1 : 2} ${current.getFullYear()}`
+    return `Tahun ke-${idx}`
+  }
 
-    // Tahun 1 — bulanan
-    while (current < batasTahun1 && current <= end) {
-      hasil.push(makeItem(current, `${BULAN[current.getMonth()]} ${current.getFullYear()}`, nominal))
-      current = addMonths(current, 1)
+  if (interval === 'campuran') {
+    const awal        = params.campuranIntervalAwal ?? 'bulanan'
+    const nTahun      = params.campuranTahunPeralihan ?? 1
+    const stepAwal    = { bulanan: 1, triwulan: 3, semesteran: 6 }[awal as 'bulanan'|'triwulan'|'semesteran']
+    const batas       = addMonths(new Date(tglMulai), nTahun * 12)
+    let current       = new Date(tglMulai)
+    let idxAwal       = 1
+
+    while (current < batas && current <= end) {
+      pushPeriode(current, stepAwal, labelFor(awal, current, idxAwal), nominal)
+      current = addMonths(current, stepAwal)
+      idxAwal++
     }
 
-    // Tahun 2+ — tahunan
-    const nomAnnual = params.nominalTahun2 ?? nominal * 12
-    let tahunIdx = 2
+    const nomTahunan = params.campuranNominalTahunan ?? nominal * (12 / stepAwal)
+    let tahunIdx = nTahun + 1
     while (current <= end) {
-      hasil.push(makeItem(current, `Tahun ke-${tahunIdx}`, nomAnnual))
+      pushPeriode(current, 12, `Tahun ke-${tahunIdx}`, nomTahunan)
       current = addMonths(current, 12)
       tahunIdx++
     }
   } else {
-    const stepMonths = { bulanan: 1, triwulan: 3, semesteran: 6, tahunan: 12 }[interval]
+    const step = { bulanan: 1, triwulan: 3, semesteran: 6, tahunan: 12 }[interval]
     let current = new Date(tglMulai)
     let idx = 1
-
     while (current <= end) {
-      let label = ''
-      if (interval === 'bulanan') label = `${BULAN[current.getMonth()]} ${current.getFullYear()}`
-      else if (interval === 'triwulan') label = `Triwulan ${['I','II','III','IV'][Math.floor(current.getMonth() / 3)]} ${current.getFullYear()}`
-      else if (interval === 'semesteran') label = `Semester ${current.getMonth() < 6 ? 1 : 2} ${current.getFullYear()}`
-      else label = `Tahun ke-${idx}`
-
-      hasil.push(makeItem(current, label, nominal))
-      current = addMonths(current, stepMonths)
+      pushPeriode(current, step, labelFor(interval, current, idx), nominal)
+      current = addMonths(current, step)
       idx++
     }
   }
 
-  return hasil
+  const final = params.graceMulai && params.graceSelesai
+    ? applyGracePeriod(raw, new Date(params.graceMulai), new Date(params.graceSelesai))
+    : raw
+
+  return final.map(p => ({
+    ks_id: params.ksId,
+    periode_label: p.label,
+    label: p.label,
+    tgl_jatuh_tempo: toISO(addDays(p.periodeStart, offsetJatuhTempo)),
+    nominal: p.nominal,
+    ppn_persen: params.ppnPersen,
+    pph_persen: params.pphPersen,
+    maks_hari_bayar: params.maksHariBayar,
+    persen_denda_per_hari: params.persenDenda,
+    total_tagihan: p.nominal + (p.nominal * ppnPersen / 100),
+  }))
 }
 
 const genSchema = z.object({
   ks_id: z.string().min(1),
   nominal: z.coerce.number().min(1),
-  nominal_tahun2: z.coerce.number().min(0).optional(),
-  interval: z.enum(['bulanan', 'triwulan', 'semesteran', 'tahunan', 'tahun1_bulanan_sisanya_tahunan']),
+  interval: z.enum(['bulanan', 'triwulan', 'semesteran', 'tahunan', 'campuran']),
+  campuran_interval_awal: z.enum(['bulanan', 'triwulan', 'semesteran']).default('bulanan'),
+  campuran_tahun_peralihan: z.coerce.number().min(1).default(1),
+  campuran_nominal_tahunan: z.coerce.number().min(0).optional(),
+  ada_grace_period: z.boolean().default(false),
+  grace_mulai: z.string().optional(),
+  grace_selesai: z.string().optional(),
   ppn_persen: z.coerce.number().min(0).default(11),
   pph_persen: z.coerce.number().min(0).default(10),
   maks_hari_bayar: z.coerce.number().min(1).default(14),
@@ -177,14 +225,20 @@ export function Kompensasi() {
 
   const bayarForm = useForm<BayarForm>({ resolver: zodResolver(bayarSchema) })
 
-  const genForm = useForm<GenForm>({
-    resolver: zodResolver(genSchema),
-    defaultValues: { interval: 'tahunan', ppn_persen: 11, pph_persen: 10, maks_hari_bayar: 14, persen_denda_per_hari: 0.1, offset_jatuh_tempo: 14 },
-  })
+  const GEN_DEFAULTS = {
+    interval: 'tahunan' as const,
+    campuran_interval_awal: 'bulanan' as const,
+    campuran_tahun_peralihan: 1,
+    ada_grace_period: false,
+    ppn_persen: 11, pph_persen: 10, maks_hari_bayar: 14, persen_denda_per_hari: 0.1, offset_jatuh_tempo: 14,
+  }
+  const genForm = useForm<GenForm>({ resolver: zodResolver(genSchema), defaultValues: GEN_DEFAULTS })
 
-  const watchNominal = kompForm.watch('nominal')
-  const watchPPN = kompForm.watch('ppn_persen')
-  const watchInterval = genForm.watch('interval')
+  const watchNominal   = kompForm.watch('nominal')
+  const watchPPN       = kompForm.watch('ppn_persen')
+  const watchInterval  = genForm.watch('interval')
+  const watchGrace     = genForm.watch('ada_grace_period')
+  const watchCampTahun = genForm.watch('campuran_tahun_peralihan')
 
   useEffect(() => { fetchAllKompensasi(); fetchKS() }, [])
 
@@ -268,8 +322,12 @@ export function Kompensasi() {
       tglMulai: ks.tgl_mulai,
       tglSelesai: ks.tgl_selesai,
       nominal: data.nominal,
-      nominalTahun2: data.nominal_tahun2,
       interval: data.interval,
+      campuranIntervalAwal: data.campuran_interval_awal,
+      campuranTahunPeralihan: data.campuran_tahun_peralihan,
+      campuranNominalTahunan: data.campuran_nominal_tahunan,
+      graceMulai: data.ada_grace_period ? data.grace_mulai : undefined,
+      graceSelesai: data.ada_grace_period ? data.grace_selesai : undefined,
       ppnPersen: data.ppn_persen,
       pphPersen: data.pph_persen,
       maksHariBayar: data.maks_hari_bayar,
@@ -286,7 +344,7 @@ export function Kompensasi() {
     setIsSaving(false)
     setGenDialog(false)
     setGenStep(1)
-    genForm.reset({ interval: 'tahunan', ppn_persen: 11, pph_persen: 10, maks_hari_bayar: 14, persen_denda_per_hari: 0.1, offset_jatuh_tempo: 14 })
+    genForm.reset(GEN_DEFAULTS)
   }
 
   return (
@@ -430,7 +488,8 @@ export function Kompensasi() {
           </DialogHeader>
 
           {genStep === 1 && (
-            <form onSubmit={genForm.handleSubmit(onGenPreview)} className="space-y-4">
+            <form onSubmit={genForm.handleSubmit(onGenPreview)} className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+              {/* KS */}
               <div>
                 <Label>Kerja Sama</Label>
                 <Select onValueChange={v => genForm.setValue('ks_id', v)}>
@@ -446,68 +505,125 @@ export function Kompensasi() {
                 </Select>
               </div>
 
-              <div>
-                <Label>Interval Periode</Label>
-                <Select defaultValue="tahunan" onValueChange={v => genForm.setValue('interval', v as any)}>
-                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="bulanan">Bulanan</SelectItem>
-                    <SelectItem value="triwulan">Triwulan (3 bulan)</SelectItem>
-                    <SelectItem value="semesteran">Semesteran (6 bulan)</SelectItem>
-                    <SelectItem value="tahunan">Tahunan</SelectItem>
-                    <SelectItem value="tahun1_bulanan_sisanya_tahunan">Tahun 1 Bulanan → Tahun 2+ Tahunan</SelectItem>
-                  </SelectContent>
-                </Select>
+              {/* Pola pembayaran */}
+              <div className="border rounded-lg p-3 space-y-3">
+                <p className="text-xs font-semibold text-gray-700">Pola Pembayaran</p>
+
+                <div>
+                  <Label className="text-xs text-gray-500">Interval</Label>
+                  <Select defaultValue="tahunan" onValueChange={v => genForm.setValue('interval', v as any)}>
+                    <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="bulanan">Bulanan</SelectItem>
+                      <SelectItem value="triwulan">Triwulan (3 bulan)</SelectItem>
+                      <SelectItem value="semesteran">Semesteran (6 bulan)</SelectItem>
+                      <SelectItem value="tahunan">Tahunan</SelectItem>
+                      <SelectItem value="campuran">Campuran (beberapa tahun awal berbeda)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Campuran settings */}
+                {watchInterval === 'campuran' && (
+                  <div className="bg-blue-50 rounded-md p-3 space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label className="text-xs text-gray-600">Interval tahun-tahun awal</Label>
+                        <Select defaultValue="bulanan" onValueChange={v => genForm.setValue('campuran_interval_awal', v as any)}>
+                          <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="bulanan">Bulanan</SelectItem>
+                            <SelectItem value="triwulan">Triwulan</SelectItem>
+                            <SelectItem value="semesteran">Semesteran</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label className="text-xs text-gray-600">Berapa tahun?</Label>
+                        <Input type="number" min={1} {...genForm.register('campuran_tahun_peralihan')} className="mt-1 h-8 text-xs" />
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-blue-700">
+                      Ab tahun ke-<strong>{(watchCampTahun ?? 1) + 1}</strong>: interval berubah menjadi <strong>Tahunan</strong>
+                    </p>
+                  </div>
+                )}
               </div>
 
+              {/* Nominal */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label>
-                    {watchInterval === 'tahun1_bulanan_sisanya_tahunan' ? 'Nominal per Bulan (Tahun 1)' : 'Nominal per Periode'} (Rp)
-                  </Label>
+                  <Label>{watchInterval === 'campuran' ? `Nominal per Periode (${genForm.watch('campuran_interval_awal') ?? 'bulanan'})` : 'Nominal per Periode'} (Rp)</Label>
                   <Controller control={genForm.control} name="nominal" render={({ field }) => (
                     <CurrencyInput value={field.value} onChange={field.onChange} className="mt-1" />
                   )} />
                 </div>
-                {watchInterval === 'tahun1_bulanan_sisanya_tahunan' && (
+                {watchInterval === 'campuran' && (
                   <div>
-                    <Label>Nominal per Tahun (Tahun ke-2 dst) (Rp)</Label>
-                    <Controller control={genForm.control} name="nominal_tahun2" render={({ field }) => (
+                    <Label>Nominal Tahunan (ab tahun ke-{(watchCampTahun ?? 1) + 1}) (Rp)</Label>
+                    <Controller control={genForm.control} name="campuran_nominal_tahunan" render={({ field }) => (
                       <CurrencyInput value={field.value ?? 0} onChange={field.onChange} className="mt-1" />
                     )} />
                   </div>
                 )}
               </div>
 
-              {watchInterval === 'tahun1_bulanan_sisanya_tahunan' && (
-                <div className="bg-blue-50 border border-blue-200 rounded-md px-3 py-2 text-xs text-blue-700">
-                  12 periode bulanan untuk tahun pertama, lalu 1 periode per tahun untuk tahun berikutnya.
-                </div>
-              )}
+              {/* Grace period */}
+              <div className="border rounded-lg p-3 space-y-3">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <Controller control={genForm.control} name="ada_grace_period" render={({ field }) => (
+                    <input type="checkbox" checked={field.value} onChange={e => field.onChange(e.target.checked)}
+                      className="w-4 h-4 rounded border-gray-300 accent-[#5B2C6F] cursor-pointer" />
+                  )} />
+                  <span className="text-sm font-medium text-gray-700">Ada Grace Period?</span>
+                </label>
 
-              <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <Label>PPN (%)</Label>
-                  <Input type="number" step="0.01" {...genForm.register('ppn_persen')} className="mt-1" />
-                </div>
-                <div>
-                  <Label>PPh (%)</Label>
-                  <Input type="number" step="0.01" {...genForm.register('pph_persen')} className="mt-1" />
-                </div>
-                <div>
-                  <Label>% Denda/Hari</Label>
-                  <Input type="number" step="0.001" {...genForm.register('persen_denda_per_hari')} className="mt-1" />
-                </div>
+                {watchGrace && (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label className="text-xs text-gray-600">Mulai Grace Period</Label>
+                        <Input type="date" {...genForm.register('grace_mulai')} className="mt-1 h-8 text-xs" />
+                      </div>
+                      <div>
+                        <Label className="text-xs text-gray-600">Selesai Grace Period</Label>
+                        <Input type="date" {...genForm.register('grace_selesai')} className="mt-1 h-8 text-xs" />
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-orange-700 bg-orange-50 rounded px-2 py-1.5">
+                      Periode yang seluruhnya jatuh dalam grace period tidak dikenakan kompensasi.
+                      Periode yang terpotong grace period dihitung proporsional per hari.
+                    </p>
+                  </div>
+                )}
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label>Maks Hari Bayar</Label>
-                  <Input type="number" {...genForm.register('maks_hari_bayar')} className="mt-1" />
+              {/* Parameter */}
+              <div className="border rounded-lg p-3 space-y-3">
+                <p className="text-xs font-semibold text-gray-700">Parameter</p>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <Label className="text-xs text-gray-500">PPN (%)</Label>
+                    <Input type="number" step="0.01" {...genForm.register('ppn_persen')} className="mt-1 h-8 text-xs" />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-gray-500">PPh (%)</Label>
+                    <Input type="number" step="0.01" {...genForm.register('pph_persen')} className="mt-1 h-8 text-xs" />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-gray-500">% Denda/Hari</Label>
+                    <Input type="number" step="0.001" {...genForm.register('persen_denda_per_hari')} className="mt-1 h-8 text-xs" />
+                  </div>
                 </div>
-                <div>
-                  <Label>Jatuh Tempo (hari setelah awal periode)</Label>
-                  <Input type="number" {...genForm.register('offset_jatuh_tempo')} className="mt-1" />
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-xs text-gray-500">Maks Hari Bayar</Label>
+                    <Input type="number" {...genForm.register('maks_hari_bayar')} className="mt-1 h-8 text-xs" />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-gray-500">Jatuh Tempo (hari setelah awal periode)</Label>
+                    <Input type="number" {...genForm.register('offset_jatuh_tempo')} className="mt-1 h-8 text-xs" />
+                  </div>
                 </div>
               </div>
 
