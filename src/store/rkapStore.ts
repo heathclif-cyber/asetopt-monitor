@@ -55,11 +55,21 @@ export const useRKAPStore = create<RKAPStore>((set, get) => ({
   },
 
   upsertRow: async (data) => {
-    const { error } = await supabase
-      .from('rkap_target')
-      .upsert({ ...data, updated_at: new Date().toISOString() }, { onConflict: 'tahun,no' })
-    if (error) console.error('[upsertRow]', error)
-    await get().fetchRKAP(data.tahun)
+    const payload = data as any
+    if (payload.id) {
+      const { id, ...rest } = payload
+      const { error } = await supabase
+        .from('rkap_target')
+        .update({ ...rest, updated_at: new Date().toISOString() })
+        .eq('id', id)
+      if (error) console.error('[updateRow]', error)
+    } else {
+      const { error } = await supabase
+        .from('rkap_target')
+        .upsert({ ...payload, updated_at: new Date().toISOString() }, { onConflict: 'tahun,no' })
+      if (error) console.error('[insertRow]', error)
+    }
+    await get().fetchRKAP(payload.tahun)
   },
 
   deleteRow: async (id, tahun) => {
