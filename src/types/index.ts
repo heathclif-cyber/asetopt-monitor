@@ -1,4 +1,5 @@
 export type AsetStatus = 'pipeline' | 'prospek' | 'negosiasi' | 'aktif_ks' | 'selesai'
+export type PPHMode = 'none' | 'bukti_potong'
 export type TimelineStatus = 'belum' | 'proses' | 'selesai' | 'terlambat'
 export type ProspekProgress = 'identifikasi' | 'penjajakan' | 'penawaran' | 'negosiasi' | 'gagal' | 'berhasil'
 export type KerjaSamaStatus = 'aktif' | 'sp1' | 'sp2' | 'sp3' | 'putus' | 'selesai'
@@ -90,6 +91,7 @@ export interface Kompensasi {
   nominal: number
   ppn_persen: number
   pph_persen: number
+  pph_mode: PPHMode
   nominal_ppn: number
   nominal_pph: number
   total_tagihan: number

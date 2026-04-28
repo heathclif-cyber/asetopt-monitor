@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from 'react'
 import { useKompensasiStore } from '@/store/kompensasiStore'
 import { useKerjaSamaStore } from '@/store/kerjaSamaStore'
 import { useNotifikasiStore } from '@/store/notifikasiStore'
+import { usePBBStore } from '@/store/pbbStore'
 import { Kompensasi as KType, Pembayaran } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -172,6 +173,7 @@ const genSchema = z.object({
   grace_selesai: z.string().optional(),
   ppn_persen: z.coerce.number().min(0).default(11),
   pph_persen: z.coerce.number().min(0).default(10),
+  pph_mode: z.enum(['none', 'bukti_potong']).default('none'),
   maks_hari_bayar: z.coerce.number().min(1).default(14),
   persen_denda_per_hari: z.coerce.number().min(0).default(0.1),
   offset_jatuh_tempo: z.coerce.number().min(0).default(14),
@@ -184,6 +186,7 @@ const kompSchema = z.object({
   nominal: z.coerce.number().min(0),
   ppn_persen: z.coerce.number().min(0).default(11),
   pph_persen: z.coerce.number().min(0).default(10),
+  pph_mode: z.enum(['none', 'bukti_potong']).default('none'),
   maks_hari_bayar: z.coerce.number().min(1).default(14),
   persen_denda_per_hari: z.coerce.number().min(0).default(0.1),
   tgl_jatuh_tempo: z.string().min(1),
@@ -204,6 +207,7 @@ export function Kompensasi() {
   const { allKompensasi, isLoading, fetchAllKompensasi, addKompensasi, updateKompensasi, bulkAddKompensasi, getKompensasiWithStatus, catatPembayaran } = useKompensasiStore()
   const { daftarKS, fetchKS } = useKerjaSamaStore()
   const { terbitkanSP, kirimNotifWA } = useNotifikasiStore()
+  const { dataPBB, fetchAllPBB } = usePBBStore()
 
   const [kompDialog, setKompDialog] = useState(false)
   const [editTarget, setEditTarget] = useState<KType | null>(null)
@@ -220,7 +224,7 @@ export function Kompensasi() {
 
   const kompForm = useForm<KompForm>({
     resolver: zodResolver(kompSchema),
-    defaultValues: { ppn_persen: 11, pph_persen: 10, maks_hari_bayar: 14, persen_denda_per_hari: 0.1 },
+    defaultValues: { ppn_persen: 11, pph_persen: 10, pph_mode: 'none', maks_hari_bayar: 14, persen_denda_per_hari: 0.1 },
   })
 
   const bayarForm = useForm<BayarForm>({ resolver: zodResolver(bayarSchema) })
@@ -230,23 +234,25 @@ export function Kompensasi() {
     campuran_interval_awal: 'bulanan' as const,
     campuran_tahun_peralihan: 1,
     ada_grace_period: false,
-    ppn_persen: 11, pph_persen: 10, maks_hari_bayar: 14, persen_denda_per_hari: 0.1, offset_jatuh_tempo: 14,
+    ppn_persen: 11, pph_persen: 10, pph_mode: 'none' as const, maks_hari_bayar: 14, persen_denda_per_hari: 0.1, offset_jatuh_tempo: 14,
   }
   const genForm = useForm<GenForm>({ resolver: zodResolver(genSchema), defaultValues: GEN_DEFAULTS })
 
   const watchNominal   = kompForm.watch('nominal')
   const watchPPN       = kompForm.watch('ppn_persen')
+  const watchPPH       = kompForm.watch('pph_persen')
+  const watchPPHMode   = kompForm.watch('pph_mode')
   const watchInterval  = genForm.watch('interval')
   const watchGrace     = genForm.watch('ada_grace_period')
   const watchCampTahun = genForm.watch('campuran_tahun_peralihan')
 
-  useEffect(() => { fetchAllKompensasi(); fetchKS() }, [])
+  useEffect(() => { fetchAllKompensasi(); fetchKS(); fetchAllPBB() }, [])
 
   const filtered = filterKS === 'semua' ? allKompensasi : allKompensasi.filter(k => k.ks_id === filterKS)
 
   const openAdd = () => {
     setEditTarget(null)
-    kompForm.reset({ ppn_persen: 11, pph_persen: 10, maks_hari_bayar: 14, persen_denda_per_hari: 0.1 })
+    kompForm.reset({ ppn_persen: 11, pph_persen: 10, pph_mode: 'none', maks_hari_bayar: 14, persen_denda_per_hari: 0.1 })
     setKompDialog(true)
   }
 
@@ -258,6 +264,7 @@ export function Kompensasi() {
       nominal: k.nominal,
       ppn_persen: k.ppn_persen,
       pph_persen: k.pph_persen,
+      pph_mode: k.pph_mode ?? 'none',
       maks_hari_bayar: k.maks_hari_bayar,
       persen_denda_per_hari: k.persen_denda_per_hari,
       tgl_jatuh_tempo: k.tgl_jatuh_tempo,
@@ -450,27 +457,112 @@ export function Kompensasi() {
                               <FileWarning size={14} />
                             </Button>
                           )}
-                          {pembayaran.length > 0 && (
-                            <Button variant="ghost" size="icon" title="Riwayat pembayaran" onClick={() => setExpandedId(expanded ? null : k.id)}>
-                              {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                            </Button>
-                          )}
+                          <Button variant="ghost" size="icon" title="Lihat breakdown" onClick={() => setExpandedId(expanded ? null : k.id)}>
+                            {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                          </Button>
                         </div>
                       </td>
                     </tr>
-                    {expanded && pembayaran.length > 0 && (
-                      <tr key={`${k.id}-detail`} className="bg-gray-50">
-                        <td colSpan={8} className="px-6 py-3">
-                          <p className="text-xs font-semibold text-gray-600 mb-2">Riwayat Pembayaran:</p>
-                          <div className="space-y-1">
-                            {pembayaran.map(p => (
-                              <div key={p.id} className="flex gap-6 text-xs text-gray-600">
-                                <span>{formatTanggal(p.tgl_bayar)}</span>
-                                <span className="font-medium">{formatRupiah(p.nominal_bayar)}</span>
-                                {p.keterangan && <span className="text-gray-400">{p.keterangan}</span>}
-                                {p.bukti_url && <a href={p.bukti_url} target="_blank" className="text-blue-600">Lihat Bukti</a>}
+                    {expanded && (
+                      <tr key={`${k.id}-detail`} className="bg-gray-50/60">
+                        <td colSpan={8} className="px-6 py-4">
+                          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 text-xs">
+
+                            {/* ── Rincian Tagihan + Denda ───────────────────── */}
+                            <div className="space-y-3">
+                              <p className="font-semibold text-gray-700 text-[11px] uppercase tracking-wide">Rincian Tagihan</p>
+                              <div className="space-y-1">
+                                <div className="flex justify-between">
+                                  <span className="text-gray-500">Kompensasi</span>
+                                  <span className="font-medium">{formatRupiah(k.nominal)}</span>
+                                </div>
+                                <div className="flex justify-between text-blue-700">
+                                  <span>+ PPN ({k.ppn_persen}%)</span>
+                                  <span>+ {formatRupiah(k.nominal_ppn)}</span>
+                                </div>
+                                {k.pph_mode === 'bukti_potong' && k.pph_persen > 0 && (
+                                  <div className="flex justify-between text-orange-700">
+                                    <span>− PPh ({k.pph_persen}%) <span className="text-[10px] bg-orange-100 px-1 rounded">Bukti Potong</span></span>
+                                    <span>− {formatRupiah(k.nominal_pph)}</span>
+                                  </div>
+                                )}
+                                <div className="flex justify-between font-semibold border-t pt-1 mt-1">
+                                  <span>Total Tagihan</span>
+                                  <span>{formatRupiah(k.total_tagihan)}</span>
+                                </div>
                               </div>
-                            ))}
+
+                              {ws.dendaAkumulasi.hariTerlambat > 0 && (
+                                <div className="mt-2 pt-2 border-t space-y-1">
+                                  <p className="font-semibold text-red-700 text-[11px] uppercase tracking-wide">Denda</p>
+                                  <div className="flex justify-between text-red-600">
+                                    <span>{ws.dendaAkumulasi.hariTerlambat} hr × {k.persen_denda_per_hari}%/hr</span>
+                                    <span className="font-medium">{formatRupiah(ws.dendaAkumulasi.nominalDenda)}</span>
+                                  </div>
+                                  <div className="flex justify-between text-red-500">
+                                    <span>Kumulatif</span>
+                                    <span>{ws.dendaAkumulasi.persenAkumulasi.toFixed(2)}%</span>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* ── Pembayaran ────────────────────────────────── */}
+                            <div className="space-y-2">
+                              <p className="font-semibold text-gray-700 text-[11px] uppercase tracking-wide">Pembayaran Diterima</p>
+                              {pembayaran.length === 0
+                                ? <p className="text-gray-400 italic">Belum ada pembayaran</p>
+                                : (
+                                  <div className="space-y-1.5">
+                                    {pembayaran.map(p => (
+                                      <div key={p.id} className="flex items-start gap-3">
+                                        <span className="text-gray-400 shrink-0 w-24">{formatTanggal(p.tgl_bayar)}</span>
+                                        <span className="font-medium flex-1">{formatRupiah(p.nominal_bayar)}</span>
+                                        <div className="flex gap-1.5">
+                                          {p.keterangan && <span className="text-gray-400">{p.keterangan}</span>}
+                                          {p.bukti_url && <a href={p.bukti_url} target="_blank" className="text-blue-600 hover:underline">Bukti</a>}
+                                        </div>
+                                      </div>
+                                    ))}
+                                    <div className="border-t pt-1.5 space-y-0.5">
+                                      <div className="flex justify-between text-green-700 font-semibold">
+                                        <span>Total Dibayar</span>
+                                        <span>{formatRupiah(ws.totalDibayar)}</span>
+                                      </div>
+                                      <div className="flex justify-between text-red-700 font-semibold">
+                                        <span>Sisa Tagihan</span>
+                                        <span>{formatRupiah(ws.sisaTagihan)}</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )
+                              }
+                            </div>
+
+                            {/* ── PBB Aset ──────────────────────────────────── */}
+                            <div className="space-y-2">
+                              <p className="font-semibold text-gray-700 text-[11px] uppercase tracking-wide">PBB Aset Terkait</p>
+                              {(() => {
+                                const asetId = (ks?.aset as any)?.id
+                                const pbbList = asetId ? (dataPBB[asetId] ?? []) : []
+                                if (!asetId || pbbList.length === 0)
+                                  return <p className="text-gray-400 italic">Tidak ada data PBB</p>
+                                return (
+                                  <div className="space-y-1.5">
+                                    {pbbList.map(p => (
+                                      <div key={p.id} className="flex items-center gap-2">
+                                        <span className="text-gray-500 w-10">{p.tahun}</span>
+                                        <span className="flex-1 font-medium">{formatRupiah(p.nilai_pbb)}</span>
+                                        <span className={p.status_bayar === 'lunas' ? 'text-green-600' : 'text-red-500'}>
+                                          {p.status_bayar}
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )
+                              })()}
+                            </div>
+
                           </div>
                         </td>
                       </tr>
@@ -620,6 +712,16 @@ export function Kompensasi() {
                     <Input type="number" step="0.001" {...genForm.register('persen_denda_per_hari')} className="mt-1 h-8 text-xs" />
                   </div>
                 </div>
+                <div>
+                  <Label className="text-xs text-gray-500">Mode PPh</Label>
+                  <Select defaultValue="none" onValueChange={v => genForm.setValue('pph_mode', v as any)}>
+                    <SelectTrigger className="mt-1 h-8 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Tidak dipotong dari invoice (PPh = 0 atau ditanggung perusahaan)</SelectItem>
+                      <SelectItem value="bukti_potong">Bukti Potong — PPh mengurangi nilai invoice</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <Label className="text-xs text-gray-500">Maks Hari Bayar</Label>
@@ -725,10 +827,46 @@ export function Kompensasi() {
                 <Input type="number" step="0.01" {...kompForm.register('pph_persen')} className="mt-1" />
               </div>
             </div>
+            <div>
+              <Label>Mode PPh</Label>
+              <Select
+                value={watchPPHMode ?? 'none'}
+                onValueChange={v => kompForm.setValue('pph_mode', v as any)}
+              >
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Tidak dipotong dari invoice</SelectItem>
+                  <SelectItem value="bukti_potong">Bukti Potong — PPh mengurangi nilai invoice</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             {watchNominal > 0 && (
-              <div className="bg-gray-50 rounded-lg p-3 text-sm space-y-1">
-                <p>PPN: {formatRupiah(watchNominal * (watchPPN ?? 11) / 100)}</p>
-                <p className="font-semibold">Total Tagihan: {formatRupiah(watchNominal + watchNominal * (watchPPN ?? 11) / 100)}</p>
+              <div className="bg-gray-50 rounded-lg p-3 text-xs space-y-1">
+                {(() => {
+                  const nom = watchNominal ?? 0
+                  const ppn = nom * (watchPPN ?? 11) / 100
+                  const pph = nom * (watchPPH ?? 10) / 100
+                  const isBuktiPotong = watchPPHMode === 'bukti_potong'
+                  const total = nom + ppn - (isBuktiPotong ? pph : 0)
+                  return (
+                    <>
+                      <div className="flex justify-between text-gray-500">
+                        <span>Kompensasi</span><span>{formatRupiah(nom)}</span>
+                      </div>
+                      <div className="flex justify-between text-blue-700">
+                        <span>+ PPN ({watchPPN ?? 11}%)</span><span>+ {formatRupiah(ppn)}</span>
+                      </div>
+                      {isBuktiPotong && (
+                        <div className="flex justify-between text-orange-700">
+                          <span>− PPh ({watchPPH ?? 10}%) [Bukti Potong]</span><span>− {formatRupiah(pph)}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between font-semibold border-t pt-1">
+                        <span>Total Tagihan</span><span>{formatRupiah(total)}</span>
+                      </div>
+                    </>
+                  )
+                })()}
               </div>
             )}
             <div className="grid grid-cols-2 gap-4">
