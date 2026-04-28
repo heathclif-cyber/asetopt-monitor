@@ -57,19 +57,30 @@ interface RawPeriode {
   nominal: number
 }
 
+// Hitung selisih bulan antara dua tanggal (toExclusive tidak ikut dihitung)
+function monthsBetween(from: Date, toExclusive: Date): number {
+  const y = toExclusive.getFullYear() - from.getFullYear()
+  const m = toExclusive.getMonth()    - from.getMonth()
+  const d = toExclusive.getDate()     - from.getDate()
+  return y * 12 + m + (d < 0 ? -1 : 0)
+}
+
 function applyGracePeriod(periods: RawPeriode[], graceMulai: Date, graceSelesai: Date): RawPeriode[] {
-  const MS_PER_DAY = 86_400_000
   return periods.flatMap(p => {
     const overlapStart = new Date(Math.max(p.periodeStart.getTime(), graceMulai.getTime()))
     const overlapEnd   = new Date(Math.min(p.periodeEnd.getTime(),   graceSelesai.getTime()))
     if (overlapStart > overlapEnd) return [p]  // tidak tumpang tindih
-    const overlapDays = Math.round((overlapEnd.getTime() - overlapStart.getTime()) / MS_PER_DAY) + 1
-    const totalDays   = Math.round((p.periodeEnd.getTime() - p.periodeStart.getTime()) / MS_PER_DAY) + 1
-    if (overlapDays >= totalDays) return []    // seluruh periode dalam grace — hilangkan
-    const payableDays = totalDays - overlapDays
+
+    // Hitung dalam bulan agar 3 bulan grace = 3/12, bukan X hari / Y hari
+    const totalMonths  = monthsBetween(p.periodeStart, addDays(p.periodeEnd, 1))
+    const graceMonths  = monthsBetween(overlapStart,   addDays(overlapEnd,   1))
+
+    if (graceMonths >= totalMonths) return []  // seluruh periode dalam grace — hilangkan
+
+    const payableMonths = totalMonths - graceMonths
     return [{ ...p,
-      nominal: Math.round(p.nominal * payableDays / totalDays),
-      label: `${p.label} (prop. ${payableDays}/${totalDays} hr)`,
+      nominal: Math.round(p.nominal * payableMonths / totalMonths),
+      label: `${p.label} (prop. ${payableMonths}/${totalMonths} bln)`,
     }]
   })
 }
