@@ -5,6 +5,7 @@ import { useKerjaSamaStore } from '@/store/kerjaSamaStore'
 import { useKompensasiStore } from '@/store/kompensasiStore'
 import { useNotifikasiStore } from '@/store/notifikasiStore'
 import { useNJOPStore } from '@/store/njopStore'
+import { usePBBStore } from '@/store/pbbStore'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { CurrencyDisplay } from '@/components/common/CurrencyDisplay'
 import { StatusBadge } from '@/components/common/StatusBadge'
@@ -17,7 +18,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   ComposedChart, Area, Line, ReferenceLine,
 } from 'recharts'
-import { Building2, Handshake, Clock, TrendingUp, AlertTriangle, Banknote, ReceiptText, Percent, Target, ChevronRight, WalletCards, CalendarRange } from 'lucide-react'
+import { Building2, Handshake, Clock, TrendingUp, AlertTriangle, Banknote, ReceiptText, Percent, Target, ChevronRight, WalletCards, CalendarRange, FileText } from 'lucide-react'
 
 const CURRENT_MONTH = new Date().getMonth()
 
@@ -29,6 +30,7 @@ export function Dashboard() {
   const { jatuhTempoH14, spAktif, checkJatuhTempo, fetchSPAktif } = useNotifikasiStore()
   const { fetchAllNJOP, dataNJOP } = useNJOPStore()
   const { rows: rkapRows, fetchRKAP } = useRKAPStore()
+  const { allPBB, fetchAllPBB } = usePBBStore()
 
   useEffect(() => {
     fetchAset()
@@ -36,6 +38,7 @@ export function Dashboard() {
     fetchAllKompensasi()
     fetchSPAktif()
     fetchAllNJOP()
+    fetchAllPBB()
     fetchRKAP(CURRENT_MONTH >= 0 ? new Date().getFullYear() : 2026)
   }, [])
 
@@ -127,6 +130,51 @@ export function Dashboard() {
     })
     return Object.values(byKS).sort((a, b) => b.sisaPiutang - a.sisaPiutang)
   }, [allKompensasi, daftarKS])
+
+  // PBB Proporsional: hitung porsi PBB per KS berdasarkan tgl_mulai/tgl_selesai vs tahun SPPT
+  const pbbProporsionalList = useMemo(() => {
+    type PBBRow = {
+      ksId: string; namaMitra: string; namaAset: string
+      tahun: number; nilaiPBB: number; proporsi: number; pbbProporsional: number
+      hariKS: number; hariDalamTahun: number; statusBayar: string
+    }
+    const rows: PBBRow[] = []
+
+    daftarKS.forEach(ks => {
+      const tglMulai  = new Date(ks.tgl_mulai)
+      const tglSelesai = new Date(ks.tgl_selesai)
+      const namaAset  = (ks.aset as any)?.nama_aset ?? '-'
+
+      // Kumpulkan PBB untuk aset ini
+      const pbbAset = allPBB.filter(p => p.aset_id === ks.aset_id)
+
+      pbbAset.forEach(pbb => {
+        const tahun = pbb.tahun
+        // Rentang KS dalam tahun SPPT
+        const thnMulai  = new Date(tahun, 0, 1)   // 1 Jan
+        const thnAkhir  = new Date(tahun, 11, 31)  // 31 Des
+
+        const overlapMulai  = tglMulai  > thnMulai  ? tglMulai  : thnMulai
+        const overlapAkhir  = tglSelesai < thnAkhir ? tglSelesai : thnAkhir
+
+        const hariKS = Math.max(0, Math.floor((overlapAkhir.getTime() - overlapMulai.getTime()) / 86_400_000) + 1)
+        if (hariKS <= 0) return   // KS tidak overlap dengan tahun SPPT ini
+
+        // Hari dalam tahun (366 jika kabisat)
+        const hariDalamTahun = ((tahun % 4 === 0 && tahun % 100 !== 0) || tahun % 400 === 0) ? 366 : 365
+        const proporsi = hariKS / hariDalamTahun
+        const pbbProporsional = Math.round(pbb.nilai_pbb * proporsi)
+
+        rows.push({
+          ksId: ks.id, namaMitra: ks.nama_mitra, namaAset,
+          tahun, nilaiPBB: pbb.nilai_pbb, proporsi, pbbProporsional,
+          hariKS, hariDalamTahun, statusBayar: pbb.status_bayar,
+        })
+      })
+    })
+
+    return rows.sort((a, b) => b.tahun - a.tahun || b.pbbProporsional - a.pbbProporsional)
+  }, [daftarKS, allPBB])
 
   const potensiChartData = daftarAset
     .filter(a => ['pipeline', 'prospek', 'negosiasi'].includes(a.status))
@@ -263,6 +311,121 @@ export function Dashboard() {
       <div>
         <h1 className="text-lg font-bold text-gray-900">Dashboard</h1>
         <p className="text-xs text-gray-500 mt-0.5">Ringkasan program optimalisasi aset</p>
+      </div>
+
+      {/* RKAP Section — paling atas */}
+      <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-100">
+          <div className="flex items-center gap-2">
+            <Target size={15} className="text-[#1B4F72]" />
+            <span className="text-sm font-semibold text-gray-800">RKAP {new Date().getFullYear()} — Progress YTD</span>
+            <span className="text-xs text-gray-400">s.d. {BULAN_LABELS[CURRENT_MONTH]}</span>
+          </div>
+          <button
+            onClick={() => navigate('/rkap')}
+            className="flex items-center gap-1 text-xs text-[#1B4F72] hover:underline font-medium"
+          >
+            Detail <ChevronRight size={13} />
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-0 divide-y lg:divide-y-0 lg:divide-x divide-gray-100">
+          <div className="px-5 py-4">
+            <p className="text-[11px] text-gray-500 font-medium">Target RKAP {new Date().getFullYear()}</p>
+            <CurrencyDisplay value={rkapSummary.totalTarget} size="lg" className="text-[#1B4F72] mt-1 block" />
+            <p className="text-[11px] text-gray-400 mt-1">YTD: <span className="text-gray-600 font-medium"><CurrencyDisplay value={rkapSummary.ytdTarget} /></span></p>
+          </div>
+          <div className="px-5 py-4">
+            <p className="text-[11px] text-gray-500 font-medium">Realisasi YTD</p>
+            <CurrencyDisplay value={rkapSummary.ytdRealisasi} size="lg" className="text-[#117A65] mt-1 block" />
+            {rkapSummary.currentCarryOver > 0 && (
+              <p className="text-[11px] text-orange-600 mt-1 font-medium">
+                ⚠ Carry-over: <CurrencyDisplay value={rkapSummary.currentCarryOver} />
+              </p>
+            )}
+          </div>
+          <div className="px-5 py-4 flex flex-col justify-between">
+            <p className="text-[11px] text-gray-500 font-medium">Achievement YTD</p>
+            <p className={`text-2xl font-bold mt-1 ${rkapSummary.achievement >= 100 ? 'text-[#117A65]' : rkapSummary.achievement >= 80 ? 'text-yellow-600' : 'text-red-600'}`}>
+              {rkapSummary.achievement.toFixed(1)}%
+            </p>
+            <div className="mt-2 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${rkapSummary.achievement >= 100 ? 'bg-green-500' : rkapSummary.achievement >= 80 ? 'bg-yellow-400' : 'bg-red-500'}`}
+                style={{ width: `${Math.min(100, rkapSummary.achievement)}%` }}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Capaian Triwulan */}
+        <div className="px-5 pb-4 pt-1 border-t border-gray-100">
+          <p className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-3">Capaian per Triwulan</p>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            {rkapSummary.triwulan.map(tw => (
+              <div
+                key={tw.label}
+                className={`rounded-lg p-3 border ${
+                  tw.isFuture
+                    ? 'bg-gray-50 border-gray-200 opacity-50'
+                    : tw.achievement >= 100
+                    ? 'bg-green-50 border-green-200'
+                    : tw.achievement >= 75
+                    ? 'bg-yellow-50 border-yellow-200'
+                    : 'bg-red-50 border-red-200'
+                } ${tw.isCurrent ? 'ring-2 ring-[#1B4F72]/30' : ''}`}
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-bold text-gray-700">{tw.label}</span>
+                  {tw.isCurrent && <span className="text-[9px] bg-[#1B4F72] text-white px-1.5 py-0.5 rounded-full">Berjalan</span>}
+                  {tw.isFuture  && <span className="text-[9px] text-gray-400">Belum</span>}
+                </div>
+                <p className={`text-lg font-bold ${
+                  tw.isFuture ? 'text-gray-400'
+                  : tw.achievement >= 100 ? 'text-green-700'
+                  : tw.achievement >= 75  ? 'text-yellow-700'
+                  : 'text-red-700'
+                }`}>
+                  {tw.isFuture ? '—' : `${tw.achievement.toFixed(1)}%`}
+                </p>
+                <p className="text-[10px] text-gray-500 mt-0.5">
+                  Realisasi: <span className="font-medium text-gray-700">{Math.round(tw.realisasi / 1_000_000)}jt</span>
+                </p>
+                <p className="text-[10px] text-gray-400">
+                  Target: {Math.round(tw.target / 1_000_000)}jt
+                </p>
+                {!tw.isFuture && (
+                  <div className="mt-1.5 h-1 bg-gray-200 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${
+                        tw.achievement >= 100 ? 'bg-green-500'
+                        : tw.achievement >= 75 ? 'bg-yellow-400'
+                        : 'bg-red-500'
+                      }`}
+                      style={{ width: `${Math.min(100, tw.achievement)}%` }}
+                    />
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {rkapSummary.chartData.length > 0 && (
+          <div className="px-5 pb-4 pt-1 border-t border-gray-100">
+            <ResponsiveContainer width="100%" height={160}>
+              <BarChart data={rkapSummary.chartData} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis dataKey="bulan" tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `${v}jt`} />
+                <Tooltip formatter={(v: number) => `Rp ${v}jt`} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Bar dataKey="Target" fill="#94a3b8" radius={[3,3,0,0]} />
+                <Bar dataKey="Realisasi" fill="#117A65" radius={[3,3,0,0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
       </div>
 
       {/* Stat cards */}
@@ -524,120 +687,75 @@ export function Dashboard() {
         </CardContent>
       </Card>
 
-      {/* RKAP Section */}
-      <div className="rounded-lg border border-gray-200 bg-white shadow-sm">
-        <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-100">
-          <div className="flex items-center gap-2">
-            <Target size={15} className="text-[#1B4F72]" />
-            <span className="text-sm font-semibold text-gray-800">RKAP {new Date().getFullYear()} — Progress YTD</span>
-            <span className="text-xs text-gray-400">s.d. {BULAN_LABELS[CURRENT_MONTH]}</span>
-          </div>
-          <button
-            onClick={() => navigate('/rkap')}
-            className="flex items-center gap-1 text-xs text-[#1B4F72] hover:underline font-medium"
-          >
-            Detail <ChevronRight size={13} />
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-0 divide-y lg:divide-y-0 lg:divide-x divide-gray-100">
-          <div className="px-5 py-4">
-            <p className="text-[11px] text-gray-500 font-medium">Target RKAP {new Date().getFullYear()}</p>
-            <CurrencyDisplay value={rkapSummary.totalTarget} size="lg" className="text-[#1B4F72] mt-1 block" />
-            <p className="text-[11px] text-gray-400 mt-1">YTD: <span className="text-gray-600 font-medium"><CurrencyDisplay value={rkapSummary.ytdTarget} /></span></p>
-          </div>
-          <div className="px-5 py-4">
-            <p className="text-[11px] text-gray-500 font-medium">Realisasi YTD</p>
-            <CurrencyDisplay value={rkapSummary.ytdRealisasi} size="lg" className="text-[#117A65] mt-1 block" />
-            {rkapSummary.currentCarryOver > 0 && (
-              <p className="text-[11px] text-orange-600 mt-1 font-medium">
-                ⚠ Carry-over: <CurrencyDisplay value={rkapSummary.currentCarryOver} />
-              </p>
-            )}
-          </div>
-          <div className="px-5 py-4 flex flex-col justify-between">
-            <p className="text-[11px] text-gray-500 font-medium">Achievement YTD</p>
-            <p className={`text-2xl font-bold mt-1 ${rkapSummary.achievement >= 100 ? 'text-[#117A65]' : rkapSummary.achievement >= 80 ? 'text-yellow-600' : 'text-red-600'}`}>
-              {rkapSummary.achievement.toFixed(1)}%
-            </p>
-            <div className="mt-2 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all ${rkapSummary.achievement >= 100 ? 'bg-green-500' : rkapSummary.achievement >= 80 ? 'bg-yellow-400' : 'bg-red-500'}`}
-                style={{ width: `${Math.min(100, rkapSummary.achievement)}%` }}
-              />
+      {/* Card PBB Proporsional per KS */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <FileText size={16} className="text-amber-600" />
+            PBB Proporsional per Kerja Sama
+            <span className="ml-auto text-xs font-normal text-gray-400">berdasarkan jangka waktu KS vs tahun SPPT</span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {pbbProporsionalList.length === 0 ? (
+            <p className="text-sm text-gray-500 text-center py-4">Belum ada data PBB yang terhubung dengan KS aktif</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-gray-50 text-gray-500 text-xs uppercase">
+                    <th className="text-left px-3 py-2">Mitra</th>
+                    <th className="text-left px-3 py-2 hidden md:table-cell">Aset</th>
+                    <th className="text-center px-3 py-2">Tahun SPPT</th>
+                    <th className="text-right px-3 py-2 hidden md:table-cell">Nilai PBB</th>
+                    <th className="text-center px-3 py-2 hidden md:table-cell">Proporsi</th>
+                    <th className="text-right px-3 py-2 font-semibold text-amber-700">PBB Ditanggung</th>
+                    <th className="text-center px-3 py-2">Status SPPT</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {pbbProporsionalList.map((item, idx) => (
+                    <tr key={`${item.ksId}-${item.tahun}-${idx}`} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-3 py-2.5 font-medium text-gray-900">{item.namaMitra}</td>
+                      <td className="px-3 py-2.5 hidden md:table-cell text-gray-500 text-xs">{item.namaAset}</td>
+                      <td className="px-3 py-2.5 text-center">
+                        <span className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full font-medium">{item.tahun}</span>
+                      </td>
+                      <td className="px-3 py-2.5 text-right text-gray-500 hidden md:table-cell">
+                        <CurrencyDisplay value={item.nilaiPBB} size="sm" />
+                      </td>
+                      <td className="px-3 py-2.5 text-center hidden md:table-cell">
+                        <span className="text-xs text-gray-500">
+                          {item.hariKS}hr / {item.hariDalamTahun}hr = {(item.proporsi * 100).toFixed(1)}%
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5 text-right font-semibold text-amber-700">
+                        <CurrencyDisplay value={item.pbbProporsional} size="sm" />
+                      </td>
+                      <td className="px-3 py-2.5 text-center">
+                        {item.statusBayar === 'lunas'
+                          ? <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Lunas</span>
+                          : <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">Belum Bayar</span>
+                        }
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 bg-amber-50 font-semibold">
+                    <td colSpan={4} className="px-3 py-2 text-sm text-gray-700">Total PBB Ditanggung Mitra</td>
+                    <td className="px-3 py-2 text-right text-sm text-amber-700">
+                      <CurrencyDisplay value={pbbProporsionalList.reduce((s, i) => s + i.pbbProporsional, 0)} size="sm" />
+                    </td>
+                    <td />
+                  </tr>
+                </tfoot>
+              </table>
             </div>
-          </div>
-        </div>
+          )}
+        </CardContent>
+      </Card>
 
-        {/* Capaian Triwulan */}
-        <div className="px-5 pb-4 pt-1 border-t border-gray-100">
-          <p className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide mb-3">Capaian per Triwulan</p>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            {rkapSummary.triwulan.map(tw => (
-              <div
-                key={tw.label}
-                className={`rounded-lg p-3 border ${
-                  tw.isFuture
-                    ? 'bg-gray-50 border-gray-200 opacity-50'
-                    : tw.achievement >= 100
-                    ? 'bg-green-50 border-green-200'
-                    : tw.achievement >= 75
-                    ? 'bg-yellow-50 border-yellow-200'
-                    : 'bg-red-50 border-red-200'
-                } ${tw.isCurrent ? 'ring-2 ring-[#1B4F72]/30' : ''}`}
-              >
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs font-bold text-gray-700">{tw.label}</span>
-                  {tw.isCurrent && <span className="text-[9px] bg-[#1B4F72] text-white px-1.5 py-0.5 rounded-full">Berjalan</span>}
-                  {tw.isFuture  && <span className="text-[9px] text-gray-400">Belum</span>}
-                </div>
-                <p className={`text-lg font-bold ${
-                  tw.isFuture ? 'text-gray-400'
-                  : tw.achievement >= 100 ? 'text-green-700'
-                  : tw.achievement >= 75  ? 'text-yellow-700'
-                  : 'text-red-700'
-                }`}>
-                  {tw.isFuture ? '—' : `${tw.achievement.toFixed(1)}%`}
-                </p>
-                <p className="text-[10px] text-gray-500 mt-0.5">
-                  Realisasi: <span className="font-medium text-gray-700">{Math.round(tw.realisasi / 1_000_000)}jt</span>
-                </p>
-                <p className="text-[10px] text-gray-400">
-                  Target: {Math.round(tw.target / 1_000_000)}jt
-                </p>
-                {!tw.isFuture && (
-                  <div className="mt-1.5 h-1 bg-gray-200 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full ${
-                        tw.achievement >= 100 ? 'bg-green-500'
-                        : tw.achievement >= 75 ? 'bg-yellow-400'
-                        : 'bg-red-500'
-                      }`}
-                      style={{ width: `${Math.min(100, tw.achievement)}%` }}
-                    />
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {rkapSummary.chartData.length > 0 && (
-          <div className="px-5 pb-4 pt-1 border-t border-gray-100">
-            <ResponsiveContainer width="100%" height={160}>
-              <BarChart data={rkapSummary.chartData} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="bulan" tick={{ fontSize: 11 }} />
-                <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `${v}jt`} />
-                <Tooltip formatter={(v: number) => `Rp ${v}jt`} />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Bar dataKey="Target" fill="#94a3b8" radius={[3,3,0,0]} />
-                <Bar dataKey="Realisasi" fill="#117A65" radius={[3,3,0,0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Bar chart potensi */}
