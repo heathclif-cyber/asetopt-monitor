@@ -30,10 +30,8 @@ export function PotensiPendapatan() {
   useEffect(() => { fetchAset(); fetchAllNJOP(); fetchAllKJPP() }, [])
   useEffect(() => { fetchAllNJOP(); fetchAllKJPP() }, [location.key])
 
-  const pipelineAset = daftarAset.filter(a => ['pipeline', 'prospek', 'negosiasi'].includes(a.status))
-
   const rows = useMemo(() => {
-    return pipelineAset
+    return daftarAset
       .filter(a => a.nama_aset.toLowerCase().includes(search.toLowerCase()) || a.kode_aset.toLowerCase().includes(search.toLowerCase()))
       .map(a => {
         const njopList = dataNJOP[a.id] ?? []
@@ -76,7 +74,7 @@ export function PotensiPendapatan() {
         if (sortKey === 'luas') return dir * ((x.a.luas_tanah_m2 ?? 0) - (y.a.luas_tanah_m2 ?? 0))
         return 0
       })
-  }, [pipelineAset, dataNJOP, dataPenilaian, search, sortKey, sortDir])
+  }, [daftarAset, dataNJOP, dataPenilaian, search, sortKey, sortDir])
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -92,7 +90,7 @@ export function PotensiPendapatan() {
     <div className="space-y-5">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Potensi Pendapatan</h1>
-        <p className="text-sm text-gray-500">Estimasi potensi berdasarkan NJOP dan penilaian KJPP (Jalur A)</p>
+        <p className="text-sm text-gray-500">Estimasi potensi berdasarkan NJOP dan penilaian KJPP untuk seluruh aset yang telah diinput</p>
       </div>
 
       <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 flex items-start gap-2 text-sm">
@@ -110,7 +108,7 @@ export function PotensiPendapatan() {
         {isLoading ? (
           <div className="p-6"><TableSkeleton /></div>
         ) : rows.length === 0 ? (
-          <EmptyState title="Belum ada data" description="Tambahkan data NJOP untuk aset pipeline agar potensi pendapatan dapat dihitung." />
+          <EmptyState title="Belum ada data" description="Tambahkan Data Aset dan Data NJOP di Master Data agar potensi pendapatan dapat dihitung." />
         ) : (
           <table className="w-full text-sm">
             <thead>
