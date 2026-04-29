@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useAsetStore } from '@/store/asetStore'
 import { Aset, AsetStatus } from '@/types'
+import { supabase } from '@/lib/supabase'
+import { RKAP_2026 } from '@/data/rkap2026'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -12,7 +14,7 @@ import { ConfirmDialog } from '@/components/common/ConfirmDialog'
 import { EmptyState } from '@/components/common/EmptyState'
 import { TableSkeleton } from '@/components/common/LoadingSkeleton'
 import { formatAngka } from '@/lib/utils'
-import { Plus, Pencil, Trash2, Search } from 'lucide-react'
+import { Plus, Pencil, Trash2, Search, Download } from 'lucide-react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -37,7 +39,23 @@ export function DataAset() {
   const [editTarget, setEditTarget] = useState<Aset | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
   const [page, setPage] = useState(1)
+  const [importing, setImporting] = useState(false)
   const pageSize = 10
+
+  const importRKAPAset = async () => {
+    setImporting(true)
+    const rows = RKAP_2026.map(item => ({
+      kode_aset: item.kode,
+      nama_aset: item.nama,
+      status: 'pipeline' as AsetStatus,
+    }))
+    const { error } = await supabase
+      .from('aset')
+      .upsert(rows, { onConflict: 'kode_aset', ignoreDuplicates: true })
+    if (error) console.error('[importRKAPAset]', error)
+    await fetchAset()
+    setImporting(false)
+  }
 
   const { register, handleSubmit, reset, setValue, formState: { errors } } = useForm<AsetForm>({
     resolver: zodResolver(asetSchema),
@@ -91,9 +109,14 @@ export function DataAset() {
           <h1 className="text-2xl font-bold text-gray-900">Data Aset</h1>
           <p className="text-sm text-gray-500">{daftarAset.length} aset terdaftar</p>
         </div>
-        <Button onClick={openAdd} className="bg-[#1B4F72] hover:bg-[#1B4F72]/90">
-          <Plus size={16} /> Tambah Aset
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={importRKAPAset} disabled={importing}>
+            <Download size={16} /> {importing ? 'Mengimpor...' : 'Import Aset RKAP'}
+          </Button>
+          <Button onClick={openAdd} className="bg-[#1B4F72] hover:bg-[#1B4F72]/90">
+            <Plus size={16} /> Tambah Aset
+          </Button>
+        </div>
       </div>
 
       <div className="flex gap-3 items-center">
