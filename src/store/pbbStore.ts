@@ -46,7 +46,9 @@ export const usePBBStore = create<PBBStore>((set, get) => ({
   },
 
   addPBB: async (data) => {
-    const { error } = await supabase.from('pbb').insert(data)
+    const { error } = await supabase
+      .from('pbb')
+      .upsert(data, { onConflict: 'aset_id,tahun' })
     if (error) throw new Error(`Gagal menyimpan PBB: ${error.message}`)
     await get().fetchAllPBB()
   },
