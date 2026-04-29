@@ -189,8 +189,8 @@ const CURRENT_MONTH = new Date().getMonth()
 // ── Komponen utama ────────────────────────────────────────────────────────────
 export function RKAPMonitor() {
   const { allKompensasi, fetchAllKompensasi } = useKompensasiStore()
-  const { rows, tahunAktif, isLoading, fetchRKAP, upsertRow, deleteRow, bulkImport, setTahunAktif } = useRKAPStore()
   const { allCashIn, fetchAllCashIn } = useCashInStore()
+  const { rows, tahunAktif, isLoading, fetchRKAP, upsertRow, deleteRow, bulkImport, setTahunAktif } = useRKAPStore()
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<RKAPTargetRow | null>(null)
@@ -219,8 +219,8 @@ export function RKAPMonitor() {
   )
 
   const cashIn = useMemo(() =>
-    getCashInPerBulanByYear(allKompensasi, tahunAktif),
-    [allKompensasi, tahunAktif]
+    getCashInPerBulanByYear(allKompensasi, tahunAktif, allCashIn),
+    [allKompensasi, tahunAktif, allCashIn]
   )
 
   // Bulan terakhir yang sudah "berjalan" — tergantung tahun yang sedang dilihat
@@ -267,8 +267,17 @@ export function RKAPMonitor() {
           }
         })
     })
+    allCashIn.forEach(ci => {
+      const namaAset = (ci.kerja_sama as any)?.aset?.nama_aset as string | undefined
+      if (!namaAset) return
+      const d = new Date(ci.tgl_terima)
+      if (d.getFullYear() === tahunAktif) {
+        if (!byKey[namaAset]) byKey[namaAset] = Array(12).fill(0)
+        byKey[namaAset][d.getMonth()] += ci.nominal
+      }
+    })
     return byKey
-  }, [allKompensasi, tahunAktif])
+  }, [allKompensasi, allCashIn, tahunAktif])
 
   // ── Helpers form ──────────────────────────────────────────────────────────
   const openAdd = () => {
