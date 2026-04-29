@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useAsetStore } from '@/store/asetStore'
 import { useNJOPStore } from '@/store/njopStore'
+import { useRKAPStore } from '@/store/rkapStore'
 import { NJOP } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -45,9 +46,13 @@ export function DataNJOP() {
   const watchedTanah = watch('nilai_tanah_per_m2')
   const watchedBangunan = watch('nilai_bangunan_per_m2')
 
-  useEffect(() => { fetchAset(); fetchAllNJOP() }, [])
+  const { rows: rkapRows, fetchRKAP } = useRKAPStore()
 
-  const rkapAset = daftarAset.filter(a => !['aktif_ks', 'selesai'].includes(a.status))
+  useEffect(() => { fetchAset(); fetchAllNJOP(); fetchRKAP(new Date().getFullYear()) }, [])
+
+  // Tampilkan semua aset yang kode-nya ada di RKAP (bukan filter by status)
+  const rkapKodes = useMemo(() => new Set(rkapRows.map(r => r.kode).filter(Boolean)), [rkapRows])
+  const rkapAset = useMemo(() => daftarAset.filter(a => rkapKodes.has(a.kode_aset)), [daftarAset, rkapKodes])
   const allNJOP = Object.values(dataNJOP).flat()
 
   const filtered = useMemo(() => {
