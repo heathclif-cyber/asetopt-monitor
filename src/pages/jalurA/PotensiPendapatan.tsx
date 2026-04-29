@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { useAsetStore } from '@/store/asetStore'
 import { useNJOPStore } from '@/store/njopStore'
 import { useKJPPStore } from '@/store/kjppStore'
@@ -24,8 +25,10 @@ export function PotensiPendapatan() {
   const [sortKey, setSortKey] = useState<SortKey>('potensiNJOP')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const location = useLocation()
 
   useEffect(() => { fetchAset(); fetchAllNJOP(); fetchAllKJPP() }, [])
+  useEffect(() => { fetchAllNJOP(); fetchAllKJPP() }, [location.key])
 
   const pipelineAset = daftarAset.filter(a => ['pipeline', 'prospek', 'negosiasi'].includes(a.status))
 
@@ -39,7 +42,7 @@ export function PotensiPendapatan() {
         const kjppTerbaru = kjppList[0] ?? null
 
         let potensiTanah = 0, potensiBangunan = 0, totalPotensiNJOP = 0
-        if (njopTerbaru && a.luas_tanah_m2) {
+        if (njopTerbaru) {
           const r = hitungPotensiNJOP({
             njopTanahPerM2: njopTerbaru.nilai_tanah_per_m2,
             luasTanahM2: a.luas_tanah_m2 ?? 0,
@@ -145,8 +148,10 @@ export function PotensiPendapatan() {
                       {a.luas_tanah_m2 ? `${formatAngka(a.luas_tanah_m2)} m²` : '-'}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      {totalPotensiNJOP > 0
-                        ? <CurrencyDisplay value={totalPotensiNJOP} size="sm" className="font-semibold text-[#117A65]" />
+                      {njopTerbaru
+                        ? (a.luas_tanah_m2
+                          ? <CurrencyDisplay value={totalPotensiNJOP} size="sm" className="font-semibold text-[#117A65]" />
+                          : <span className="text-amber-600 text-xs font-medium">Luas belum diisi</span>)
                         : <span className="text-gray-400 text-xs">Belum ada NJOP</span>}
                     </td>
                     <td className="px-4 py-3 text-right">
@@ -172,6 +177,12 @@ export function PotensiPendapatan() {
                   {expandedId === a.id && (
                     <tr className="bg-green-50">
                       <td colSpan={8} className="px-8 py-4">
+                        {!njopTerbaru && (
+                          <p className="text-sm text-gray-500 italic mb-2">Belum ada data NJOP untuk aset ini. Tambahkan di Master Data → Data NJOP.</p>
+                        )}
+                        {njopTerbaru && !a.luas_tanah_m2 && (
+                          <p className="text-sm text-amber-600 font-medium mb-2">⚠ Luas tanah belum diisi. Lengkapi di Master Data → Data Aset agar potensi dapat dihitung.</p>
+                        )}
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                           <div>
                             <p className="text-xs text-gray-500 mb-1">NJOP Tanah/m²</p>
@@ -180,7 +191,7 @@ export function PotensiPendapatan() {
                           <div>
                             <p className="text-xs text-gray-500 mb-1">Potensi Tanah</p>
                             <CurrencyDisplay value={potensiTanah} size="sm" className="text-[#117A65] font-medium" />
-                            <p className="text-xs text-gray-400">× {formatAngka(a.luas_tanah_m2)} × 3,33%</p>
+                            <p className="text-xs text-gray-400">× {formatAngka(a.luas_tanah_m2 ?? 0)} m² × 3,33%</p>
                           </div>
                           <div>
                             <p className="text-xs text-gray-500 mb-1">NJOP Bangunan/m²</p>
@@ -189,7 +200,7 @@ export function PotensiPendapatan() {
                           <div>
                             <p className="text-xs text-gray-500 mb-1">Potensi Bangunan</p>
                             <CurrencyDisplay value={potensiBangunan} size="sm" className="text-[#117A65] font-medium" />
-                            <p className="text-xs text-gray-400">× {formatAngka(a.luas_bangunan_m2)} × 6,64%</p>
+                            <p className="text-xs text-gray-400">× {formatAngka(a.luas_bangunan_m2 ?? 0)} m² × 6,64%</p>
                           </div>
                         </div>
                         {kjppTerbaru && (
