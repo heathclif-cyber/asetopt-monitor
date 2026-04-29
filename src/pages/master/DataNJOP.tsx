@@ -47,6 +47,7 @@ export function DataNJOP() {
 
   useEffect(() => { fetchAset(); fetchAllNJOP() }, [])
 
+  const rkapAset = daftarAset.filter(a => !['aktif_ks', 'selesai'].includes(a.status))
   const allNJOP = Object.values(dataNJOP).flat()
 
   const filtered = useMemo(() => {
@@ -114,7 +115,7 @@ export function DataNJOP() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="semua">Semua Aset</SelectItem>
-            {daftarAset.map(a => (
+            {rkapAset.map(a => (
               <SelectItem key={a.id} value={a.id}>{a.kode_aset} — {a.nama_aset}</SelectItem>
             ))}
           </SelectContent>
@@ -184,7 +185,7 @@ export function DataNJOP() {
               <Select defaultValue={editTarget?.aset_id} onValueChange={v => setValue('aset_id', v)}>
                 <SelectTrigger className="mt-1"><SelectValue placeholder="Pilih aset..." /></SelectTrigger>
                 <SelectContent>
-                  {daftarAset.map(a => <SelectItem key={a.id} value={a.id}>{a.kode_aset} — {a.nama_aset}</SelectItem>)}
+                  {rkapAset.map(a => <SelectItem key={a.id} value={a.id}>{a.kode_aset} — {a.nama_aset}</SelectItem>)}
                 </SelectContent>
               </Select>
               {errors.aset_id && <p className="text-xs text-red-500 mt-1">{errors.aset_id.message}</p>}

@@ -32,6 +32,7 @@ export function PotensiPendapatan() {
 
   const rows = useMemo(() => {
     return daftarAset
+      .filter(a => (dataNJOP[a.id]?.length ?? 0) > 0 || (dataPenilaian[a.id]?.length ?? 0) > 0)
       .filter(a => a.nama_aset.toLowerCase().includes(search.toLowerCase()) || a.kode_aset.toLowerCase().includes(search.toLowerCase()))
       .map(a => {
         const njopList = dataNJOP[a.id] ?? []
