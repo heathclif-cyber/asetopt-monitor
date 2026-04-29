@@ -3,7 +3,7 @@ import * as XLSX from 'xlsx'
 import { useKompensasiStore } from '@/store/kompensasiStore'
 import { useCashInStore } from '@/store/cashInStore'
 import { useRKAPStore, rowToRKAPItem, BULAN_COLS, RKAPTargetRow } from '@/store/rkapStore'
-import { RKAP_2026, BULAN_LABELS } from '@/data/rkap2026'
+import { BULAN_LABELS } from '@/data/rkap2026'
 import { hitungRKAP, getCashInPerBulanByYear, MonthSummary } from '@/utils/rkapUtils'
 import { RKAPItem } from '@/data/rkap2026'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -213,10 +213,7 @@ export function RKAPMonitor() {
   useEffect(() => { fetchRKAP(tahunAktif) }, [tahunAktif])
 
   // ── Computed data ──────────────────────────────────────────────────────────
-  const rkapItems = useMemo(() =>
-    rows.length > 0 ? rows.map(rowToRKAPItem) : (tahunAktif === 2026 ? RKAP_2026 : []),
-    [rows, tahunAktif]
-  )
+  const rkapItems = useMemo(() => rows.map(rowToRKAPItem), [rows])
 
   const cashIn = useMemo(() =>
     getCashInPerBulanByYear(allKompensasi, tahunAktif, allCashIn),
@@ -338,22 +335,10 @@ export function RKAPMonitor() {
     setCsvPreview(null)
   }
 
-  // ── Seed dari hardcode 2026 ───────────────────────────────────────────────
-  const seedFromHardcode = async () => {
-    const items = RKAP_2026.map(item => {
-      const [jan, feb, mar, apr, mei, jun, jul, agu, sep, okt, nov, des] = item.bulan
-      return {
-        tahun: tahunAktif, no: item.no, kode: item.kode, nama: item.nama, total: item.total,
-        jan, feb, mar, apr, mei, jun, jul, agu, sep, okt, nov, des
-      }
-    })
-    await bulkImport(tahunAktif, items)
-  }
+  // Seed dipicu otomatis oleh fetchRKAP jika DB kosong; tombol ini reload ulang
+  const seedFromHardcode = async () => { await fetchRKAP(tahunAktif) }
 
-  const displayRows = rows.length > 0 ? rows : (tahunAktif === 2026 ? RKAP_2026.map((item, idx) => ({
-    id: `seed-${idx}`, tahun: 2026, no: item.no, kode: item.kode, nama: item.nama, total: item.total,
-    ...Object.fromEntries(BULAN_COLS.map((col, i) => [col, item.bulan[i]])),
-  } as RKAPTargetRow)) : [])
+  const displayRows = rows
 
   // ─────────────────────────────────────────────────────────────────────────
   return (

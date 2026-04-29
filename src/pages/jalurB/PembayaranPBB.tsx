@@ -18,7 +18,7 @@ import { useForm, Controller, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { PBB } from '@/types'
-import { RKAP_2026 } from '@/data/rkap2026'
+import { useRKAPStore } from '@/store/rkapStore'
 
 const pbbSchema = z.object({
   aset_id: z.string().min(1),
@@ -82,6 +82,7 @@ export function PembayaranPBB() {
   const { daftarKS, fetchKS } = useKerjaSamaStore()
   const { dataPBB, fetchAllPBB, addPBB, updatePBB } = usePBBStore()
   const { dataNJOP, fetchAllNJOP } = useNJOPStore()
+  const { rows: rkapRows, fetchRKAP } = useRKAPStore()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<PBB | null>(null)
   const [selectedKSId, setSelectedKSId] = useState<string>('')
@@ -99,7 +100,7 @@ export function PembayaranPBB() {
   const watchedAsetId = watch('aset_id')
   const watchedTahun  = watch('tahun')
 
-  useEffect(() => { fetchAset(); fetchKS(); fetchAllPBB(); fetchAllNJOP() }, [])
+  useEffect(() => { fetchAset(); fetchKS(); fetchAllPBB(); fetchAllNJOP(); fetchRKAP(new Date().getFullYear()) }, [])
 
   useEffect(() => {
     if (editTarget || !watchedAsetId || !watchedTahun) return
@@ -450,8 +451,8 @@ export function PembayaranPBB() {
                     <Select value={field.value ?? ''} onValueChange={v => field.onChange(v || undefined)}>
                       <SelectTrigger className="mt-1"><SelectValue placeholder="— Pilih program RKAP —" /></SelectTrigger>
                       <SelectContent>
-                        {RKAP_2026.map(item => (
-                          <SelectItem key={item.kode} value={item.kode}>
+                        {rkapRows.filter(r => r.kode).map(item => (
+                          <SelectItem key={item.kode} value={item.kode!}>
                             <span className="font-mono text-xs text-gray-500 mr-2">{item.kode}</span>
                             {item.nama}
                           </SelectItem>

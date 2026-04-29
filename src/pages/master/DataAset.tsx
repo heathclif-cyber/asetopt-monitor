@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useAsetStore } from '@/store/asetStore'
 import { Aset, AsetStatus } from '@/types'
 import { supabase } from '@/lib/supabase'
-import { RKAP_2026 } from '@/data/rkap2026'
+import { useRKAPStore } from '@/store/rkapStore'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -41,18 +41,22 @@ export function DataAset() {
   const [page, setPage] = useState(1)
   const [importing, setImporting] = useState(false)
   const pageSize = 10
+  const { rows: rkapRows, fetchRKAP } = useRKAPStore()
 
   const importRKAPAset = async () => {
     setImporting(true)
-    const rows = RKAP_2026.map(item => ({
-      kode_aset: item.kode,
-      nama_aset: item.nama,
-      status: 'pipeline' as AsetStatus,
-    }))
-    const { error } = await supabase
-      .from('aset')
-      .upsert(rows, { onConflict: 'kode_aset', ignoreDuplicates: true })
-    if (error) console.error('[importRKAPAset]', error)
+    // Pastikan RKAP data sudah di-load (auto-seed jika DB kosong)
+    await fetchRKAP(new Date().getFullYear())
+    const latest = useRKAPStore.getState().rows
+    const asetRows = latest
+      .filter(r => r.kode)
+      .map(r => ({ kode_aset: r.kode!, nama_aset: r.nama, status: 'pipeline' as AsetStatus }))
+    if (asetRows.length > 0) {
+      const { error } = await supabase
+        .from('aset')
+        .upsert(asetRows, { onConflict: 'kode_aset', ignoreDuplicates: true })
+      if (error) console.error('[importRKAPAset]', error)
+    }
     await fetchAset()
     setImporting(false)
   }

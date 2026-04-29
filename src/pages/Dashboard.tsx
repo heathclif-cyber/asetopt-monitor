@@ -13,7 +13,7 @@ import { StatusBadge } from '@/components/common/StatusBadge'
 import { formatTanggal, hitungSisaHari } from '@/lib/utils'
 import { hitungPotensiNJOP } from '@/utils/potensiUtils'
 import { hitungRKAP, getCashInPerBulanByYear } from '@/utils/rkapUtils'
-import { RKAP_2026, BULAN_LABELS, TOTAL_TARGET_2026 } from '@/data/rkap2026'
+import { BULAN_LABELS } from '@/data/rkap2026'
 import { useRKAPStore, rowToRKAPItem } from '@/store/rkapStore'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -236,7 +236,7 @@ export function Dashboard() {
 
   const rkapSummary = useMemo(() => {
     const tahun = new Date().getFullYear()
-    const items = rkapRows.length > 0 ? rkapRows.map(rowToRKAPItem) : RKAP_2026
+    const items = rkapRows.map(rowToRKAPItem)
     const totalTarget = items.reduce((s, i) => s + i.total, 0)
     const cashIn = getCashInPerBulanByYear(allKompensasi, tahun, allCashIn)
     const months = hitungRKAP(items, cashIn)

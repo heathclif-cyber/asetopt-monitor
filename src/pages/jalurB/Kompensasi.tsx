@@ -22,7 +22,7 @@ import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { buatPesanWA } from '@/utils/notifikasiUtils'
-import { RKAP_2026 } from '@/data/rkap2026'
+import { useRKAPStore } from '@/store/rkapStore'
 
 // ─── Helpers generate periode ─────────────────────────────────────────────────
 const BULAN = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember']
@@ -236,6 +236,7 @@ export function Kompensasi() {
   const { terbitkanSP, kirimNotifWA } = useNotifikasiStore()
   const { dataPBB, fetchAllPBB } = usePBBStore()
   const { allCashIn, fetchAllCashIn, addCashIn, deleteCashIn } = useCashInStore()
+  const { rows: rkapRows, fetchRKAP } = useRKAPStore()
 
   const [kompDialog, setKompDialog] = useState(false)
   const [editTarget, setEditTarget] = useState<KType | null>(null)
@@ -298,7 +299,7 @@ export function Kompensasi() {
   const watchGraceBulan = genForm.watch('grace_bulan')
   const watchCampTahun  = genForm.watch('campuran_tahun_peralihan')
 
-  useEffect(() => { fetchAllKompensasi(); fetchKS(); fetchAllPBB(); fetchAllCashIn() }, [])
+  useEffect(() => { fetchAllKompensasi(); fetchKS(); fetchAllPBB(); fetchAllCashIn(); fetchRKAP(new Date().getFullYear()) }, [])
 
   const availableBulan = useMemo(() => {
     const months = new Set(allKompensasi.map(k => k.tgl_jatuh_tempo.slice(0, 7)))
@@ -872,8 +873,8 @@ export function Kompensasi() {
                   <Select value={field.value ?? ''} onValueChange={v => field.onChange(v || undefined)}>
                     <SelectTrigger className="mt-1"><SelectValue placeholder="— Pilih program RKAP —" /></SelectTrigger>
                     <SelectContent>
-                      {RKAP_2026.map(item => (
-                        <SelectItem key={item.kode} value={item.kode}>
+                      {rkapRows.filter(r => r.kode).map(item => (
+                        <SelectItem key={item.kode} value={item.kode!}>
                           <span className="font-mono text-xs text-gray-500 mr-2">{item.kode}</span>
                           {item.nama}
                         </SelectItem>
@@ -1105,8 +1106,8 @@ export function Kompensasi() {
                 <Select value={field.value ?? ''} onValueChange={v => field.onChange(v || undefined)}>
                   <SelectTrigger className="mt-1"><SelectValue placeholder="— Pilih program RKAP —" /></SelectTrigger>
                   <SelectContent>
-                    {RKAP_2026.map(item => (
-                      <SelectItem key={item.kode} value={item.kode}>
+                    {rkapRows.filter(r => r.kode).map(item => (
+                      <SelectItem key={item.kode} value={item.kode!}>
                         <span className="font-mono text-xs text-gray-500 mr-2">{item.kode}</span>
                         {item.nama}
                       </SelectItem>
@@ -1358,8 +1359,8 @@ export function Kompensasi() {
                 <Select value={field.value ?? ''} onValueChange={v => field.onChange(v || undefined)}>
                   <SelectTrigger className="mt-1"><SelectValue placeholder="— Pilih program RKAP —" /></SelectTrigger>
                   <SelectContent>
-                    {RKAP_2026.map(item => (
-                      <SelectItem key={item.kode} value={item.kode}>
+                    {rkapRows.filter(r => r.kode).map(item => (
+                      <SelectItem key={item.kode} value={item.kode!}>
                         <span className="font-mono text-xs text-gray-500 mr-2">{item.kode}</span>
                         {item.nama}
                       </SelectItem>

@@ -1,0 +1,27 @@
+-- Seed 23 target RKAP 2026 ke tabel rkap_target
+-- ON CONFLICT DO NOTHING agar aman dijalankan berkali-kali
+INSERT INTO rkap_target (tahun, no, kode, nama, total, jan, feb, mar, apr, mei, jun, jul, agu, sep, okt, nov, des) VALUES
+  (2026,  1,'R800027-0015','Aset Pabrik Gula (Non Spinoff SGN)',      4523144000,          0,          0,          0,          0,          0, 4523144000,          0,          0,        0,        0,          0,          0),
+  (2026,  2,'R800038-0029','Lahan Takalar - Gapoktan',                 600000000,           0,          0,          0,          0,          0,          0,          0,          0,        0,        0,          0,  600000000),
+  (2026,  3,'R800009-0031','Lahan Tinanggea (Stockpile)',               406000000,           0,          0,          0,          0,          0,          0,          0,          0,        0,        0,          0,  406000000),
+  (2026,  4,'R800031-0026','Lahan Tinanggea (Jalan Tambang)',                   0,           0,          0,          0,          0,          0,          0,          0,          0,        0,        0,          0,          0),
+  (2026,  5,'R800001-0002','Bangunan Jalan Boulevard Makassar',         585000000,           0,          0,          0,          0,          0,          0,  585000000,          0,        0,        0,          0,          0),
+  (2026,  6,'R800021-0016','Lahan Sidrap',                              300000000,           0,          0,          0,          0,          0,          0,          0,          0,        0,        0,  300000000,          0),
+  (2026,  7,'R800011-0017','Lahan Jalan Alauddin Makassar',             275000000,           0,          0,          0,          0,          0,          0,          0,          0,        0,        0,  275000000,          0),
+  (2026,  8,'R800012-0018','Lahan Kebun Marinsow',                      275000000,           0,          0,          0,          0,          0,          0,          0,          0,        0,        0,  275000000,          0),
+  (2026,  9,'R800013-0019','Lahan Jl Masjid Raya & Kangkung',           294000000,           0,          0,          0,          0,          0,  147000000,          0,          0,        0,        0,          0,  147000000),
+  (2026, 10,'R800002-0032','Bangunan Jl Slamet Riyadi Makassar',        395800000,           0,          0,          0,          0,          0,          0,          0,          0,        0,        0,  395800000,          0),
+  (2026, 11,'R800014-0020','Lahan Jalan Biru Bone',                     108000000,           0,          0,          0,          0,          0,          0,          0,          0,        0,        0,  108000000,          0),
+  (2026, 12,'R800015-0012','Bangunan Mess Jl Masjid Raya',              370000000,           0,          0,          0,          0,          0,          0,          0,          0,        0,        0,  370000000,          0),
+  (2026, 13,'R800039-0033','Lahan Desa Galung',                         100000000,           0,          0,          0,          0,          0,          0,          0,          0,        0,        0,  100000000,          0),
+  (2026, 14,'R800019-0023','Lahan Jl Kemakmuran & Samudra Soppeng',      50000000,           0,          0,          0,          0,          0,          0,          0,          0,        0,        0,   50000000,          0),
+  (2026, 15,'R800003-0004','Bangunan Ruko Jl Pengayoman',                90000000,     7500000,    7500000,    7500000,    7500000,    7500000,    7500000,    7500000,    7500000,  7500000,  7500000,    7500000,    7500000),
+  (2026, 16,'R800017-0025','Bangunan Eks LO Ambon',                      75000000,           0,          0,          0,          0,          0,          0,          0,          0,        0,        0,   75000000,          0),
+  (2026, 17,'R800006-0007','Lahan Eks Pabrik Kapas (Mini Soccer)',        25500000,           0,          0,          0,          0,          0,          0,          0,          0,        0,        0,   25500000,          0),
+  (2026, 18,'R800033-0028','Lahan Eks Pabrik Kapas (Studio Foto)',        14500000,           0,    7250000,          0,          0,          0,          0,          0,    7250000,        0,        0,          0,          0),
+  (2026, 19,'R800010-0010','Lahan Eks Pabrik Kapas (Papan Iklan)',         2100000,           0,    2100000,          0,          0,          0,          0,          0,          0,        0,        0,          0,          0),
+  (2026, 20,'R800004-0005','Bangunan Kantor Direksi - Gedung Timur',     47000000,           0,          0,          0,          0,          0,          0,          0,          0,        0,        0,   47000000,          0),
+  (2026, 21,'R800032-0027','Bangunan Kantor Direksi - Pelayanan 13',     24000000,           0,          0,          0,          0,          0,          0,   24000000,          0,        0,        0,          0,          0),
+  (2026, 22,'R800005-0006','Bangunan Jalan Bambapuang Makassar',         27000000,           0,   27000000,          0,          0,          0,          0,          0,          0,        0,        0,          0,          0),
+  (2026, 23,'R800007-0008','Lahan Unit Kabaru',                          259091000,           0,          0,          0,          0,          0,          0,          0,          0,        0,        0,  259091000,          0)
+ON CONFLICT (tahun, no) DO NOTHING;
