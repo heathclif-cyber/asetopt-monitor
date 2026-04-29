@@ -18,20 +18,22 @@ export const usePBBStore = create<PBBStore>((set, get) => ({
   isLoading: false,
 
   fetchPBB: async (asetId) => {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('pbb')
       .select('*')
       .eq('aset_id', asetId)
       .order('tahun', { ascending: false })
+    if (error) console.error('[fetchPBB]', error)
     if (data) set(s => ({ dataPBB: { ...s.dataPBB, [asetId]: data } }))
   },
 
   fetchAllPBB: async () => {
     set({ isLoading: true })
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('pbb')
       .select('*, aset(*)')
       .order('tahun', { ascending: false })
+    if (error) console.error('[fetchAllPBB]', error)
     if (data) {
       const byAset: Record<string, PBB[]> = {}
       data.forEach(p => {
@@ -44,13 +46,15 @@ export const usePBBStore = create<PBBStore>((set, get) => ({
   },
 
   addPBB: async (data) => {
-    await supabase.from('pbb').insert(data)
-    await get().fetchPBB(data.aset_id)
+    const { error } = await supabase.from('pbb').insert(data)
+    if (error) throw new Error(`Gagal menyimpan PBB: ${error.message}`)
+    await get().fetchAllPBB()
   },
 
-  updatePBB: async (id, data, asetId) => {
+  updatePBB: async (id, data, _asetId) => {
     const { id: _id, created_at, aset, ...updateData } = data as any
-    await supabase.from('pbb').update(updateData).eq('id', id)
-    await get().fetchPBB(asetId)
+    const { error } = await supabase.from('pbb').update(updateData).eq('id', id)
+    if (error) throw new Error(`Gagal update PBB: ${error.message}`)
+    await get().fetchAllPBB()
   },
 }))

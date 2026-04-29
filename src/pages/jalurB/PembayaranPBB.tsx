@@ -87,6 +87,7 @@ export function PembayaranPBB() {
   const [editTarget, setEditTarget] = useState<PBB | null>(null)
   const [selectedKSId, setSelectedKSId] = useState<string>('')
   const [njopAutoFilled, setNjopAutoFilled] = useState<{ tahun: number } | null>(null)
+  const [submitError, setSubmitError] = useState<string | null>(null)
 
   const { handleSubmit, reset, setValue, control, register, watch } = useForm<PBBForm>({
     resolver: zodResolver(pbbSchema),
@@ -144,6 +145,7 @@ export function PembayaranPBB() {
   const openAdd = () => {
     setEditTarget(null)
     setNjopAutoFilled(null)
+    setSubmitError(null)
     reset(defaultFormValues(selectedKS?.aset_id))
     setDialogOpen(true)
   }
@@ -151,6 +153,7 @@ export function PembayaranPBB() {
   const openEdit = (p: PBB) => {
     setEditTarget(p)
     setNjopAutoFilled(null)
+    setSubmitError(null)
     reset({
       aset_id: p.aset_id,
       rkap_kode: p.rkap_kode ?? '',
@@ -170,6 +173,7 @@ export function PembayaranPBB() {
   }
 
   const onSubmit = async (data: PBBForm) => {
+    setSubmitError(null)
     const jumlahDibayar = data.jumlah_pbb_dibayar ?? 0
     const status_bayar =
       jumlahDibayar >= data.nilai_pbb && data.tgl_bayar_pbb
@@ -180,18 +184,23 @@ export function PembayaranPBB() {
 
     const submitData = {
       ...data,
+      rkap_kode:          data.rkap_kode          || null,
+      tgl_jatuh_tempo:    data.tgl_jatuh_tempo    || null,
       tgl_bayar_pbb:      data.tgl_bayar_pbb      || null,
       jumlah_pbb_dibayar: jumlahDibayar > 0 ? jumlahDibayar : null,
       status_bayar,
     }
 
-    if (editTarget) {
-      await updatePBB(editTarget.id, submitData as Partial<PBB>, data.aset_id)
-    } else {
-      await addPBB(submitData as Omit<PBB, 'id' | 'created_at' | 'aset'>)
+    try {
+      if (editTarget) {
+        await updatePBB(editTarget.id, submitData as Partial<PBB>, data.aset_id)
+      } else {
+        await addPBB(submitData as Omit<PBB, 'id' | 'created_at' | 'aset'>)
+      }
+      setDialogOpen(false)
+    } catch (e) {
+      setSubmitError((e as Error).message)
     }
-    setDialogOpen(false)
-    fetchAllPBB()
   }
 
   return (
@@ -582,6 +591,11 @@ export function PembayaranPBB() {
               </p>
             </div>
 
+            {submitError && (
+              <div className="rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+                {submitError}
+              </div>
+            )}
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Batal</Button>
               <Button type="submit" className="bg-[#1B4F72]">{editTarget ? 'Simpan' : 'Input'}</Button>
