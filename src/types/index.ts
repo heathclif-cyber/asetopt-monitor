@@ -70,6 +70,16 @@ export interface ProspekMitra {
   created_at: string
 }
 
+export interface KerjaSamaAset {
+  id: string
+  ks_id: string
+  aset_id: string
+  luas_tanah_ks: number
+  luas_bangunan_ks: number
+  created_at: string
+  aset?: Aset
+}
+
 export interface KerjaSama {
   id: string
   aset_id: string
@@ -83,6 +93,7 @@ export interface KerjaSama {
   keterangan: string | null
   created_at: string
   aset?: Aset
+  kerja_sama_aset?: KerjaSamaAset[]
 }
 
 export interface Kompensasi {

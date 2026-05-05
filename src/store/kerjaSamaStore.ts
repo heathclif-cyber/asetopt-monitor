@@ -22,7 +22,7 @@ export const useKerjaSamaStore = create<KerjaSamaStore>((set, get) => ({
     set({ isLoading: true })
     const { data } = await supabase
       .from('kerja_sama')
-      .select('*, aset(*)')
+      .select('*, aset(*), kerja_sama_aset(*, aset(*))')
       .order('created_at', { ascending: false })
     if (data) set({ daftarKS: data as KerjaSama[] })
     set({ isLoading: false })
@@ -39,7 +39,7 @@ export const useKerjaSamaStore = create<KerjaSamaStore>((set, get) => ({
   },
 
   updateKS: async (id, data) => {
-    const { id: _id, created_at, aset, ...updateData } = data as any
+    const { id: _id, created_at, aset, kerja_sama_aset, ...updateData } = data as any
     await supabase.from('kerja_sama').update(updateData).eq('id', id)
     await get().fetchKS()
   },

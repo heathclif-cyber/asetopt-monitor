@@ -11,14 +11,16 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { CurrencyInput } from '@/components/common/CurrencyInput'
 import { CurrencyDisplay } from '@/components/common/CurrencyDisplay'
 import { EmptyState } from '@/components/common/EmptyState'
+import { ConfirmDialog } from '@/components/common/ConfirmDialog'
 import { hitungPBBProporsional } from '@/utils/pbbUtils'
 import { formatAngka, formatTanggal, formatRupiah } from '@/lib/utils'
-import { Plus, Pencil } from 'lucide-react'
+import { Plus, Pencil, Trash2, Printer } from 'lucide-react'
 import { useForm, Controller, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { PBB } from '@/types'
 import { useRKAPStore } from '@/store/rkapStore'
+import { InvoicePBBDialog } from '@/components/common/InvoicePBBDialog'
 
 const pbbSchema = z.object({
   aset_id: z.string().min(1),
@@ -80,14 +82,18 @@ function NJOPPreview({ control }: { control: any }) {
 export function PembayaranPBB() {
   const { daftarAset, fetchAset } = useAsetStore()
   const { daftarKS, fetchKS } = useKerjaSamaStore()
-  const { dataPBB, fetchAllPBB, addPBB, updatePBB } = usePBBStore()
+  const { dataPBB, fetchAllPBB, addPBB, updatePBB, deletePBB } = usePBBStore()
   const { dataNJOP, fetchAllNJOP } = useNJOPStore()
   const { rows: rkapRows, fetchRKAP } = useRKAPStore()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<PBB | null>(null)
-  const [selectedKSId, setSelectedKSId] = useState<string>('')
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
   const [njopAutoFilled, setNjopAutoFilled] = useState<{ tahun: number } | null>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
+  const [invoiceTarget, setInvoiceTarget] = useState<{
+    ks: typeof daftarKS[number]
+    hasil: { detail: ReturnType<typeof hitungPBBProporsional>['detail']; totalPBBDitanggung: number }
+  } | null>(null)
 
   const { handleSubmit, reset, setValue, control, register, watch } = useForm<PBBForm>({
     resolver: zodResolver(pbbSchema),
@@ -118,7 +124,6 @@ export function PembayaranPBB() {
   const activeKS = daftarKS.filter(ks =>
     ['aktif', 'sp1', 'sp2', 'sp3'].includes(ks.status)
   )
-  const selectedKS = activeKS.find(ks => ks.id === selectedKSId)
 
   const getPBBData = (asetId: string) =>
     (dataPBB[asetId] ?? []).map(p => ({
@@ -142,11 +147,11 @@ export function PembayaranPBB() {
     tgl_bayar_pbb: '', jumlah_pbb_dibayar: 0,
   })
 
-  const openAdd = () => {
+  const openAdd = (asetId?: string) => {
     setEditTarget(null)
     setNjopAutoFilled(null)
     setSubmitError(null)
-    reset(defaultFormValues(selectedKS?.aset_id))
+    reset(defaultFormValues(asetId))
     setDialogOpen(true)
   }
 
@@ -210,222 +215,229 @@ export function PembayaranPBB() {
           <h1 className="text-2xl font-bold text-gray-900">Pembayaran PBB</h1>
           <p className="text-sm text-gray-500">Monitoring PBB proporsional per kerja sama aktif</p>
         </div>
-        <Button onClick={openAdd} className="bg-[#1B4F72]"><Plus size={16} /> Input PBB</Button>
+        <Button onClick={() => openAdd()} className="bg-[#1B4F72]"><Plus size={16} /> Input PBB</Button>
       </div>
 
-      <div className="flex items-center gap-3">
-        <Label className="shrink-0">Pilih Kerja Sama:</Label>
-        <Select value={selectedKSId} onValueChange={setSelectedKSId}>
-          <SelectTrigger className="max-w-sm">
-            <SelectValue placeholder="Pilih kerja sama..." />
-          </SelectTrigger>
-          <SelectContent>
-            {activeKS.map(ks => (
-              <SelectItem key={ks.id} value={ks.id}>
-                {(ks.aset as any)?.nama_aset ?? '-'} — {ks.nama_mitra}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      {!selectedKSId ? (
-        <EmptyState title="Pilih kerja sama" description="Pilih kerja sama aktif dari dropdown untuk melihat kalkulasi PBB proporsional." />
-      ) : selectedKS && (
-        <>
-          {(() => {
-            const pbbData  = getPBBData(selectedKS.aset_id)
-            const hasil    = hitungPBBProporsional({
-              tglMulaiKS:   selectedKS.tgl_mulai,
-              tglSelesaiKS: selectedKS.tgl_selesai,
+      {activeKS.length === 0 ? (
+        <EmptyState title="Belum ada kerja sama aktif" description="Data PBB akan muncul otomatis setelah kerja sama aktif tersedia." />
+      ) : (
+        <div className="space-y-6">
+          {activeKS.map(ks => {
+            const pbbData = getPBBData(ks.aset_id)
+            const hasil = hitungPBBProporsional({
+              tglMulaiKS: ks.tgl_mulai,
+              tglSelesaiKS: ks.tgl_selesai,
               dataPBB: pbbData,
             })
-            const anyArea  = hasil.detail.some(r => r.hasAreaData)
+            const anyArea = hasil.detail.some(r => r.hasAreaData)
 
             return (
-              <div className="space-y-4">
-                {/* Kalkulasi PBB Proporsional */}
-                <div className="bg-white rounded-xl border p-5">
-                  <h3 className="text-sm font-semibold text-gray-700 mb-4">
-                    Kalkulasi PBB Proporsional — KS: {formatTanggal(selectedKS.tgl_mulai)} s/d {formatTanggal(selectedKS.tgl_selesai)}
-                  </h3>
-
-                  {hasil.detail.length === 0 ? (
-                    <p className="text-sm text-gray-500">
-                      Belum ada data PBB untuk aset ini.{' '}
-                      <Button variant="link" size="sm" className="p-0 h-auto" onClick={openAdd}>
-                        Input PBB sekarang
-                      </Button>
+              <div key={ks.id} className="space-y-3">
+                {/* Header KS */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="font-semibold text-gray-800">
+                      {(ks.aset as any)?.nama_aset ?? '-'}
+                    </h2>
+                    <p className="text-xs text-gray-500">
+                      {ks.nama_mitra} · {formatTanggal(ks.tgl_mulai)} s/d {formatTanggal(ks.tgl_selesai)}
                     </p>
-                  ) : (
-                    <>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm mb-4 min-w-[600px]">
-                          <thead>
-                            <tr className="border-b text-xs text-gray-500 uppercase">
-                              <th className="text-left pb-2">Tahun</th>
-                              <th className="text-right pb-2">Nilai PBB</th>
-                              {anyArea && (
-                                <>
-                                  <th className="text-right pb-2">NJOP SPPT</th>
-                                  <th className="text-right pb-2">NJOP KS</th>
-                                  <th className="text-right pb-2">Prop. Luasan</th>
-                                </>
-                              )}
-                              <th className="text-right pb-2">Hari KS</th>
-                              <th className="text-right pb-2">Hari Tahun</th>
-                              <th className="text-right pb-2">Prop. Waktu</th>
-                              <th className="text-right pb-2">PBB Ditanggung</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y">
-                            {hasil.detail.map(r => (
-                              <tr key={r.tahun} className="text-sm">
-                                <td className="py-2">{r.tahun}</td>
-                                <td className="py-2 text-right"><CurrencyDisplay value={r.nilaiPBB} size="sm" /></td>
-                                {anyArea && (
-                                  <>
-                                    <td className="py-2 text-right text-gray-600">
-                                      {r.hasAreaData ? <CurrencyDisplay value={r.njopSppt} size="sm" /> : <span className="text-gray-400">—</span>}
-                                    </td>
-                                    <td className="py-2 text-right text-gray-600">
-                                      {r.hasAreaData ? <CurrencyDisplay value={r.njopKS} size="sm" /> : <span className="text-gray-400">—</span>}
-                                    </td>
-                                    <td className="py-2 text-right">
-                                      {r.hasAreaData
-                                        ? <span className="text-orange-600 font-medium">{(r.proporsiArea * 100).toFixed(2)}%</span>
-                                        : <span className="text-gray-400 text-xs">tdk ada data</span>}
-                                    </td>
-                                  </>
-                                )}
-                                <td className="py-2 text-right">{formatAngka(r.hariKS)}</td>
-                                <td className="py-2 text-right">{formatAngka(r.hariDalamTahun)}</td>
-                                <td className="py-2 text-right text-orange-600 font-medium">
-                                  {(r.proporsiWaktu * 100).toFixed(2)}%
-                                </td>
-                                <td className="py-2 text-right font-semibold text-[#1B4F72]">
-                                  <CurrencyDisplay value={r.pbbProporsional} size="sm" />
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                          <tfoot>
-                            <tr className="border-t font-bold">
-                              <td colSpan={anyArea ? 8 : 5} className="pt-2 text-sm">Total PBB Ditanggung Mitra</td>
-                              <td className="pt-2 text-right text-[#1B4F72]">
-                                <CurrencyDisplay value={hasil.totalPBBDitanggung} size="sm" />
-                              </td>
-                            </tr>
-                          </tfoot>
-                        </table>
-                      </div>
-
-                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm font-mono text-blue-800 space-y-1">
-                        {hasil.detail.map(r => (
-                          <div key={r.tahun}>
-                            PBB {r.tahun}: {formatRupiah(r.nilaiPBB)}
-                            {r.hasAreaData && (
-                              <> × <span className="text-orange-700">({formatRupiah(r.njopKS)}/{formatRupiah(r.njopSppt)} luasan)</span></>
-                            )}
-                            {' '}× <span className="text-orange-700">({formatAngka(r.hariKS)}/{formatAngka(r.hariDalamTahun)} hari)</span>
-                            {' '}= <strong>{formatRupiah(r.pbbProporsional)}</strong>
-                          </div>
-                        ))}
-                        <div className="border-t border-blue-200 mt-2 pt-2">
-                          Total PBB ditanggung mitra: <strong>{formatRupiah(hasil.totalPBBDitanggung)}</strong>
-                        </div>
-                      </div>
-                    </>
-                  )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {hasil.detail.length > 0 && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-[#1B4F72] border-[#1B4F72]"
+                        onClick={() => setInvoiceTarget({ ks, hasil })}
+                      >
+                        <Printer size={13} /> Cetak Invoice
+                      </Button>
+                    )}
+                    <Button size="sm" variant="outline" onClick={() => openAdd(ks.aset_id)}>
+                      <Plus size={13} /> Input PBB
+                    </Button>
+                  </div>
                 </div>
 
-                {/* Tabel Data PBB per Tahun */}
-                <div className="bg-white rounded-xl border overflow-hidden">
-                  <div className="flex items-center justify-between p-4 border-b">
-                    <h3 className="text-sm font-semibold">Data PBB — {(selectedKS.aset as any)?.nama_aset}</h3>
-                    <Button size="sm" variant="outline" onClick={openAdd}><Plus size={13} /> Input PBB</Button>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm min-w-[900px]">
-                      <thead>
-                        <tr className="bg-gray-50 text-xs uppercase text-gray-500">
-                          <th className="text-left px-4 py-2">Tahun</th>
-                          <th className="text-right px-4 py-2">Nilai PBB</th>
-                          <th className="text-center px-3 py-2 border-l border-gray-200" colSpan={3}>
-                            Objek Bumi (Tanah)
-                          </th>
-                          <th className="text-center px-3 py-2 border-l border-gray-200" colSpan={3}>
-                            Objek Bangunan
-                          </th>
-                          <th className="text-left px-4 py-2 border-l border-gray-200">Jatuh Tempo</th>
-                          <th className="text-left px-4 py-2 border-l border-gray-200">Tgl Bayar PBB</th>
-                          <th className="text-right px-4 py-2">Dibayar</th>
-                          <th className="text-right px-4 py-2">Aksi</th>
-                        </tr>
-                        <tr className="bg-gray-50 text-xs text-gray-400 border-b">
-                          <th colSpan={2} />
-                          <th className="px-3 py-1 text-center border-l border-gray-200 font-normal">Luas SPPT</th>
-                          <th className="px-3 py-1 text-center font-normal">Luas KS</th>
-                          <th className="px-3 py-1 text-center font-normal">NJOP/m²</th>
-                          <th className="px-3 py-1 text-center border-l border-gray-200 font-normal">Luas SPPT</th>
-                          <th className="px-3 py-1 text-center font-normal">Luas KS</th>
-                          <th className="px-3 py-1 text-center font-normal">NJOP/m²</th>
-                          <th colSpan={4} />
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y">
-                        {(dataPBB[selectedKS.aset_id] ?? []).map(p => (
-                          <tr key={p.id} className="hover:bg-gray-50">
-                            <td className="px-4 py-2 font-medium">{p.tahun}</td>
-                            <td className="px-4 py-2 text-right">
-                              <CurrencyDisplay value={p.nilai_pbb} size="sm" />
-                            </td>
-                            {/* Tanah */}
-                            <td className="px-3 py-2 text-right text-gray-600 border-l border-gray-100">
-                              {p.luas_tanah_sppt ? `${formatAngka(p.luas_tanah_sppt)} m²` : '—'}
-                            </td>
-                            <td className="px-3 py-2 text-right text-gray-600">
-                              {p.luas_tanah_ks ? `${formatAngka(p.luas_tanah_ks)} m²` : '—'}
-                            </td>
-                            <td className="px-3 py-2 text-right text-gray-600">
-                              {p.njop_tanah_per_m2 ? <CurrencyDisplay value={p.njop_tanah_per_m2} size="sm" /> : '—'}
-                            </td>
-                            {/* Bangunan */}
-                            <td className="px-3 py-2 text-right text-gray-600 border-l border-gray-100">
-                              {p.luas_bangunan_sppt ? `${formatAngka(p.luas_bangunan_sppt)} m²` : '—'}
-                            </td>
-                            <td className="px-3 py-2 text-right text-gray-600">
-                              {p.luas_bangunan_ks ? `${formatAngka(p.luas_bangunan_ks)} m²` : '—'}
-                            </td>
-                            <td className="px-3 py-2 text-right text-gray-600">
-                              {p.njop_bangunan_per_m2 ? <CurrencyDisplay value={p.njop_bangunan_per_m2} size="sm" /> : '—'}
-                            </td>
-                            <td className="px-4 py-2 text-gray-500 border-l border-gray-100">
-                              {p.tgl_jatuh_tempo ? formatTanggal(p.tgl_jatuh_tempo) : '—'}
-                            </td>
-                            <td className="px-4 py-2 text-gray-500 border-l border-gray-100">
-                              {p.tgl_bayar_pbb ? formatTanggal(p.tgl_bayar_pbb) : '—'}
-                            </td>
-                            <td className="px-4 py-2 text-right">
-                              {p.jumlah_pbb_dibayar
-                                ? <CurrencyDisplay value={p.jumlah_pbb_dibayar} size="sm" />
-                                : <span className="text-gray-400">—</span>}
-                            </td>
-                            <td className="px-4 py-2 text-right">
-                              <Button variant="ghost" size="icon" onClick={() => openEdit(p)}>
-                                <Pencil size={14} />
-                              </Button>
+                {/* Kalkulasi PBB Proporsional */}
+                {hasil.detail.length > 0 && (
+                  <div className="bg-white rounded-xl border p-4">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Kalkulasi PBB Proporsional</p>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm mb-3 min-w-[500px]">
+                        <thead>
+                          <tr className="border-b text-xs text-gray-500 uppercase">
+                            <th className="text-left pb-2">Tahun</th>
+                            <th className="text-right pb-2">Nilai PBB</th>
+                            {anyArea && (
+                              <>
+                                <th className="text-right pb-2">NJOP SPPT</th>
+                                <th className="text-right pb-2">NJOP KS</th>
+                                <th className="text-right pb-2">Prop. Luasan</th>
+                              </>
+                            )}
+                            <th className="text-right pb-2">Hari KS</th>
+                            <th className="text-right pb-2">Hari Tahun</th>
+                            <th className="text-right pb-2">Prop. Waktu</th>
+                            <th className="text-right pb-2">PBB Ditanggung</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                          {hasil.detail.map(r => (
+                            <tr key={r.tahun} className="text-sm">
+                              <td className="py-2">{r.tahun}</td>
+                              <td className="py-2 text-right"><CurrencyDisplay value={r.nilaiPBB} size="sm" /></td>
+                              {anyArea && (
+                                <>
+                                  <td className="py-2 text-right text-gray-600">
+                                    {r.hasAreaData ? <CurrencyDisplay value={r.njopSppt} size="sm" /> : <span className="text-gray-400">—</span>}
+                                  </td>
+                                  <td className="py-2 text-right text-gray-600">
+                                    {r.hasAreaData ? <CurrencyDisplay value={r.njopKS} size="sm" /> : <span className="text-gray-400">—</span>}
+                                  </td>
+                                  <td className="py-2 text-right">
+                                    {r.hasAreaData
+                                      ? <span className="text-orange-600 font-medium">{(r.proporsiArea * 100).toFixed(2)}%</span>
+                                      : <span className="text-gray-400 text-xs">—</span>}
+                                  </td>
+                                </>
+                              )}
+                              <td className="py-2 text-right">{formatAngka(r.hariKS)}</td>
+                              <td className="py-2 text-right">{formatAngka(r.hariDalamTahun)}</td>
+                              <td className="py-2 text-right text-orange-600 font-medium">{(r.proporsiWaktu * 100).toFixed(2)}%</td>
+                              <td className="py-2 text-right font-semibold text-[#1B4F72]">
+                                <CurrencyDisplay value={r.pbbProporsional} size="sm" />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr className="border-t font-bold">
+                            <td colSpan={anyArea ? 8 : 5} className="pt-2 text-sm">Total PBB Ditanggung Mitra</td>
+                            <td className="pt-2 text-right text-[#1B4F72]">
+                              <CurrencyDisplay value={hasil.totalPBBDitanggung} size="sm" />
                             </td>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </tfoot>
+                      </table>
+                    </div>
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs font-mono text-blue-800 space-y-1">
+                      {hasil.detail.map(r => (
+                        <div key={r.tahun}>
+                          PBB {r.tahun}: {formatRupiah(r.nilaiPBB)}
+                          {r.hasAreaData && <> × <span className="text-orange-700">({formatRupiah(r.njopKS)}/{formatRupiah(r.njopSppt)} luasan)</span></>}
+                          {' '}× <span className="text-orange-700">({formatAngka(r.hariKS)}/{formatAngka(r.hariDalamTahun)} hari)</span>
+                          {' '}= <strong>{formatRupiah(r.pbbProporsional)}</strong>
+                        </div>
+                      ))}
+                      <div className="border-t border-blue-200 mt-1 pt-1">
+                        Total PBB ditanggung mitra: <strong>{formatRupiah(hasil.totalPBBDitanggung)}</strong>
+                      </div>
+                    </div>
                   </div>
+                )}
+
+                {/* Tabel Data PBB */}
+                <div className="bg-white rounded-xl border overflow-hidden">
+                  {(dataPBB[ks.aset_id] ?? []).length === 0 ? (
+                    <div className="p-5 text-sm text-gray-500">
+                      Belum ada data PBB.{' '}
+                      <Button variant="link" size="sm" className="p-0 h-auto" onClick={() => openAdd(ks.aset_id)}>
+                        Input sekarang
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm min-w-[900px]">
+                        <thead>
+                          <tr className="bg-gray-50 text-xs uppercase text-gray-500">
+                            <th className="text-left px-4 py-2">Tahun</th>
+                            <th className="text-right px-4 py-2">Nilai PBB</th>
+                            <th className="text-center px-3 py-2 border-l border-gray-200" colSpan={3}>Objek Bumi (Tanah)</th>
+                            <th className="text-center px-3 py-2 border-l border-gray-200" colSpan={3}>Objek Bangunan</th>
+                            <th className="text-left px-4 py-2 border-l border-gray-200">Jatuh Tempo</th>
+                            <th className="text-left px-4 py-2">Tgl Bayar</th>
+                            <th className="text-right px-4 py-2">Dibayar</th>
+                            <th className="text-right px-4 py-2">Aksi</th>
+                          </tr>
+                          <tr className="bg-gray-50 text-xs text-gray-400 border-b">
+                            <th colSpan={2} />
+                            <th className="px-3 py-1 text-center border-l border-gray-200 font-normal">Luas SPPT</th>
+                            <th className="px-3 py-1 text-center font-normal">Luas KS</th>
+                            <th className="px-3 py-1 text-center font-normal">NJOP/m²</th>
+                            <th className="px-3 py-1 text-center border-l border-gray-200 font-normal">Luas SPPT</th>
+                            <th className="px-3 py-1 text-center font-normal">Luas KS</th>
+                            <th className="px-3 py-1 text-center font-normal">NJOP/m²</th>
+                            <th colSpan={4} />
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                          {(dataPBB[ks.aset_id] ?? []).map(p => (
+                            <tr key={p.id} className="hover:bg-gray-50">
+                              <td className="px-4 py-2 font-medium">{p.tahun}</td>
+                              <td className="px-4 py-2 text-right"><CurrencyDisplay value={p.nilai_pbb} size="sm" /></td>
+                              <td className="px-3 py-2 text-right text-gray-600 border-l border-gray-100">
+                                {p.luas_tanah_sppt ? `${formatAngka(p.luas_tanah_sppt)} m²` : '—'}
+                              </td>
+                              <td className="px-3 py-2 text-right text-gray-600">
+                                {p.luas_tanah_ks ? `${formatAngka(p.luas_tanah_ks)} m²` : '—'}
+                              </td>
+                              <td className="px-3 py-2 text-right text-gray-600">
+                                {p.njop_tanah_per_m2 ? <CurrencyDisplay value={p.njop_tanah_per_m2} size="sm" /> : '—'}
+                              </td>
+                              <td className="px-3 py-2 text-right text-gray-600 border-l border-gray-100">
+                                {p.luas_bangunan_sppt ? `${formatAngka(p.luas_bangunan_sppt)} m²` : '—'}
+                              </td>
+                              <td className="px-3 py-2 text-right text-gray-600">
+                                {p.luas_bangunan_ks ? `${formatAngka(p.luas_bangunan_ks)} m²` : '—'}
+                              </td>
+                              <td className="px-3 py-2 text-right text-gray-600">
+                                {p.njop_bangunan_per_m2 ? <CurrencyDisplay value={p.njop_bangunan_per_m2} size="sm" /> : '—'}
+                              </td>
+                              <td className="px-4 py-2 text-gray-500 border-l border-gray-100">
+                                {p.tgl_jatuh_tempo ? formatTanggal(p.tgl_jatuh_tempo) : '—'}
+                              </td>
+                              <td className="px-4 py-2 text-gray-500">
+                                {p.tgl_bayar_pbb ? formatTanggal(p.tgl_bayar_pbb) : '—'}
+                              </td>
+                              <td className="px-4 py-2 text-right">
+                                {p.jumlah_pbb_dibayar
+                                  ? <CurrencyDisplay value={p.jumlah_pbb_dibayar} size="sm" />
+                                  : <span className="text-gray-400">—</span>}
+                              </td>
+                              <td className="px-4 py-2 text-right">
+                                <div className="flex items-center justify-end gap-1">
+                                  <Button variant="ghost" size="icon" onClick={() => openEdit(p)}>
+                                    <Pencil size={14} />
+                                  </Button>
+                                  <Button variant="ghost" size="icon" className="text-red-500 hover:text-red-700"
+                                    onClick={() => setDeleteTarget(p.id)}>
+                                    <Trash2 size={14} />
+                                  </Button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
               </div>
             )
-          })()}
-        </>
+          })}
+        </div>
+      )}
+
+      {/* Dialog Cetak Invoice PBB */}
+      {invoiceTarget && (
+        <InvoicePBBDialog
+          open={!!invoiceTarget}
+          onClose={() => setInvoiceTarget(null)}
+          ks={invoiceTarget.ks}
+          hasil={invoiceTarget.hasil}
+        />
       )}
 
       {/* Dialog Input/Edit PBB */}
@@ -443,7 +455,7 @@ export function PembayaranPBB() {
                 <div className="col-span-2">
                   <Label>Aset</Label>
                   <Select
-                    defaultValue={editTarget?.aset_id ?? selectedKS?.aset_id}
+                    defaultValue={editTarget?.aset_id}
                     onValueChange={v => setValue('aset_id', v)}
                   >
                     <SelectTrigger className="mt-1"><SelectValue placeholder="Pilih aset..." /></SelectTrigger>

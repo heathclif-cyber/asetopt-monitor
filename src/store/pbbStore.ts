@@ -10,6 +10,7 @@ interface PBBStore {
   fetchAllPBB: () => Promise<void>
   addPBB: (data: Omit<PBB, 'id' | 'created_at' | 'aset'>) => Promise<void>
   updatePBB: (id: string, data: Partial<PBB>, asetId: string) => Promise<void>
+  deletePBB: (id: string) => Promise<void>
 }
 
 export const usePBBStore = create<PBBStore>((set, get) => ({
@@ -57,6 +58,12 @@ export const usePBBStore = create<PBBStore>((set, get) => ({
     const { id: _id, created_at, aset, ...updateData } = data as any
     const { error } = await supabase.from('pbb').update(updateData).eq('id', id)
     if (error) throw new Error(`Gagal update PBB: ${error.message}`)
+    await get().fetchAllPBB()
+  },
+
+  deletePBB: async (id) => {
+    const { error } = await supabase.from('pbb').delete().eq('id', id)
+    if (error) throw new Error(`Gagal hapus PBB: ${error.message}`)
     await get().fetchAllPBB()
   },
 }))
