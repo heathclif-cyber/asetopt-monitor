@@ -22,31 +22,34 @@ function buildInvoiceHTML(params: {
   tanggalSurat: string
   jabatanMitra: string
   alamatMitra: string
+  baseUrl: string
 }): string {
-  const { ks, hasil, nomorSurat, tanggalSurat, jabatanMitra, alamatMitra } = params
+  const { ks, hasil, nomorSurat, tanggalSurat, jabatanMitra, alamatMitra, baseUrl } = params
   const namaAset = (ks.aset as any)?.nama_aset ?? '-'
   const alamatAset = (ks.aset as any)?.alamat ?? '-'
   const tanggalFormatted = formatTanggal(tanggalSurat)
   const tglMulaiFormatted = formatTanggal(ks.tgl_mulai)
   const total = hasil.totalPBBDitanggung
 
-  const rowsPBB = hasil.detail
+  const logoUrl = `${baseUrl}/invoice/logo-ptpn1.png`
+  const headerLineUrl = `${baseUrl}/invoice/header-line.png`
+  const footerLineUrl = `${baseUrl}/invoice/footer-line.png`
+
+  const pbbRows = hasil.detail
     .map(
       (r) => `
       <tr>
         <td>Pajak Bumi dan Bangunan (PBB) Tahun ${r.tahun}</td>
-        <td style="text-align:right">${formatRupiah(r.pbbProporsional)}</td>
+        <td class="col-nilai">${formatRupiah(r.pbbProporsional)}</td>
       </tr>`
     )
     .join('')
 
-  const kepada = [
-    jabatanMitra ? `<div>${jabatanMitra}</div>` : '',
-    `<div>${ks.nama_mitra}</div>`,
-    alamatMitra ? `<div>${alamatMitra}</div>` : '',
-  ]
-    .filter(Boolean)
-    .join('\n')
+  const kepadaLines = [
+    jabatanMitra ? `${jabatanMitra}<br>` : '',
+    `${ks.nama_mitra}<br>`,
+    alamatMitra ? `${alamatMitra}` : '',
+  ].filter(Boolean).join('')
 
   return `<!DOCTYPE html>
 <html lang="id">
@@ -54,183 +57,306 @@ function buildInvoiceHTML(params: {
   <meta charset="utf-8">
   <title>Tagihan PBB – ${ks.nama_mitra}</title>
   <style>
-    @page { size: A4 portrait; margin: 2.5cm 2.5cm 2.5cm 3cm; }
+    @page {
+      size: A4 portrait;
+      margin: 0;
+    }
     * { box-sizing: border-box; margin: 0; padding: 0; }
+
     body {
-      font-family: 'Times New Roman', Times, serif;
+      font-family: Aptos, Calibri, 'Segoe UI', Arial, sans-serif;
       font-size: 12pt;
-      line-height: 1.6;
       color: #000;
     }
-    .letterhead {
-      text-align: center;
-      border-bottom: 3px double #000;
-      padding-bottom: 8pt;
-      margin-bottom: 14pt;
+
+    /* ── PAGE WRAPPER ── */
+    .page {
+      width: 210mm;
+      min-height: 297mm;
+      padding: 0 2.5cm 2.5cm 2.5cm;
+      display: flex;
+      flex-direction: column;
     }
-    .letterhead .company {
-      font-size: 14pt;
-      font-weight: bold;
-      letter-spacing: 0.5pt;
+
+    /* ── HEADER ── */
+    .header {
+      padding-top: 0.8cm;
+      padding-bottom: 0;
     }
-    .letterhead .sub {
+    .header-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .header-logo {
+      height: 60px;
+      width: auto;
+      flex-shrink: 0;
+    }
+    .header-info {
+      text-align: right;
       font-size: 10pt;
+      line-height: 1.4;
+    }
+    .header-info .regional {
+      font-size: 13pt;
+      font-weight: bold;
+      color: #1a1a1a;
+      letter-spacing: 0.5px;
+    }
+    .header-line {
+      width: 100%;
+      margin-top: 6px;
+      display: block;
+    }
+
+    /* ── BODY ── */
+    .body {
+      flex: 1;
+      padding-top: 16pt;
+      line-height: 1.5;
     }
     .meta-date {
       text-align: right;
-      margin-bottom: 10pt;
+      margin-bottom: 12pt;
     }
     .meta-table {
-      width: 100%;
-      margin-bottom: 18pt;
+      border-collapse: collapse;
+      margin-bottom: 16pt;
     }
     .meta-table td {
       vertical-align: top;
-      padding: 1pt 0;
+      padding: 1.5pt 0;
     }
-    .meta-table td:first-child { width: 90pt; }
-    .meta-table td:nth-child(2) { width: 10pt; }
+    .meta-table .col-label { width: 80pt; }
+    .meta-table .col-sep   { width: 14pt; }
     .kepada {
-      margin-bottom: 18pt;
-      line-height: 1.5;
+      margin-bottom: 16pt;
+      line-height: 1.6;
     }
+    .salam { margin-bottom: 10pt; }
     .body-text {
       text-align: justify;
       margin-bottom: 10pt;
     }
-    .detail-table {
+
+    /* ── TABLE PBB ── */
+    .tabel-pbb {
       width: 100%;
       border-collapse: collapse;
       margin: 14pt 0;
     }
-    .detail-table th,
-    .detail-table td {
+    .tabel-pbb th,
+    .tabel-pbb td {
       border: 1px solid #000;
       padding: 5pt 8pt;
+      vertical-align: middle;
     }
-    .detail-table thead tr {
-      background: #f0f0f0;
+    .tabel-pbb thead th {
+      background: #d9d9d9;
       text-align: center;
       font-weight: bold;
     }
-    .detail-table tfoot tr td {
+    .col-nilai {
+      width: 150pt;
+      text-align: right;
+      white-space: nowrap;
+    }
+    .tabel-pbb tfoot td {
       font-weight: bold;
     }
+
+    /* ── BANK INFO ── */
     .bank-table {
-      margin: 10pt 0 16pt 20pt;
+      border-collapse: collapse;
+      margin: 8pt 0 14pt 16pt;
     }
     .bank-table td {
+      padding: 2pt 0;
       vertical-align: top;
-      padding: 1pt 0;
     }
-    .bank-table td:first-child { width: 110pt; }
-    .bank-table td:nth-child(2) { width: 10pt; }
-    .closing { margin-bottom: 30pt; }
-    .ttd {
+    .bank-table .col-label { width: 115pt; }
+    .bank-table .col-sep   { width: 12pt; }
+
+    /* ── TTD ── */
+    .closing { margin-bottom: 32pt; }
+    .ttd-section {
       display: flex;
       justify-content: flex-end;
     }
     .ttd-block {
       text-align: center;
-      width: 220pt;
+      width: 200pt;
+      line-height: 1.5;
     }
-    .ttd-block .space { height: 60pt; }
-    .ttd-block .nama { border-top: 1px solid #000; padding-top: 4pt; }
+    .ttd-space { height: 56pt; }
+    .ttd-nama {
+      border-top: 1px solid #000;
+      padding-top: 3pt;
+    }
+
+    /* ── FOOTER ── */
+    .footer {
+      margin-top: auto;
+      padding-top: 10pt;
+    }
+    .footer-line {
+      width: 100%;
+      display: block;
+      margin-bottom: 4pt;
+    }
+    .footer-content {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      font-size: 8pt;
+      color: #444;
+      line-height: 1.5;
+    }
+    .footer-left { text-align: left; }
+    .footer-right {
+      text-align: right;
+      font-style: italic;
+      color: #666;
+      align-self: flex-end;
+    }
+
+    @media print {
+      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
   </style>
 </head>
 <body>
-  <div class="letterhead">
-    <div class="company">PT PERKEBUNAN NUSANTARA I</div>
-    <div class="sub">REGIONAL 8</div>
+<div class="page">
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="header-top">
+      <img class="header-logo" src="${logoUrl}" alt="PTPN1 Logo">
+      <div class="header-info">
+        <div class="regional">REGIONAL 8</div>
+        <div>Alamat: Jalan Urip Sumoharjo No 72-76, Makassar, Sulawesi Selatan</div>
+        <div>Telp: 0411-444830 &nbsp;|&nbsp; Email: skrh_reg8@ptpn1.co.id</div>
+      </div>
+    </div>
+    <img class="header-line" src="${headerLineUrl}" alt="">
   </div>
 
-  <div class="meta-date">Makassar, ${tanggalFormatted}</div>
+  <!-- BODY -->
+  <div class="body">
+    <div class="meta-date">Makassar, ${tanggalFormatted}</div>
 
-  <table class="meta-table">
-    <tr>
-      <td>Nomor</td>
-      <td>:</td>
-      <td>${nomorSurat || '...........'}</td>
-    </tr>
-    <tr>
-      <td>Lampiran</td>
-      <td>:</td>
-      <td>-</td>
-    </tr>
-    <tr>
-      <td>Perihal</td>
-      <td>:</td>
-      <td><strong>Penagihan Pembayaran Pajak Bumi dan Bangunan (PBB) ${namaAset}</strong></td>
-    </tr>
-  </table>
-
-  <div class="kepada">
-    Kepada Yth.<br>
-    ${kepada}
-  </div>
-
-  <p class="body-text">Dengan hormat,</p>
-
-  <p class="body-text">
-    Menunjuk Perjanjian Kerja Sama Sewa No. <strong>${ks.no_perjanjian ?? '...........'}</strong>
-    tanggal ${tglMulaiFormatted} tentang Pemanfaatan Aset yang berlokasi di ${alamatAset},
-    dengan ini kami sampaikan tagihan pembayaran Pajak Bumi dan Bangunan (PBB), dengan rincian sebagai berikut:
-  </p>
-
-  <table class="detail-table">
-    <thead>
+    <table class="meta-table">
       <tr>
-        <th style="text-align:left">Keterangan</th>
-        <th style="width:160pt">Nilai (Rp)</th>
+        <td class="col-label">Nomor</td>
+        <td class="col-sep">:</td>
+        <td>${nomorSurat || '&hellip;&hellip;&hellip;&hellip;&hellip;&hellip;&hellip;&hellip;&hellip;'}</td>
       </tr>
-    </thead>
-    <tbody>
-      ${rowsPBB}
-    </tbody>
-    <tfoot>
       <tr>
-        <td><strong>Total</strong></td>
-        <td style="text-align:right"><strong>${formatRupiah(total)}</strong></td>
+        <td class="col-label">Lampiran</td>
+        <td class="col-sep">:</td>
+        <td>-</td>
       </tr>
-    </tfoot>
-  </table>
+      <tr>
+        <td class="col-label">Perihal</td>
+        <td class="col-sep">:</td>
+        <td><strong>Penagihan Pembayaran Pajak Bumi dan Bangunan (PBB) ${namaAset}</strong></td>
+      </tr>
+    </table>
 
-  <p class="body-text">
-    Tagihan PBB sebesar <strong>${formatRupiah(total)}</strong>
-    (<em>${terbilang(total)}</em>) sebagaimana di atas, dapat segera dibayarkan melalui:
-  </p>
+    <div class="kepada">
+      Kepada Yth.<br>
+      ${kepadaLines}
+    </div>
 
-  <table class="bank-table">
-    <tr>
-      <td>Atas Nama</td>
-      <td>:</td>
-      <td>PT Perkebunan Nusantara I Regional 8</td>
-    </tr>
-    <tr>
-      <td>Nama Bank</td>
-      <td>:</td>
-      <td>Bank Rakyat Indonesia Cabang Ahmad Yani</td>
-    </tr>
-    <tr>
-      <td>Nomor Rekening</td>
-      <td>:</td>
-      <td>0050-01-005356-30-0</td>
-    </tr>
-  </table>
+    <p class="salam">Dengan hormat,</p>
 
-  <p class="closing">
-    Demikian kami sampaikan, atas perhatian dan kerja sama yang baik diucapkan terima kasih.
-  </p>
+    <p class="body-text">
+      Menunjuk Perjanjian Kerja Sama Sewa No. <strong>${ks.no_perjanjian ?? '&hellip;&hellip;&hellip;&hellip;&hellip;'}</strong>
+      tanggal ${tglMulaiFormatted} tentang Pemanfaatan Aset yang berlokasi di ${alamatAset},
+      dengan ini kami sampaikan tagihan pembayaran Pajak Bumi dan Bangunan (PBB), dengan rincian sebagai berikut:
+    </p>
 
-  <div class="ttd">
-    <div class="ttd-block">
-      <p>Makassar, ${tanggalFormatted}</p>
-      <p>Kepala Bagian/Manager</p>
-      <p>PT Perkebunan Nusantara I Regional 8</p>
-      <div class="space"></div>
-      <div class="nama">( _________________________________ )</div>
+    <table class="tabel-pbb">
+      <thead>
+        <tr>
+          <th style="text-align:left">Keterangan</th>
+          <th class="col-nilai">Nilai (Rp)</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${pbbRows}
+      </tbody>
+      <tfoot>
+        <tr>
+          <td>Total</td>
+          <td class="col-nilai">${formatRupiah(total)}</td>
+        </tr>
+      </tfoot>
+    </table>
+
+    <p class="body-text">
+      Tagihan PBB sebesar <strong>${formatRupiah(total)}</strong>
+      (<em>${terbilang(total)}</em>) sebagaimana di atas, dapat segera dibayarkan melalui:
+    </p>
+
+    <table class="bank-table">
+      <tr>
+        <td class="col-label">Atas Nama</td>
+        <td class="col-sep">:</td>
+        <td>PT Perkebunan Nusantara I Regional 8</td>
+      </tr>
+      <tr>
+        <td class="col-label">Nama Bank</td>
+        <td class="col-sep">:</td>
+        <td>Bank Rakyat Indonesia Cabang Ahmad Yani</td>
+      </tr>
+      <tr>
+        <td class="col-label">Nomor Rekening</td>
+        <td class="col-sep">:</td>
+        <td>0050-01-005356-30-0</td>
+      </tr>
+    </table>
+
+    <p class="closing">
+      Demikian kami sampaikan, atas perhatian dan kerja sama yang baik diucapkan terima kasih.
+    </p>
+
+    <div class="ttd-section">
+      <div class="ttd-block">
+        <p>Makassar, ${tanggalFormatted}</p>
+        <p>Kepala Bagian/Manager</p>
+        <p>PT Perkebunan Nusantara I Regional 8</p>
+        <div class="ttd-space"></div>
+        <div class="ttd-nama">( &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; )</div>
+      </div>
     </div>
   </div>
+
+  <!-- FOOTER -->
+  <div class="footer">
+    <img class="footer-line" src="${footerLineUrl}" alt="">
+    <div class="footer-content">
+      <div class="footer-left">
+        <strong>PT PERKEBUNAN NUSANTARA I (PERSERO)</strong><br>
+        Gedung Agro Plaza Lantai 14, Jl. H. R. Rasuna Said Kav X2 &ndash; 1, Jakarta 12950<br>
+        Email: corcom@ptpn1.co.id
+      </div>
+      <div class="footer-right">
+        AKHLAK &ndash; Amanah, Kompeten, Harmonis, Loyal, Adaptif, Kolaboratif
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // Wait for all images to load before printing
+  window.addEventListener('load', function() {
+    setTimeout(function() { window.print(); }, 300);
+  });
+</script>
 </body>
 </html>`
 }
@@ -243,13 +369,12 @@ export function InvoicePBBDialog({ open, onClose, ks, hasil }: InvoicePBBDialogP
   const [alamatMitra, setAlamatMitra] = useState('')
 
   const handleCetak = () => {
-    const html = buildInvoiceHTML({ ks, hasil, nomorSurat, tanggalSurat, jabatanMitra, alamatMitra })
+    const baseUrl = window.location.origin
+    const html = buildInvoiceHTML({ ks, hasil, nomorSurat, tanggalSurat, jabatanMitra, alamatMitra, baseUrl })
     const win = window.open('', '_blank', 'width=850,height=1100')
     if (!win) return
     win.document.write(html)
     win.document.close()
-    win.focus()
-    setTimeout(() => win.print(), 400)
   }
 
   return (
