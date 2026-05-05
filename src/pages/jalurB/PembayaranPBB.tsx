@@ -14,7 +14,7 @@ import { EmptyState } from '@/components/common/EmptyState'
 import { ConfirmDialog } from '@/components/common/ConfirmDialog'
 import { hitungPBBProporsional } from '@/utils/pbbUtils'
 import { formatAngka, formatTanggal, formatRupiah } from '@/lib/utils'
-import { Plus, Pencil, Trash2, Printer } from 'lucide-react'
+import { Plus, Pencil, Trash2, FileDown } from 'lucide-react'
 import { useForm, Controller, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -251,7 +251,7 @@ export function PembayaranPBB() {
                         className="text-[#1B4F72] border-[#1B4F72]"
                         onClick={() => setInvoiceTarget({ ks, hasil })}
                       >
-                        <Printer size={13} /> Cetak Invoice
+                        <FileDown size={13} /> Invoice PBB
                       </Button>
                     )}
                     <Button size="sm" variant="outline" onClick={() => openAdd(ks.aset_id)}>
