@@ -20,10 +20,11 @@ export const useKerjaSamaStore = create<KerjaSamaStore>((set, get) => ({
 
   fetchKS: async () => {
     set({ isLoading: true })
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('kerja_sama')
-      .select('*, aset(*), kerja_sama_aset(*, aset(*))')
+      .select('*, aset(*)')
       .order('created_at', { ascending: false })
+    if (error) console.error('[fetchKS]', error)
     if (data) set({ daftarKS: data as KerjaSama[] })
     set({ isLoading: false })
   },
