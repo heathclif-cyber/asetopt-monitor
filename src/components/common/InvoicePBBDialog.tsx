@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import JSZip from 'jszip'
 import { FileDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -16,188 +15,290 @@ interface InvoicePBBDialogProps {
   hasil: { detail: PBBProporsionalResult[]; totalPBBDitanggung: number }
 }
 
-function escXml(s: string): string {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-}
-
-function makeTableRow(tahun: number, nilai: string): string {
-  return (
-    `<w:tr>` +
-    `<w:tc><w:tcPr><w:tcW w:w="6033" w:type="dxa"/></w:tcPr>` +
-    `<w:p><w:pPr><w:spacing w:line="276" w:lineRule="auto"/><w:jc w:val="both"/></w:pPr>` +
-    `<w:r><w:t xml:space="preserve">Pajak Bumi dan Bangunan (PBB) Tahun ${tahun}</w:t></w:r>` +
-    `</w:p></w:tc>` +
-    `<w:tc><w:tcPr><w:tcW w:w="3436" w:type="dxa"/></w:tcPr>` +
-    `<w:p><w:pPr><w:spacing w:line="276" w:lineRule="auto"/><w:jc w:val="right"/></w:pPr>` +
-    `<w:r><w:t>${escXml(nilai)}</w:t></w:r>` +
-    `</w:p></w:tc></w:tr>`
-  )
-}
-
-async function generateDocx(params: {
+function buildPrintHTML(params: {
   ks: KerjaSama
   hasil: { detail: PBBProporsionalResult[]; totalPBBDitanggung: number }
   nomorSurat: string
   tanggalSurat: string
   jabatanMitra: string
   alamatMitra: string
-}): Promise<void> {
-  const { ks, hasil, nomorSurat, tanggalSurat, jabatanMitra, alamatMitra } = params
+  baseUrl: string
+}): string {
+  const { ks, hasil, nomorSurat, tanggalSurat, jabatanMitra, alamatMitra, baseUrl } = params
+  const namaAset       = (ks.aset as any)?.nama_aset ?? '-'
+  const alamatAset     = (ks.aset as any)?.alamat    ?? '-'
+  const total          = hasil.totalPBBDitanggung
+  const tanggalFmt     = formatTanggal(tanggalSurat)
+  const tglMulaiFmt    = formatTanggal(ks.tgl_mulai)
 
-  const namaAset   = escXml((ks.aset as any)?.nama_aset ?? '-')
-  const alamatAset = escXml((ks.aset as any)?.alamat ?? '-')
-  const total      = hasil.totalPBBDitanggung
+  const pbbRows = hasil.detail.map((r) => `
+    <tr>
+      <td>Pajak Bumi dan Bangunan (PBB) Tahun ${r.tahun}</td>
+      <td class="col-nilai">${formatRupiah(r.pbbProporsional)}</td>
+    </tr>`).join('')
 
-  // 1. Fetch template docx
-  const res = await fetch('/invoice/template_tagihan_pbb.docx')
-  const arrayBuffer = await res.arrayBuffer()
+  const kepadaLines = [
+    jabatanMitra ? `<div>${jabatanMitra}</div>` : '',
+    `<div>${ks.nama_mitra}</div>`,
+    alamatMitra  ? `<div>${alamatMitra}</div>`  : '',
+  ].filter(Boolean).join('')
 
-  // 2. Unzip
-  const zip = await JSZip.loadAsync(arrayBuffer)
-  let xml = await zip.file('word/document.xml')!.async('string')
+  return `<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <title>Tagihan PBB – ${ks.nama_mitra}</title>
+  <style>
+    @page { size: A4 portrait; margin: 0; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
 
-  // 3. Ganti tanggal surat ("Makassar, ..........")
-  xml = xml.replace(
-    '<w:t>..........</w:t>',
-    `<w:t xml:space="preserve">${escXml(formatTanggal(tanggalSurat))}</w:t>`
-  )
+    body {
+      font-family: Aptos, Calibri, 'Segoe UI', Arial, sans-serif;
+      font-size: 12pt;
+      color: #000;
+      background: #fff;
+    }
 
-  // 4. Ganti nomor surat (setelah "Nomor : ", sebelum paragraf Lampiran paraId=79B8C05A)
-  xml = xml.replace(
-    '<w:tab/><w:t xml:space="preserve">: </w:t></w:r></w:p><w:p w14:paraId="79B8C05A"',
-    `<w:tab/><w:t xml:space="preserve">: ${escXml(nomorSurat)}</w:t></w:r></w:p><w:p w14:paraId="79B8C05A"`
-  )
+    .page {
+      width: 210mm;
+      min-height: 297mm;
+      padding: 0 2.5cm 2cm 3cm;
+      display: flex;
+      flex-direction: column;
+    }
 
-  // 5. Ganti nama objek di perihal
-  xml = xml.replace(
-    '<w:t xml:space="preserve"> [Nama Objek Kerja Sama]</w:t>',
-    `<w:t xml:space="preserve"> ${namaAset}</w:t>`
-  )
+    /* ── HEADER ── */
+    .header { padding-top: 0.7cm; }
+    .header-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .header-logo { height: 58px; width: auto; }
+    .header-info { text-align: right; font-size: 9.5pt; line-height: 1.45; }
+    .header-info .regional { font-size: 13pt; font-weight: bold; }
+    .header-line { width: 100%; margin-top: 5px; display: block; }
 
-  // 6. Ganti jabatan mitra (multi-run) — seluruh blok run "(Jabatan Pimpinan/kalau perorangan kosongi)"
-  const jabatanRunsOld =
-    '<w:r><w:rPr><w:b/><w:bCs/></w:rPr><w:t>(</w:t></w:r>' +
-    '<w:r w:rsidR="00D74FDD"><w:rPr><w:b/><w:bCs/></w:rPr><w:t xml:space="preserve">Jabatan </w:t></w:r>' +
-    '<w:r><w:rPr><w:b/><w:bCs/></w:rPr><w:t>Pimpinan</w:t></w:r>' +
-    '<w:r w:rsidR="004B63D3"><w:rPr><w:b/><w:bCs/></w:rPr><w:t>/kalau perorangan kosongi</w:t></w:r>' +
-    '<w:r><w:rPr><w:b/><w:bCs/></w:rPr><w:t>)</w:t></w:r>'
-  const jabatanRunsNew = jabatanMitra
-    ? `<w:r><w:rPr><w:b/><w:bCs/></w:rPr><w:t>${escXml(jabatanMitra)}</w:t></w:r>`
-    : ''
-  xml = xml.replace(jabatanRunsOld, jabatanRunsNew)
+    /* ── BODY ── */
+    .body { flex: 1; padding-top: 14pt; line-height: 1.5; }
 
-  // 7. Ganti nama mitra
-  xml = xml.replace(
-    '<w:t>(Nama Mitra)</w:t>',
-    `<w:t>${escXml(ks.nama_mitra)}</w:t>`
-  )
+    .tanggal { text-align: right; margin-bottom: 12pt; }
 
-  // 8. Ganti alamat mitra (multi-run)
-  const alamatMitraRunsOld =
-    '<w:r w:rsidRPr="00D74FDD"><w:rPr><w:highlight w:val="yellow"/></w:rPr><w:t>(Alamat</w:t></w:r>' +
-    '<w:r w:rsidR="00D74FDD" w:rsidRPr="00D74FDD"><w:rPr><w:highlight w:val="yellow"/></w:rPr><w:t xml:space="preserve"> Mitra</w:t></w:r>' +
-    '<w:r w:rsidRPr="00D74FDD"><w:rPr><w:highlight w:val="yellow"/></w:rPr><w:t>)</w:t></w:r>'
-  xml = xml.replace(
-    alamatMitraRunsOld,
-    `<w:r><w:t>${escXml(alamatMitra)}</w:t></w:r>`
-  )
+    /* Nomor / Lampiran / Perihal menggunakan table agar kolom lurus */
+    .meta { border-collapse: collapse; margin-bottom: 14pt; }
+    .meta td { vertical-align: top; padding: 1pt 0; }
+    .meta .lbl { width: 75pt; }
+    .meta .sep { width: 8pt; }
 
-  // 9. Ganti nomor perjanjian
-  xml = xml.replace(
-    '<w:t>(Nomor Perjanjian)</w:t>',
-    `<w:t>${escXml(ks.no_perjanjian ?? '—')}</w:t>`
-  )
+    .kepada { margin-bottom: 14pt; line-height: 1.6; }
+    .salam   { margin-bottom: 8pt; }
+    .isi     { text-align: justify; margin-bottom: 10pt; line-height: 1.6; }
 
-  // 10. Ganti tanggal perjanjian
-  xml = xml.replace(
-    '<w:t>(Tanggal Perjanjian)</w:t>',
-    `<w:t>${escXml(formatTanggal(ks.tgl_mulai))}</w:t>`
-  )
+    /* ── TABEL PBB ── */
+    .tabel {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12pt 0;
+    }
+    .tabel th, .tabel td {
+      border: 1px solid #000;
+      padding: 5pt 8pt;
+    }
+    .tabel thead th {
+      background: #d9d9d9;
+      font-weight: bold;
+      text-align: center;
+    }
+    .col-nilai { width: 150pt; text-align: right; white-space: nowrap; }
+    .tabel tfoot td { font-weight: bold; }
 
-  // 11. Ganti alamat aset
-  xml = xml.replace(
-    '<w:t>(Alamat aset yang dikerjasamakan)</w:t>',
-    `<w:t>${alamatAset}</w:t>`
-  )
+    /* ── BANK INFO ── */
+    .bank { border-collapse: collapse; margin: 8pt 0 14pt 14pt; }
+    .bank td { padding: 2pt 0; vertical-align: top; }
+    .bank .lbl { width: 110pt; }
+    .bank .sep { width: 10pt; }
 
-  // 12. Ganti baris tabel PBB — hapus 2 baris template, masukkan baris dinamis
-  // Baris data dimulai dari paraId="284F18C5", total row dimulai dari rsidR="4CC0BE62"
-  const firstDataRowMarker = '<w:tr w:rsidR="00E00460" w:rsidRPr="004C052A" w14:paraId="284F18C5"'
-  const totalRowMarker     = '<w:tr w:rsidR="4CC0BE62"'
-  const idx1 = xml.indexOf(firstDataRowMarker)
-  const idx2 = xml.indexOf(totalRowMarker)
-  if (idx1 !== -1 && idx2 !== -1 && idx2 > idx1) {
-    const before = xml.substring(0, idx1)
-    const after  = xml.substring(idx2)
-    const generatedRows = hasil.detail
-      .map((r) => makeTableRow(r.tahun, formatRupiah(r.pbbProporsional)))
-      .join('')
-    xml = before + generatedRows + after
-  }
+    /* ── TTD ── */
+    .penutup { margin-bottom: 28pt; }
+    .ttd-wrap { display: flex; justify-content: flex-end; }
+    .ttd { text-align: center; width: 195pt; line-height: 1.6; }
+    .ttd-space { height: 54pt; }
+    .ttd-garis { border-top: 1px solid #000; padding-top: 3pt; }
 
-  // 13. Ganti nilai total di baris Total
-  xml = xml.replace(
-    '<w:r><w:rPr><w:highlight w:val="yellow"/><w:lang w:val="id-ID"/></w:rPr><w:t>Rp</w:t></w:r>',
-    `<w:r><w:t>${escXml(formatRupiah(total))}</w:t></w:r>`
-  )
+    /* ── FOOTER ── */
+    .footer { margin-top: auto; padding-top: 8pt; }
+    .footer-line { width: 100%; display: block; margin-bottom: 3pt; }
+    .footer-body {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      font-size: 8pt;
+      line-height: 1.5;
+      color: #444;
+    }
+    .footer-tagline { font-style: italic; color: #666; text-align: right; }
 
-  // 14. Ganti "(Total PBB) (Terbilang)" — multi-run
-  const totalTerbilangOld =
-    '<w:r w:rsidR="00BD6B75"><w:rPr><w:highlight w:val="yellow"/></w:rPr><w:t xml:space="preserve">(Total PBB) </w:t></w:r>' +
-    '<w:r w:rsidR="006A758E" w:rsidRPr="00EB3496"><w:rPr><w:highlight w:val="yellow"/></w:rPr><w:t xml:space="preserve"> (</w:t></w:r>' +
-    '<w:r w:rsidR="00BD6B75"><w:rPr><w:highlight w:val="yellow"/></w:rPr><w:t>Terbilang</w:t></w:r>' +
-    '<w:r w:rsidR="006A758E" w:rsidRPr="00EB3496"><w:rPr><w:highlight w:val="yellow"/></w:rPr><w:t>)</w:t></w:r>'
-  xml = xml.replace(
-    totalTerbilangOld,
-    `<w:r><w:t xml:space="preserve">${escXml(formatRupiah(total))} (${escXml(terbilang(total))})</w:t></w:r>`
-  )
+    @media print {
+      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
+  </style>
+</head>
+<body>
+<div class="page">
 
-  // 15. Simpan kembali dan download
-  zip.file('word/document.xml', xml)
-  const blob = await zip.generateAsync({
-    type: 'blob',
-    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  })
+  <!-- HEADER -->
+  <div class="header">
+    <div class="header-top">
+      <img class="header-logo" src="${baseUrl}/invoice/logo-ptpn1.png" alt="PTPN1">
+      <div class="header-info">
+        <div class="regional">REGIONAL 8</div>
+        <div>Alamat: Jalan Urip Sumoharjo No 72-76, Makassar, Sulawesi Selatan</div>
+        <div>Telp : 0411-444830 &nbsp;&nbsp; Email: skrh_reg8@ptpn1.co.id</div>
+      </div>
+    </div>
+    <img class="header-line" src="${baseUrl}/invoice/header-line.png" alt="">
+  </div>
 
-  const url = URL.createObjectURL(blob)
-  const a   = document.createElement('a')
-  a.href     = url
-  a.download = `Tagihan_PBB_${ks.nama_mitra.replace(/[^a-zA-Z0-9]/g, '_')}.docx`
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
+  <!-- BODY -->
+  <div class="body">
+
+    <div class="tanggal">Makassar, ${tanggalFmt}</div>
+
+    <table class="meta">
+      <tr>
+        <td class="lbl">Nomor</td>
+        <td class="sep">:</td>
+        <td>${nomorSurat || ''}</td>
+      </tr>
+      <tr>
+        <td class="lbl">Lampiran</td>
+        <td class="sep">:</td>
+        <td>-</td>
+      </tr>
+      <tr>
+        <td class="lbl">Perihal</td>
+        <td class="sep">:</td>
+        <td><strong>Penagihan Pembayaran Pajak Bumi dan Bangunan (PBB) ${namaAset}</strong></td>
+      </tr>
+    </table>
+
+    <div class="kepada">
+      Kepada Yth.<br>
+      ${kepadaLines}
+    </div>
+
+    <p class="salam">Dengan hormat,</p>
+
+    <p class="isi">
+      Menunjuk Perjanjian Kerja Sama Sewa No. <strong>${ks.no_perjanjian ?? '............'}</strong>
+      tanggal ${tglMulaiFmt} tentang Pemanfaatan Aset yang berlokasi di ${alamatAset},
+      dengan ini kami sampaikan tagihan pembayaran Pajak Bumi dan Bangunan (PBB),
+      dengan rincian sebagai berikut:
+    </p>
+
+    <table class="tabel">
+      <thead>
+        <tr>
+          <th style="text-align:left">Keterangan</th>
+          <th class="col-nilai">Nilai (Rp)</th>
+        </tr>
+      </thead>
+      <tbody>${pbbRows}</tbody>
+      <tfoot>
+        <tr>
+          <td>Total</td>
+          <td class="col-nilai">${formatRupiah(total)}</td>
+        </tr>
+      </tfoot>
+    </table>
+
+    <p class="isi">
+      Tagihan PBB sebesar <strong>${formatRupiah(total)}</strong>
+      (<em>${terbilang(total)}</em>) sebagaimana diatas, dapat segera dibayarkan melalui:
+    </p>
+
+    <table class="bank">
+      <tr>
+        <td class="lbl">Atas Nama</td>
+        <td class="sep">:</td>
+        <td>PT Perkebunan Nusantara I Regional 8</td>
+      </tr>
+      <tr>
+        <td class="lbl">Nama Bank</td>
+        <td class="sep">:</td>
+        <td>Bank Rakyat Indonesia Cabang Ahmad Yani</td>
+      </tr>
+      <tr>
+        <td class="lbl">Nomor Rekening</td>
+        <td class="sep">:</td>
+        <td>0050-01-005356-30-0</td>
+      </tr>
+    </table>
+
+    <p class="penutup">
+      Demikian kami sampaikan, atas perhatian dan kerja sama yang baik diucapkan terima kasih.
+    </p>
+
+    <div class="ttd-wrap">
+      <div class="ttd">
+        <p>Makassar, ${tanggalFmt}</p>
+        <p>Kepala Bagian/Manager</p>
+        <p>PT Perkebunan Nusantara I Regional 8</p>
+        <div class="ttd-space"></div>
+        <div class="ttd-garis">( &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; )</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- FOOTER -->
+  <div class="footer">
+    <img class="footer-line" src="${baseUrl}/invoice/footer-line.png" alt="">
+    <div class="footer-body">
+      <div>
+        <strong>PT PERKEBUNAN NUSANTARA I (PERSERO)</strong><br>
+        Gedung Agro Plaza Lantai 14, Jl. H. R. Rasuna Said Kav X2 &ndash; 1, Jakarta 12950<br>
+        Email: corcom@ptpn1.co.id
+      </div>
+      <div class="footer-tagline">
+        AKHLAK &ndash; Amanah, Kompeten, Harmonis,<br>Loyal, Adaptif, Kolaboratif
+      </div>
+    </div>
+  </div>
+
+</div>
+<script>
+  window.addEventListener('load', function () {
+    setTimeout(function () { window.print(); }, 350);
+  });
+</script>
+</body>
+</html>`
 }
 
 export function InvoicePBBDialog({ open, onClose, ks, hasil }: InvoicePBBDialogProps) {
   const today = new Date().toISOString().split('T')[0]
-  const [nomorSurat, setNomorSurat]   = useState('')
+  const [nomorSurat,   setNomorSurat]   = useState('')
   const [tanggalSurat, setTanggalSurat] = useState(today)
   const [jabatanMitra, setJabatanMitra] = useState('')
-  const [alamatMitra, setAlamatMitra]   = useState('')
-  const [isLoading, setIsLoading]       = useState(false)
+  const [alamatMitra,  setAlamatMitra]  = useState('')
 
-  const handleDownload = async () => {
-    setIsLoading(true)
-    try {
-      await generateDocx({ ks, hasil, nomorSurat, tanggalSurat, jabatanMitra, alamatMitra })
-      onClose()
-    } catch (e) {
-      console.error(e)
-    } finally {
-      setIsLoading(false)
-    }
+  const handleCetak = () => {
+    const baseUrl = window.location.origin
+    const html = buildPrintHTML({ ks, hasil, nomorSurat, tanggalSurat, jabatanMitra, alamatMitra, baseUrl })
+    const win  = window.open('', '_blank', 'width=870,height=1100')
+    if (!win) return
+    win.document.write(html)
+    win.document.close()
+    onClose()
   }
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Download Invoice Tagihan PBB</DialogTitle>
+          <DialogTitle>Invoice Tagihan PBB</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4 text-sm">
@@ -272,10 +373,9 @@ export function InvoicePBBDialog({ open, onClose, ks, hasil }: InvoicePBBDialogP
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={isLoading}>Batal</Button>
-          <Button className="bg-[#1B4F72] gap-1.5" onClick={handleDownload} disabled={isLoading}>
-            <FileDown size={15} />
-            {isLoading ? 'Memproses...' : 'Download .docx'}
+          <Button variant="outline" onClick={onClose}>Batal</Button>
+          <Button className="bg-[#1B4F72] gap-1.5" onClick={handleCetak}>
+            <FileDown size={15} /> Print Preview
           </Button>
         </DialogFooter>
       </DialogContent>
