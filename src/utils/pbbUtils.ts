@@ -56,7 +56,7 @@ export function hitungPBBProporsional(params: HitungPBBParams): HitungPBBResult 
     const hasAreaData  = njopSppt > 0
     const proporsiArea = hasAreaData ? (njopKS / njopSppt) : 1
 
-    const proporsi        = proporsiArea * proporsiWaktu
+    const proporsi        = Math.min(proporsiArea * proporsiWaktu, 1)
     const pbbProporsional = nilaiPBB * proporsi
 
     hasil.push({
