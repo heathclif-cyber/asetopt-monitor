@@ -142,17 +142,31 @@ export interface SuratPeringatan {
   kerja_sama?: KerjaSama
 }
 
+export interface PBBObjek {
+  id: string
+  pbb_id: string
+  nama_objek: string
+  no_sppt: string | null
+  nilai_pbb_objek: number
+  luas_tanah_sppt: number
+  luas_tanah_ks: number
+  njop_tanah_per_m2: number
+  luas_bangunan_sppt: number
+  luas_bangunan_ks: number
+  njop_bangunan_per_m2: number
+  created_at: string
+}
+
 export interface PBB {
   id: string
   aset_id: string
   rkap_kode: string | null
   tahun: number
-  nilai_pbb: number
-  // Objek Bumi
+  nilai_pbb: number  // Total = sum of pbb_objek[].nilai_pbb_objek
+  // Legacy single-object fields (kept for DB compat)
   luas_tanah_sppt: number | null
   luas_tanah_ks: number | null
   njop_tanah_per_m2: number | null
-  // Objek Bangunan
   luas_bangunan_sppt: number | null
   luas_bangunan_ks: number | null
   njop_bangunan_per_m2: number | null
@@ -162,6 +176,7 @@ export interface PBB {
   status_bayar: string
   created_at: string
   aset?: Aset
+  pbb_objek?: PBBObjek[]
 }
 
 export interface LogNotifikasi {
@@ -184,10 +199,20 @@ export interface PotensiPendapatan {
   totalPotensiNJOP: number
 }
 
+export interface PBBObjekProporsionalResult {
+  nama_objek: string
+  nilaiPBBObjek: number
+  njopSpptObjek: number
+  njopKSObjek: number
+  proporsiAreaObjek: number
+  hasAreaDataObjek: boolean
+  pbbProporsionalObjek: number
+}
+
 export interface PBBProporsionalResult {
   tahun: number
   nilaiPBB: number
-  // Proporsi luasan (NJOP KS / NJOP SPPT)
+  // Proporsi luasan (NJOP KS / NJOP SPPT) — agregasi semua objek
   njopSppt: number
   njopKS: number
   proporsiArea: number
@@ -199,6 +224,8 @@ export interface PBBProporsionalResult {
   // Gabungan
   proporsi: number
   pbbProporsional: number
+  // Rincian per objek
+  objekDetail?: PBBObjekProporsionalResult[]
 }
 
 export interface DendaResult {
