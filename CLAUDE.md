@@ -21,11 +21,11 @@
 ## 🗄️ Database & Entity Schema (Supabase)
 Sistem memiliki dua jalur utama manajemen aset:
 1. **Jalur A (Pipeline/Prospek)**: Aset yang belum dimitrakerjakan (Tabel `aset`, `prospek_mitra`, `timeline_program`, `njop`, `penilaian_kjpp`).
-2. **Jalur B (Kerja Sama Aktif)**: Aset yang sudah menjadi kontrak kerja sama (Tabel `kerja_sama`, `kompensasi`, `pembayaran`, `surat_peringatan`, `pbb`, `cash_in`).
+2. **Jalur B (Kerja Sama Aktif)**: Aset yang sudah menjadi kontrak kerja sama (Tabel `kerja_sama`, `kompensasi`, `pembayaran`, `surat_peringatan`, `pbb`, `pbb_objek`, `cash_in`).
 
 ### Tabel & Entitas Kritis:
 - **Kompensasi**: Pencatatan tagihan. Mendukung mode PPh (`bukti_potong` atau `none`), PPN, denda keterlambatan, dan fitur `pengurang` (untuk potongan kompensasi). Terhubung dengan `rkap_kode` untuk tracking RKAP.
-- **PBB**: Memiliki perhitungan proporsional berdasarkan waktu (hari Kerja Sama vs hari dalam setahun) dan luasan objek (Luas Tanah/Bangunan SPPT vs KS).
+- **PBB + PBB Objek**: Satu kerja sama bisa memiliki **lebih dari 1 objek PBB** (NOP/SPPT berbeda). Tabel `pbb` menyimpan header per tahun (total nilai, status bayar, pembayaran), sedangkan tabel `pbb_objek` menyimpan rincian tiap objek (nama, no_sppt, nilai_pbb_objek, luas tanah/bangunan SPPT vs KS, NJOP/m²). Kalkulasi proporsional dihitung **per objek** lalu dijumlahkan.
 - **Cash In**: Penerimaan di luar kompensasi rutin (seperti `denda` atau penerimaan `lainnya`), dilacak secara terpisah namun terhubung ke `kerja_sama`.
 - **Surat Peringatan (SP)**: Dibuat otomatis atau manual (SP1, SP2, SP3, PUTUS) untuk memonitor kepatuhan bayar mitra.
 - **RKAP Target & Kode**: Referensi target anggaran tahunan.
@@ -34,9 +34,14 @@ Sistem memiliki dua jalur utama manajemen aset:
 1. **Potensi Kompensasi Dasar**: 
    - Tanah: `NJOP/m² × luas × 3,33%`
    - Bangunan: `NJOP/m² × luas × 6,64%`
-2. **Kalkulasi PBB Proporsional**:
-   - Dihitung per hari kalender sesuai periode KS dalam tahun berjalan.
-   - Menggunakan perbandingan luasan area (Objek Bumi & Bangunan) jika mitra tidak menyewa keseluruhan aset.
+2. **Kalkulasi PBB Proporsional** (`src/utils/pbbUtils.ts`):
+   - Satu KS bisa punya banyak objek PBB (NOP/SPPT berbeda), masing-masing dihitung sendiri.
+   - Per objek: `PBB_ditanggung_i = nilai_pbb_SPPT_i × proporsiArea_i × proporsiWaktu`
+     - `proporsiArea_i = min(NJOP_KS_i / NJOP_SPPT_i, 1)` — NJOP dihitung dari luasan × NJOP/m²
+     - `proporsiWaktu = hari_KS_dalam_tahun / total_hari_tahun`
+   - Total PBB ditanggung = **Σ per objek** (bukan agregat, karena tiap objek bisa punya rasio berbeda).
+   - Jika data area tidak diisi → `proporsiArea = 1` (asumsi mitra pakai seluruh aset).
+   - Backward-compat: jika `pbb_objek` kosong, fallback ke field lama di tabel `pbb`.
 3. **Denda & SP**:
    - Jika pembayaran kompensasi melewati jatuh tempo, denda otomatis berjalan (persentase denda dihitung per hari terlambat).
    - Apabila keterlambatan atau denda mencapai treshold (≥ 5% nominal), peringatan akan ter-trigger (SP1 → +14 hari SP2 → +14 hari SP3 → Pemutusan).
