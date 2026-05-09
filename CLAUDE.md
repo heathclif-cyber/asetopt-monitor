@@ -10,8 +10,8 @@
 - **External API**: Fonnte API (WhatsApp Notifications)
 
 ## 📁 Struktur Direktori Utama
-- `/src/components`: UI components reusable (termasuk shadcn/ui di `/ui`).
-- `/src/pages`: Komponen halaman utama (Jalur A, Jalur B, PBB, Timeline, dll).
+- `/src/components`: UI components reusable (termasuk shadcn/ui di `/ui`, dan `/katalog` untuk komponen tampilan katalog).
+- `/src/pages`: Komponen halaman utama (Jalur A, Jalur B, Katalog, PBB, Timeline, dll).
 - `/src/store`: Zustand stores (`asetStore`, `kompensasiStore`, `kerjaSamaStore`, `pbbStore`, `cashInStore`, dll).
 - `/src/types`: Definisi interface TypeScript (`index.ts` adalah central source of truth untuk schema).
 - `/src/lib`: Utilities pihak ketiga (misal konfigurasi Supabase).
@@ -22,6 +22,7 @@
 Sistem memiliki dua jalur utama manajemen aset:
 1. **Jalur A (Pipeline/Prospek)**: Aset yang belum dimitrakerjakan (Tabel `aset`, `prospek_mitra`, `timeline_program`, `njop`, `penilaian_kjpp`).
 2. **Jalur B (Kerja Sama Aktif)**: Aset yang sudah menjadi kontrak kerja sama (Tabel `kerja_sama`, `kompensasi`, `pembayaran`, `surat_peringatan`, `pbb`, `pbb_objek`, `cash_in`).
+3. **Katalog Aset** (`/katalog`): Portfolio view yang menggabungkan data dari seluruh store (aset, NJOP, KJPP, timeline, prospek, kerja sama, PBB) ke dalam satu tampilan kartu per aset. Tidak memiliki store atau tabel sendiri — murni agregasi `useMemo` di level halaman. Komponen: `KatalogAset` (halaman), `KatalogCard` (kartu), `KatalogCardSections` (8 section detail).
 
 ### Tabel & Entitas Kritis:
 - **Kompensasi**: Pencatatan tagihan. Mendukung mode PPh (`bukti_potong` atau `none`), PPN, denda keterlambatan, dan fitur `pengurang` (untuk potongan kompensasi). Terhubung dengan `rkap_kode` untuk tracking RKAP.
