@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard, GitBranch, Handshake, Database,
-  Building2, ChevronDown, ChevronRight, Target
+  Building2, ChevronDown, ChevronRight, Target, Library
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useState } from 'react'
@@ -15,6 +15,7 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { label: 'Dashboard', to: '/', icon: <LayoutDashboard size={15} /> },
+  { label: 'Katalog Aset', to: '/katalog', icon: <Library size={15} /> },
   { label: 'RKAP Monitor', to: '/rkap', icon: <Target size={15} /> },
   {
     label: 'Jalur A — Pipeline',
