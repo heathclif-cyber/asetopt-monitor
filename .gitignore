@@ -28,3 +28,4 @@ yarn-error.log*
 # Claude local config
 .claude/
 node_modules
+.aider*

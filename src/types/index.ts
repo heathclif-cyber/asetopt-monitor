@@ -16,6 +16,7 @@ export interface Aset {
   luas_bangunan_m2: number | null
   status: AsetStatus
   keterangan: string | null
+  sertifikat: string | null
   created_at: string
   updated_at: string
 }
@@ -254,4 +255,127 @@ export interface CashIn {
   created_at: string
   kerja_sama?: KerjaSama
   kompensasi?: Pick<Kompensasi, 'id' | 'periode_label'>
+}
+
+// ---- Katalog Aset ----
+
+export type KatalogLayout = 'editorial' | 'modular' | 'compact'
+export type KatalogDensity = 'compact' | 'normal' | 'spacious'
+
+export interface KatalogAset {
+  id: string
+  aset_id: string
+  tagline: string | null
+  coordinates_lat: string | null
+  coordinates_lng: string | null
+  sertifikat_detail: string | null
+  sertifikat_pemilik: string | null
+  zonasi: string | null
+  topografi: string | null
+  kondisi_bangunan: string | null
+  rekomendasi_pengembangan: string | null
+  rekomendasi_summary: string | null
+  pic_nama: string | null
+  pic_jabatan: string | null
+  pic_phone: string | null
+  pic_mobile: string | null
+  pic_email: string | null
+  pic_kantor: string | null
+  tgl_dokumen: string | null
+  ref_dokumen: string | null
+  layout_preferensi: KatalogLayout
+  created_at: string
+  updated_at: string
+  // Joined
+  aset?: Aset
+  aksesibilitas?: KatalogAksesibilitas[]
+  lingkungan?: KatalogLingkungan[]
+  skema?: KatalogSkema[]
+  foto?: KatalogFoto[]
+}
+
+export interface KatalogAksesibilitas {
+  id: string
+  katalog_id: string
+  urutan: number
+  label: string
+  nilai: string | null
+  keterangan: string | null
+}
+
+export interface KatalogLingkungan {
+  id: string
+  katalog_id: string
+  urutan: number
+  nama: string
+  jarak: string | null
+  tipe: string | null
+}
+
+export interface KatalogSkema {
+  id: string
+  katalog_id: string
+  urutan: number
+  kode: string
+  nama: string | null
+  catatan: string | null
+}
+
+export interface KatalogFoto {
+  id: string
+  katalog_id: string
+  slot_id: string
+  url: string
+  urutan: number
+}
+
+// Combined data payload for factsheet rendering
+export interface KatalogFactsheetData {
+  // Identity
+  code: string
+  name: string
+  tagline: string
+  category: string
+  status: string
+  // Location
+  address: string
+  region: string
+  coordinates: { lat: string; lng: string }
+  // Physical
+  landArea: string
+  landAreaHa: string
+  buildingArea: string
+  buildingCondition: string
+  certificate: string
+  certificateOwner: string
+  zoning: string
+  topography: string
+  // Valuation
+  njop: string
+  totalValue: string
+  valueUnit: string
+  appraisalDate: string
+  appraisalSource: string
+  // Recommendation
+  recommendation: string
+  recommendationSummary: string
+  partnershipSchemes: { code: string; name: string; note: string }[]
+  // Accessibility
+  accessibility: { label: string; value: string; sub: string }[]
+  // Surroundings
+  surroundings: { name: string; distance: string; type: string }[]
+  // Contact
+  pic: {
+    name: string
+    title: string
+    phone: string
+    mobile: string
+    email: string
+    office: string
+  }
+  // Document
+  documentDate: string
+  documentRef: string
+  // Photos (slot_id -> url mapping)
+  photos: Record<string, string>
 }

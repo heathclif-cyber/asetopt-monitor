@@ -27,6 +27,7 @@ const asetSchema = z.object({
   luas_bangunan_m2: z.coerce.number().min(0).optional(),
   status: z.string(),
   keterangan: z.string().optional(),
+  sertifikat: z.string().optional(),
 })
 
 type AsetForm = z.infer<typeof asetSchema>
@@ -93,6 +94,7 @@ export function DataAset() {
       luas_bangunan_m2: a.luas_bangunan_m2 ?? undefined,
       status: a.status,
       keterangan: a.keterangan ?? '',
+      sertifikat: (a as any).sertifikat ?? '',
     })
     setDialogOpen(true)
   }
@@ -241,6 +243,10 @@ export function DataAset() {
                 <Label>Luas Bangunan (m²)</Label>
                 <Input type="number" step="0.01" {...register('luas_bangunan_m2')} className="mt-1" />
               </div>
+            </div>
+            <div>
+              <Label>Sertifikat</Label>
+              <Input {...register('sertifikat')} className="mt-1" placeholder="HM No. 4421 / Mangasa" />
             </div>
             <div>
               <Label>Keterangan</Label>

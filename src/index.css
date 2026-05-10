@@ -53,3 +53,35 @@
     background: #9ca3af;
   }
 }
+
+/* ============ Katalog Print Styles (A4 export) ============ */
+@media print {
+  /* Hide everything except the factsheet */
+  body * {
+    visibility: hidden;
+  }
+  /* Show only factsheet page */
+  .fs-page,
+  .fs-page * {
+    visibility: visible;
+  }
+  .fs-page {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 210mm !important;
+    height: 297mm !important;
+    margin: 0;
+    padding: 0;
+    box-shadow: none !important;
+    background: white !important;
+    background-image: none !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    color-adjust: exact;
+  }
+  @page {
+    size: A4 portrait;
+    margin: 0;
+  }
+}
