@@ -12,6 +12,7 @@ import { CurrencyDisplay } from '@/components/common/CurrencyDisplay'
 import { StatusBadge } from '@/components/common/StatusBadge'
 import { formatTanggal, hitungSisaHari } from '@/lib/utils'
 import { hitungPotensiNJOP } from '@/utils/potensiUtils'
+import { hitungPBBProporsional } from '@/utils/pbbUtils'
 import { hitungRKAP, getCashInPerBulanByYear } from '@/utils/rkapUtils'
 import { BULAN_LABELS } from '@/data/rkap2026'
 import { useRKAPStore, rowToRKAPItem } from '@/store/rkapStore'
@@ -157,7 +158,7 @@ export function Dashboard() {
     return Object.values(byKS).sort((a, b) => b.sisaPiutang - a.sisaPiutang)
   }, [allKompensasi, daftarKS])
 
-  // PBB Proporsional: hitung porsi PBB per KS berdasarkan tgl_mulai/tgl_selesai vs tahun SPPT
+  // PBB Proporsional: pakai fungsi yg sama dengan Jalur B (multi-objek support)
   const pbbProporsionalList = useMemo(() => {
     type PBBRow = {
       ksId: string; namaMitra: string; namaAset: string
@@ -167,43 +168,46 @@ export function Dashboard() {
     const rows: PBBRow[] = []
 
     daftarKS.forEach(ks => {
-      const tglMulai  = new Date(ks.tgl_mulai)
-      const tglSelesai = new Date(ks.tgl_selesai)
-      const namaAset  = (ks.aset as any)?.nama_aset ?? '-'
-
-      // Kumpulkan PBB untuk aset ini
+      const namaAset = (ks.aset as any)?.nama_aset ?? '-'
       const pbbAset = allPBB.filter(p => p.aset_id === ks.aset_id)
 
-      pbbAset.forEach(pbb => {
-        const tahun = pbb.tahun
-        // Rentang KS dalam tahun SPPT
-        const thnMulai  = new Date(tahun, 0, 1)   // 1 Jan
-        const thnAkhir  = new Date(tahun, 11, 31)  // 31 Des
+      if (pbbAset.length === 0) return
 
-        const overlapMulai  = tglMulai  > thnMulai  ? tglMulai  : thnMulai
-        const overlapAkhir  = tglSelesai < thnAkhir ? tglSelesai : thnAkhir
+      const dataPBB = pbbAset.map(p => ({
+        tahun: p.tahun,
+        nilaiPBB: p.nilai_pbb,
+        objek: p.pbb_objek?.map(o => ({
+          nama_objek: o.nama_objek,
+          nilai_pbb_objek: o.nilai_pbb_objek,
+          luas_tanah_sppt: o.luas_tanah_sppt,
+          luas_tanah_ks: o.luas_tanah_ks,
+          njop_tanah_per_m2: o.njop_tanah_per_m2,
+          luas_bangunan_sppt: o.luas_bangunan_sppt,
+          luas_bangunan_ks: o.luas_bangunan_ks,
+          njop_bangunan_per_m2: o.njop_bangunan_per_m2,
+        })),
+        luas_tanah_sppt: p.luas_tanah_sppt,
+        luas_tanah_ks: p.luas_tanah_ks,
+        njop_tanah_per_m2: p.njop_tanah_per_m2,
+        luas_bangunan_sppt: p.luas_bangunan_sppt,
+        luas_bangunan_ks: p.luas_bangunan_ks,
+        njop_bangunan_per_m2: p.njop_bangunan_per_m2,
+      }))
 
-        const hariKS = Math.max(0, Math.floor((overlapAkhir.getTime() - overlapMulai.getTime()) / 86_400_000) + 1)
-        if (hariKS <= 0) return   // KS tidak overlap dengan tahun SPPT ini
+      const hasil = hitungPBBProporsional({
+        tglMulaiKS: ks.tgl_mulai,
+        tglSelesaiKS: ks.tgl_selesai,
+        dataPBB,
+      })
 
-        // Hari dalam tahun (366 jika kabisat)
-        const hariDalamTahun = ((tahun % 4 === 0 && tahun % 100 !== 0) || tahun % 400 === 0) ? 366 : 365
-        const proporsiWaktu = hariKS / hariDalamTahun
-
-        // Proporsi luasan (NJOP-weighted) — jika data objek tersedia
-        const njopSppt = (pbb.luas_tanah_sppt ?? 0) * (pbb.njop_tanah_per_m2 ?? 0)
-                       + (pbb.luas_bangunan_sppt ?? 0) * (pbb.njop_bangunan_per_m2 ?? 0)
-        const njopKS   = (pbb.luas_tanah_ks ?? 0) * (pbb.njop_tanah_per_m2 ?? 0)
-                       + (pbb.luas_bangunan_ks ?? 0) * (pbb.njop_bangunan_per_m2 ?? 0)
-        const proporsiArea = njopSppt > 0 ? njopKS / njopSppt : 1
-
-        const proporsi = proporsiArea * proporsiWaktu
-        const pbbProporsional = Math.round(pbb.nilai_pbb * proporsi)
-
+      hasil.detail.forEach(r => {
+        const pbbRecord = pbbAset.find(p => p.tahun === r.tahun)
         rows.push({
           ksId: ks.id, namaMitra: ks.nama_mitra, namaAset,
-          tahun, nilaiPBB: pbb.nilai_pbb, proporsi, pbbProporsional,
-          hariKS, hariDalamTahun, statusBayar: pbb.status_bayar,
+          tahun: r.tahun, nilaiPBB: r.nilaiPBB, proporsi: r.proporsi,
+          pbbProporsional: r.pbbProporsional,
+          hariKS: r.hariKS, hariDalamTahun: r.hariDalamTahun,
+          statusBayar: pbbRecord?.status_bayar ?? 'belum_bayar',
         })
       })
     })
@@ -212,8 +216,6 @@ export function Dashboard() {
   }, [daftarKS, allPBB])
 
   const potensiChartData = daftarAset
-    .filter(a => ['pipeline', 'prospek', 'negosiasi'].includes(a.status))
-    .slice(0, 8)
     .map(a => {
       const njopList = dataNJOP[a.id]
       let potensiNJOP = 0
@@ -233,6 +235,8 @@ export function Dashboard() {
       }
     })
     .filter(d => d.potensiNJOP > 0)
+    .sort((a, b) => b.potensiNJOP - a.potensiNJOP)
+    .slice(0, 8)
 
   const rkapSummary = useMemo(() => {
     const tahun = new Date().getFullYear()
@@ -797,7 +801,7 @@ export function Dashboard() {
                 </tbody>
                 <tfoot>
                   <tr className="border-t-2 bg-amber-50 font-semibold">
-                    <td colSpan={4} className="px-3 py-2 text-sm text-gray-700">Total PBB Ditanggung Mitra</td>
+                    <td colSpan={5} className="px-3 py-2 text-sm text-gray-700">Total PBB Ditanggung Mitra</td>
                     <td className="px-3 py-2 text-right text-sm text-amber-700">
                       <CurrencyDisplay value={pbbProporsionalList.reduce((s, i) => s + i.pbbProporsional, 0)} size="sm" />
                     </td>
@@ -815,7 +819,7 @@ export function Dashboard() {
         {/* Bar chart potensi */}
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">Potensi Pendapatan NJOP per Aset (Juta Rp)</CardTitle>
+            <CardTitle className="text-base">Potensi Pendapatan Berdasarkan NJOP (Juta Rp)</CardTitle>
           </CardHeader>
           <CardContent>
             {potensiChartData.length === 0 ? (
