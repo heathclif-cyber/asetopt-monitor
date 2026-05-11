@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react'
+﻿import { useEffect, useState, useMemo } from 'react'
 import { useKompensasiStore } from '@/store/kompensasiStore'
 import { useKerjaSamaStore } from '@/store/kerjaSamaStore'
 import { useNotifikasiStore } from '@/store/notifikasiStore'
@@ -23,6 +23,8 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { buatPesanWA } from '@/utils/notifikasiUtils'
 import { useRKAPStore } from '@/store/rkapStore'
+import { usePendapatanStore } from '@/store/pendapatanStore'
+import { hitungProgressPersen } from '@/utils/akrualUtils'
 
 // ─── Helpers generate periode ─────────────────────────────────────────────────
 const BULAN = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember']
@@ -237,6 +239,7 @@ export function Kompensasi() {
   const { dataPBB, fetchAllPBB } = usePBBStore()
   const { allCashIn, fetchAllCashIn, addCashIn, deleteCashIn } = useCashInStore()
   const { rows: rkapRows, fetchRKAP } = useRKAPStore()
+  const { daftarPDDM, fetchAll: fetchPDDM } = usePendapatanStore()
 
   const [kompDialog, setKompDialog] = useState(false)
   const [editTarget, setEditTarget] = useState<KType | null>(null)
@@ -299,7 +302,7 @@ export function Kompensasi() {
   const watchGraceBulan = genForm.watch('grace_bulan')
   const watchCampTahun  = genForm.watch('campuran_tahun_peralihan')
 
-  useEffect(() => { fetchAllKompensasi(); fetchKS(); fetchAllPBB(); fetchAllCashIn(); fetchRKAP(new Date().getFullYear()) }, [])
+  useEffect(() => { fetchAllKompensasi(); fetchKS(); fetchAllPBB(); fetchAllCashIn(); fetchRKAP(new Date().getFullYear()); fetchPDDM() }, [])
 
   const availableBulan = useMemo(() => {
     const months = new Set(allKompensasi.map(k => k.tgl_jatuh_tempo.slice(0, 7)))
@@ -496,11 +499,14 @@ export function Kompensasi() {
       ...rest,
       rkap_kode: rkapKode,
     })) as any)
+
     setIsSaving(false)
     setGenDialog(false)
     setGenStep(1)
     genForm.reset(GEN_DEFAULTS)
   }
+
+  // ─── Render ─────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-5">
@@ -822,6 +828,29 @@ export function Kompensasi() {
                                         </span>
                                       </div>
                                     ))}
+                                  </div>
+                                )
+                              })()}
+                            </div>
+                            {/* ── PDDM / PSAK 73 ────────────────────────────── */}
+                            <div className="space-y-2">
+                              <p className="font-semibold text-gray-700 text-[11px] uppercase tracking-wide">Amortisasi PSAK 73</p>
+                              {(() => {
+                                const pddmList = daftarPDDM.filter(p => p.ks_id === k.ks_id)
+                                if (pddmList.length === 0)
+                                  return <p className="text-gray-400 italic text-[11px]">Belum ada kontrak akrual untuk KS ini.</p>
+                                return (
+                                  <div className="space-y-1.5">
+                                    {pddmList.map(p => {
+                                      const prog = hitungProgressPersen(p.total_nkm, p.sudah_diakui)
+                                      return (
+                                        <div key={p.id} className="flex items-center gap-2 text-[11px]">
+                                          <span className="flex-1 truncate font-medium text-gray-700">{p.nama_kontrak}</span>
+                                          <span className="text-gray-400">{formatRupiah(p.sudah_diakui)} / {formatRupiah(p.total_nkm)}</span>
+                                          <span className={`font-semibold ${prog >= 100 ? 'text-green-600' : 'text-[#5B2C6F]'}`}>{prog.toFixed(0)}%</span>
+                                        </div>
+                                      )
+                                    })}
                                   </div>
                                 )
                               })()}
@@ -1417,6 +1446,7 @@ export function Kompensasi() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
     </div>
   )
 }

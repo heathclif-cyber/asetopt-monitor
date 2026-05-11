@@ -49,9 +49,10 @@ src/
       PotensiPendapatan.tsx   # /jalur-a/potensi — NJOP/KJPP potensi calculation
     jalurB/
       KerjaSama.tsx           # /jalur-b/kerja-sama — active partnerships
-      Kompensasi.tsx          # /jalur-b/kompensasi — compensation, invoices, payment tracking
+      Kompensasi.tsx          # /jalur-b/kompensasi — invoices, payments + auto PSAK 73 accrual
       PembayaranPBB.tsx       # /jalur-b/pbb — PBB proportional calculation
       NotifikasiSP.tsx        # /jalur-b/notifikasi — SP management & WhatsApp
+      LaporanPendapatan.tsx   # /jalur-b/laporan — revenue report + SAP fields
     katalog/
       KatalogAset.tsx         # /katalog — portfolio view (aggregates all stores)
     master/
@@ -91,6 +92,7 @@ src/
     taxUtils.ts               # PPN/PPH computation
     pbbUtils.ts               # PBB proportional (multi-objek, area + time)
     rkapUtils.ts              # RKAP period helpers
+    akrualUtils.ts            # PSAK 73 straight-line amortization
     notifikasiUtils.ts        # SP thresholds, WA message templates
     terbilang.ts              # Number-to-words (Indonesian)
 
@@ -114,9 +116,10 @@ src/
 | `/jalur-a/timeline` | TimelineProgram | Pipeline + prospek |
 | `/jalur-a/potensi` | PotensiPendapatan | NJOP/KJPP potensi calc |
 | `/jalur-b/kerja-sama` | KerjaSama | Active KS management |
-| `/jalur-b/kompensasi` | Kompensasi | Invoices & payments |
+| `/jalur-b/kompensasi` | Kompensasi | Invoices, payments, auto PSAK 73 accrual |
 | `/jalur-b/pbb` | PembayaranPBB | PBB proportional |
 | `/jalur-b/notifikasi` | NotifikasiSP | SP letters & WA |
+| `/jalur-b/laporan` | LaporanPendapatan | Revenue report + SAP fields |
 | `/master/aset` | DataAset | Asset master data |
 | `/master/njop` | DataNJOP | NJOP values |
 | `/master/kjpp` | PenilaianKJPP | KJPP appraisals |
@@ -135,6 +138,7 @@ aset ──┬── njop (1:N, per tahun)
        │                      ├── pbb (1:N) ── pbb_objek (1:N)
        │                      ├── surat_peringatan (1:N)
        │                      ├── cash_in (1:N)
+       │                      ├── pendapatan_diterima_dimuka (1:N) ── pengakuan_pendapatan (1:N)
        │                      └── kerja_sama_aset (1:N, multi-aset per KS)
        ├── katalog_aset (1:1) ──┬── katalog_aksesibilitas (1:N)
        │                        ├── katalog_lingkungan (1:N)
@@ -173,6 +177,7 @@ aset ──┬── njop (1:N, per tahun)
 | Sertifikat abbreviation | components/katalog/factsheet-shared.tsx | `singkatSertifikat()`: "Hak Guna Usaha" → "HGU" |
 | Region extraction | store/katalogStore.ts + KatalogForm | Parse "Kota X, Provinsi Y" from alamat |
 | Nilai aset priority | store/katalogStore.ts + KatalogForm | KJPP total_nilai > NJOP potensi |
+| PSAK 73 amortisasi | utils/akrualUtils.ts | `generateJadwalAmortisasi()` — straight-line sewa operasi |
 
 ---
 

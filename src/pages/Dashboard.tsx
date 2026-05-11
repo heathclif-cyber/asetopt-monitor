@@ -1,5 +1,6 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
+import { SlideOver } from '@/components/common/SlideOver'
 import { useAsetStore } from '@/store/asetStore'
 import { useKerjaSamaStore } from '@/store/kerjaSamaStore'
 import { useKompensasiStore } from '@/store/kompensasiStore'
@@ -10,7 +11,7 @@ import { useCashInStore } from '@/store/cashInStore'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { CurrencyDisplay } from '@/components/common/CurrencyDisplay'
 import { StatusBadge } from '@/components/common/StatusBadge'
-import { formatTanggal, hitungSisaHari } from '@/lib/utils'
+import { formatTanggal, formatRupiah, hitungSisaHari } from '@/lib/utils'
 import { hitungPotensiNJOP } from '@/utils/potensiUtils'
 import { hitungPBBProporsional } from '@/utils/pbbUtils'
 import { hitungRKAP, getCashInPerBulanByYear } from '@/utils/rkapUtils'
@@ -20,12 +21,16 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   ComposedChart, Area, Line, ReferenceLine,
 } from 'recharts'
-import { Building2, Handshake, Clock, TrendingUp, AlertTriangle, Banknote, ReceiptText, Percent, Target, ChevronRight, WalletCards, CalendarRange, FileText } from 'lucide-react'
+import { Building2, Handshake, Clock, TrendingUp, AlertTriangle, Banknote, ReceiptText, Percent, Target, ChevronRight, WalletCards, CalendarRange, FileText, CheckCircle } from 'lucide-react'
+import { usePendapatanStore } from '@/store/pendapatanStore'
+import { hitungPendapatanAkrualStats } from '@/utils/akrualUtils'
+import { Progress } from '@/components/ui/progress'
 
 const CURRENT_MONTH = new Date().getMonth()
 
 export function Dashboard() {
   const navigate = useNavigate()
+  const [drillDown, setDrillDown] = useState<{ title: string; type: string } | null>(null)
   const { daftarAset, fetchAset } = useAsetStore()
   const { daftarKS, fetchKS } = useKerjaSamaStore()
   const { allKompensasi, fetchAllKompensasi } = useKompensasiStore()
@@ -34,6 +39,7 @@ export function Dashboard() {
   const { rows: rkapRows, fetchRKAP } = useRKAPStore()
   const { allPBB, fetchAllPBB } = usePBBStore()
   const { allCashIn, fetchAllCashIn } = useCashInStore()
+  const { daftarPDDM, allPengakuan, fetchAll: fetchPDDM, syncAllPDDM } = usePendapatanStore()
 
   const location = useLocation()
 
@@ -43,16 +49,23 @@ export function Dashboard() {
     fetchSPAktif()
     fetchAllNJOP()
     fetchAllPBB()
-    fetchAllCashIn()
-    fetchRKAP(CURRENT_MONTH >= 0 ? new Date().getFullYear() : 2026)
   }, [])
 
-  // Re-fetch data yang berubah setiap kali dashboard dikunjungi (fix: status lunas tidak terupdate)
+  // Fetch + auto-sync PDDM setiap mount / navigasi ke dashboard
   useEffect(() => {
-    fetchAllKompensasi()
-    fetchAllCashIn()
-    fetchKS()
-    fetchSPAktif()
+    const loadAndSync = async () => {
+      await Promise.all([
+        fetchAllKompensasi(), fetchAllCashIn(), fetchKS(), fetchSPAktif(),
+        fetchRKAP(CURRENT_MONTH >= 0 ? new Date().getFullYear() : 2026),
+      ])
+      await fetchPDDM()
+      // Auto-sync: setelah semua data loaded, sinkronkan PDDM dari kompensasi
+      const { allKompensasi: komp } = useKompensasiStore.getState()
+      const { daftarKS: ks } = useKerjaSamaStore.getState()
+      await syncAllPDDM(komp, ks)
+      await fetchPDDM() // Refresh PDDM setelah sync
+    }
+    loadAndSync()
   }, [location.key])
 
   useEffect(() => {
@@ -60,6 +73,7 @@ export function Dashboard() {
   }, [allKompensasi])
 
   const stats = useMemo(() => {
+    const tahun = new Date().getFullYear()
     const totalAset = daftarAset.length
     const asetPipeline = daftarAset.filter(a => ['pipeline', 'prospek', 'negosiasi'].includes(a.status)).length
     const asetAktifKS = daftarAset.filter(a => a.status === 'aktif_ks').length
@@ -81,17 +95,22 @@ export function Dashboard() {
         }
       })
 
-    const cashInLain = allCashIn.reduce((sum, ci) => sum + ci.nominal, 0)
-    const totalTagihan = allKompensasi.reduce((sum, k) => sum + (k.total_tagihan ?? 0), 0) + cashInLain
-    const totalCashIn = allKompensasi
-      .flatMap(k => k.pembayaran ?? [])
-      .reduce((sum, p) => sum + (p.nominal_bayar ?? 0), 0) + cashInLain
+    // Filter tahun berjalan
+    const cashInLain = allCashIn
+      .filter(ci => new Date(ci.tgl_terima).getFullYear() === tahun)
+      .reduce((sum, ci) => sum + ci.nominal, 0)
+    const totalTagihan = allKompensasi
+      .filter(k => new Date(k.tgl_jatuh_tempo).getFullYear() === tahun)
+      .reduce((sum, k) => sum + (k.total_tagihan ?? 0), 0) + cashInLain
+    const totalCashIn = allKompensasi.reduce((sum, k) => {
+      const bayarTahunIni = (k.pembayaran ?? []).filter(p => new Date(p.tgl_bayar).getFullYear() === tahun)
+      return sum + bayarTahunIni.reduce((s, p) => s + (p.nominal_bayar ?? 0), 0)
+    }, 0) + cashInLain
     const collectionRate = totalTagihan > 0 ? (totalCashIn / totalTagihan) * 100 : 0
 
     const today = new Date()
     today.setHours(0, 0, 0, 0)
     const totalPiutang = allKompensasi.reduce((sum, k) => {
-      // Hanya hitung periode yang sudah jatuh tempo
       if (new Date(k.tgl_jatuh_tempo) > today) return sum
       const totalDibayar = (k.pembayaran ?? []).reduce((s, p) => s + p.nominal_bayar, 0)
       const efektif = (k.total_tagihan ?? 0) - (k.pengurang ?? 0)
@@ -116,47 +135,40 @@ export function Dashboard() {
     return Array.from(map.values())
   }, [spAktif])
 
-  // Piutang: hanya periode yang sudah jatuh tempo tapi belum lunas, dikelompokkan per KS
+  // Piutang: list per tagihan (bukan per mitra) — hanya periode jatuh tempo yang belum lunas
   const piutangList = useMemo(() => {
     const today = new Date()
     today.setHours(0, 0, 0, 0)
-    const byKS: Record<string, { ksId: string; namaMitra: string; namaAset: string; totalTagihan: number; totalDibayar: number; sisaPiutang: number; adaTerlambat: boolean; hariTerlambat: number; jumlahPeriode: number }> = {}
+    const items: { kompensasiId: string; ksId: string; namaMitra: string; namaAset: string; periodeLabel: string; totalTagihan: number; totalDibayar: number; sisaPiutang: number; pendapatanAkrual: number; hariTerlambat: number }[] = []
     allKompensasi.forEach(k => {
-      // Skip periode yang belum jatuh tempo
       const jtTempo = new Date(k.tgl_jatuh_tempo)
       if (jtTempo > today) return
 
       const totalDibayar = (k.pembayaran ?? []).reduce((s, p) => s + p.nominal_bayar, 0)
       const sisa = Math.max(0, ((k.total_tagihan ?? 0) - (k.pengurang ?? 0)) - totalDibayar)
-      if (sisa <= 0) return  // sudah lunas
+      if (sisa <= 0) return
 
       const ks = daftarKS.find(x => x.id === k.ks_id)
       if (!ks) return
+
+      // Pendapatan akrual = nominal kompensasi (NKM)
+      const pendapatanAkrual = k.nominal ?? 0
       const hariTerlambat = Math.max(0, Math.floor((today.getTime() - jtTempo.getTime()) / (1000 * 60 * 60 * 24)))
-      if (!byKS[k.ks_id]) {
-        byKS[k.ks_id] = {
-          ksId: k.ks_id,
-          namaMitra: ks.nama_mitra,
-          namaAset: (ks.aset as any)?.nama_aset ?? '-',
-          totalTagihan: 0,
-          totalDibayar: 0,
-          sisaPiutang: 0,
-          adaTerlambat: false,
-          hariTerlambat: 0,
-          jumlahPeriode: 0,
-        }
-      }
-      byKS[k.ks_id].totalTagihan  += k.total_tagihan ?? 0
-      byKS[k.ks_id].totalDibayar  += totalDibayar
-      byKS[k.ks_id].sisaPiutang   += sisa
-      byKS[k.ks_id].jumlahPeriode += 1
-      if (hariTerlambat > 0) {
-        byKS[k.ks_id].adaTerlambat = true
-        byKS[k.ks_id].hariTerlambat = Math.max(byKS[k.ks_id].hariTerlambat, hariTerlambat)
-      }
+      items.push({
+        kompensasiId: k.id,
+        ksId: k.ks_id,
+        namaMitra: ks.nama_mitra,
+        namaAset: (ks.aset as any)?.nama_aset ?? '-',
+        periodeLabel: k.periode_label ?? formatTanggal(k.tgl_jatuh_tempo),
+        totalTagihan: k.total_tagihan ?? 0,
+        totalDibayar,
+        sisaPiutang: sisa,
+        pendapatanAkrual,
+        hariTerlambat,
+      })
     })
-    return Object.values(byKS).sort((a, b) => b.sisaPiutang - a.sisaPiutang)
-  }, [allKompensasi, daftarKS])
+    return items.sort((a, b) => b.sisaPiutang - a.sisaPiutang)
+  }, [allKompensasi, daftarKS, daftarPDDM, allPengakuan])
 
   // PBB Proporsional: pakai fungsi yg sama dengan Jalur B (multi-objek support)
   const pbbProporsionalList = useMemo(() => {
@@ -279,7 +291,7 @@ export function Dashboard() {
           byBulan[bln].cashIn += p.nominal_bayar ?? 0
         })
     })
-    
+
     allCashIn.forEach(ci => {
       const bln = ci.tgl_terima.slice(0, 7)
       if (!byBulan[bln]) byBulan[bln] = { tagihan: 0, cashIn: 0 }
@@ -296,6 +308,23 @@ export function Dashboard() {
         cashIn: Math.round(cashIn / 1_000_000),
       }))
   }, [allKompensasi, allCashIn])
+
+  // PSAK 73 — Pendapatan Akrual Stats
+  const akrualStats = useMemo(() => {
+    const tahun = new Date().getFullYear()
+    const cashPerBulan = Array(12).fill(0) as number[]
+    allKompensasi.forEach(k => {
+      ;(k.pembayaran ?? []).forEach(p => {
+        const d = new Date(p.tgl_bayar)
+        if (d.getFullYear() === tahun) cashPerBulan[d.getMonth()] += p.nominal_bayar
+      })
+    })
+    allCashIn.forEach(ci => {
+      const d = new Date(ci.tgl_terima)
+      if (d.getFullYear() === tahun) cashPerBulan[d.getMonth()] += ci.nominal
+    })
+    return hitungPendapatanAkrualStats(daftarPDDM, allPengakuan, cashPerBulan, tahun)
+  }, [daftarPDDM, allPengakuan, allKompensasi, allCashIn])
 
   // Proyeksi cash in 18 bulan — berdasarkan jadwal jatuh tempo KS eksisting
   const proyeksiCashInData = useMemo(() => {
@@ -546,11 +575,11 @@ export function Dashboard() {
 
       {/* Stat keuangan */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
+        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setDrillDown({ title: `Total Tagihan ${new Date().getFullYear()}`, type: 'tagihan' })}>
           <CardContent className="p-5">
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-xs text-gray-500 font-medium">Total Tagihan (Pendapatan)</p>
+                <p className="text-xs text-gray-500 font-medium">Total Tagihan {new Date().getFullYear()}</p>
                 <CurrencyDisplay value={stats.totalTagihan} size="lg" className="text-[#1B4F72] mt-1 block" />
               </div>
               <ReceiptText className="text-[#1B4F72]" size={22} />
@@ -558,11 +587,11 @@ export function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => setDrillDown({ title: `Total Cash In ${new Date().getFullYear()}`, type: 'cashin' })}>
           <CardContent className="p-5">
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-xs text-gray-500 font-medium">Total Cash In (Terbayar)</p>
+                <p className="text-xs text-gray-500 font-medium">Total Cash In {new Date().getFullYear()}</p>
                 <CurrencyDisplay value={stats.totalCashIn} size="lg" className="text-[#117A65] mt-1 block" />
               </div>
               <Banknote className="text-[#117A65]" size={22} />
@@ -570,13 +599,13 @@ export function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card className={stats.totalPiutang > 0 ? 'border-orange-300' : ''}>
+        <Card className={`cursor-pointer hover:shadow-md transition-shadow ${stats.totalPiutang > 0 ? 'border-orange-300' : ''}`} onClick={() => setDrillDown({ title: 'Total Piutang (Belum Bayar)', type: 'piutang' })}>
           <CardContent className="p-5">
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-xs text-gray-500 font-medium">Total Piutang (Belum Bayar)</p>
                 <CurrencyDisplay value={stats.totalPiutang} size="lg" className="text-orange-600 mt-1 block" />
-                <p className="text-[10px] text-gray-400 mt-1">{piutangList.length} mitra</p>
+                <p className="text-[10px] text-gray-400 mt-1">{piutangList.length} tagihan</p>
               </div>
               <WalletCards className={stats.totalPiutang > 0 ? 'text-orange-500' : 'text-gray-400'} size={22} />
             </div>
@@ -597,6 +626,91 @@ export function Dashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* ─── PSAK 73 Accrual Section ────────────────────────────── */}
+      {akrualStats.totalKontrak > 0 && (
+        <>
+          <div className="border-t pt-5 mt-1">
+            <div className="flex items-center gap-2 mb-4">
+              <FileText size={16} className="text-[#5B2C6F]" />
+              <h2 className="text-sm font-bold text-gray-800">Pendapatan Sewa (PSAK 73)</h2>
+              <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">Akrual Basis</span>
+            </div>
+
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
+              <Card className="border-l-4 border-l-[#5B2C6F] cursor-pointer hover:shadow-md transition-shadow" onClick={() => setDrillDown({ title: 'Pendapatan Diterima Dimuka', type: 'dimuka' })}>
+                <CardContent className="p-4">
+                  <p className="text-[11px] text-gray-500 font-medium">Pendapatan Diterima Dimuka</p>
+                  <CurrencyDisplay value={akrualStats.totalDimuka} size="lg" className="text-[#5B2C6F] mt-1 block" />
+                  <p className="text-[10px] text-gray-400 mt-1">{akrualStats.totalKontrak} kontrak aktif</p>
+                </CardContent>
+              </Card>
+
+              <Card className="border-l-4 border-l-[#117A65] cursor-pointer hover:shadow-md transition-shadow" onClick={() => setDrillDown({ title: `Pendapatan Diakui ${new Date().getFullYear()}`, type: 'diakui' })}>
+                <CardContent className="p-4">
+                  <p className="text-[11px] text-gray-500 font-medium">Pendapatan Diakui {new Date().getFullYear()}</p>
+                  <CurrencyDisplay value={akrualStats.totalDiakuiYTD} size="lg" className="text-[#117A65] mt-1 block" />
+                  <p className="text-[10px] text-gray-400 mt-1">Total kontrak: {formatRupiah(akrualStats.totalDiakuiKontrak)} (semua tahun)</p>
+                </CardContent>
+              </Card>
+
+              <Card className="border-l-4 border-l-amber-500">
+                <CardContent className="p-4">
+                  <p className="text-[11px] text-gray-500 font-medium">Realisasi Kas YTD</p>
+                  <CurrencyDisplay value={rkapSummary.ytdRealisasi} size="lg" className="text-amber-600 mt-1 block" />
+                  <p className="text-[10px] text-gray-400 mt-1">Berdasarkan tgl bayar</p>
+                </CardContent>
+              </Card>
+
+              <Card className={akrualStats.totalDiakuiYTD >= rkapSummary.ytdRealisasi ? 'border-l-4 border-l-green-500' : 'border-l-4 border-l-red-400'}>
+                <CardContent className="p-4">
+                  <p className="text-[11px] text-gray-500 font-medium">Selisih Akrual vs Kas</p>
+                  <CurrencyDisplay
+                    value={Math.abs(akrualStats.totalDiakuiYTD - rkapSummary.ytdRealisasi)}
+                    size="lg"
+                    className={`mt-1 block ${akrualStats.totalDiakuiYTD >= rkapSummary.ytdRealisasi ? 'text-green-600' : 'text-red-600'}`}
+                  />
+                  <p className="text-[10px] text-gray-400 mt-1">
+                    {akrualStats.totalDiakuiYTD >= rkapSummary.ytdRealisasi ? 'Akrual > Kas' : 'Kas > Akrual'}
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Bar Chart */}
+            {akrualStats.akrualPerBulan.some(v => v > 0) && (
+              <Card className="mb-5">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-xs font-semibold text-gray-700">
+                    Pendapatan Akrual vs Cash In per Bulan (Juta Rp)
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={180}>
+                    <BarChart
+                      data={Array.from({ length: 12 }, (_, i) => ({
+                        bulan: BULAN_LABELS[i],
+                        Akrual: Math.round(akrualStats.akrualPerBulan[i] / 1_000_000),
+                        Kas: Math.round(akrualStats.cashPerBulan[i] / 1_000_000),
+                      }))}
+                      margin={{ top: 5, right: 10, left: 0, bottom: 5 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                      <XAxis dataKey="bulan" tick={{ fontSize: 10 }} />
+                      <YAxis tick={{ fontSize: 10 }} tickFormatter={v => `${v}`} />
+                      <Tooltip formatter={(v: number) => `Rp ${v} jt`} />
+                      <Legend wrapperStyle={{ fontSize: 10 }} />
+                      <Bar dataKey="Akrual" fill="#5B2C6F" radius={[3, 3, 0, 0]} />
+                      <Bar dataKey="Kas" fill="#F59E0B" radius={[3, 3, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+            )}
+
+          </div>
+        </>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* KS dengan SP aktif */}
@@ -663,7 +777,7 @@ export function Dashboard() {
         </Card>
       </div>
 
-      {/* Daftar Piutang */}
+      {/* Daftar Piutang — per tagihan */}
       <Card className={piutangList.length > 0 ? 'border-orange-200' : ''}>
         <CardHeader className="pb-3">
           <CardTitle className="text-base flex items-center gap-2">
@@ -671,54 +785,56 @@ export function Dashboard() {
             Piutang Belum Dibayar
             {piutangList.length > 0 && (
               <span className="ml-auto text-xs font-normal text-orange-600 bg-orange-50 border border-orange-200 px-2 py-0.5 rounded-full">
-                {piutangList.length} mitra
+                {piutangList.length} tagihan
               </span>
             )}
           </CardTitle>
         </CardHeader>
         <CardContent>
           {piutangList.length === 0 ? (
-            <p className="text-sm text-gray-500 text-center py-4">Semua tagihan sudah terbayar ✓</p>
+            <p className="text-sm text-gray-500 text-center py-4">Semua tagihan sudah terbayar</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b bg-gray-50 text-gray-500 text-xs uppercase">
                     <th className="text-left px-3 py-2">Mitra</th>
-                    <th className="text-left px-3 py-2 hidden md:table-cell">Aset</th>
-                    <th className="text-center px-3 py-2 hidden md:table-cell">Periode</th>
+                    <th className="text-left px-3 py-2">Aset</th>
+                    <th className="text-left px-3 py-2">Periode</th>
                     <th className="text-right px-3 py-2">Total Tagihan</th>
-                    <th className="text-right px-3 py-2">Sudah Bayar</th>
+                    <th className="text-right px-3 py-2 text-[#5B2C6F]">Pendapatan Akrual</th>
+                    <th className="text-right px-3 py-2 hidden md:table-cell">Sudah Bayar</th>
                     <th className="text-right px-3 py-2 font-semibold text-orange-700">Sisa Piutang</th>
-                    <th className="text-center px-3 py-2 hidden md:table-cell">Status</th>
+                    <th className="text-center px-3 py-2">Status</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
                   {piutangList.map(item => (
-                    <tr key={item.ksId} className={`hover:bg-gray-50 transition-colors ${item.adaTerlambat ? 'bg-red-50/40' : ''}`}>
+                    <tr key={item.kompensasiId} className={`hover:bg-gray-50 transition-colors ${item.hariTerlambat > 0 ? 'bg-red-50/40' : ''}`}>
                       <td className="px-3 py-2.5">
-                        <p className="font-medium text-gray-900">{item.namaMitra}</p>
-                        {item.adaTerlambat && (
-                          <p className="text-xs text-red-600 mt-0.5">Terlambat s.d. {item.hariTerlambat} hari</p>
+                        <p className="font-medium text-gray-900 text-xs">{item.namaMitra}</p>
+                        {item.hariTerlambat > 0 && (
+                          <p className="text-[10px] text-red-600 mt-0.5">Terlambat s.d. {item.hariTerlambat} hari</p>
                         )}
                       </td>
-                      <td className="px-3 py-2.5 hidden md:table-cell text-gray-500 text-xs">{item.namaAset}</td>
-                      <td className="px-3 py-2.5 text-center hidden md:table-cell">
-                        <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">{item.jumlahPeriode} periode</span>
-                      </td>
+                      <td className="px-3 py-2.5 text-gray-500 text-xs">{item.namaAset}</td>
+                      <td className="px-3 py-2.5 text-gray-600 text-xs">{item.periodeLabel}</td>
                       <td className="px-3 py-2.5 text-right text-gray-600">
                         <CurrencyDisplay value={item.totalTagihan} size="sm" />
                       </td>
-                      <td className="px-3 py-2.5 text-right text-green-700">
+                      <td className="px-3 py-2.5 text-right">
+                        <CurrencyDisplay value={item.pendapatanAkrual} size="sm" className="text-[#5B2C6F]" />
+                      </td>
+                      <td className="px-3 py-2.5 text-right text-green-700 hidden md:table-cell">
                         <CurrencyDisplay value={item.totalDibayar} size="sm" />
                       </td>
                       <td className="px-3 py-2.5 text-right font-semibold text-orange-700">
                         <CurrencyDisplay value={item.sisaPiutang} size="sm" />
                       </td>
-                      <td className="px-3 py-2.5 text-center hidden md:table-cell">
-                        {item.adaTerlambat
-                          ? <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full">Terlambat</span>
-                          : <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">Belum Bayar</span>
+                      <td className="px-3 py-2.5 text-center">
+                        {item.hariTerlambat > 0
+                          ? <span className="text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full">Terlambat</span>
+                          : <span className="text-[10px] bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded-full">Belum Bayar</span>
                         }
                       </td>
                     </tr>
@@ -730,13 +846,16 @@ export function Dashboard() {
                     <td className="px-3 py-2 text-right text-sm text-gray-600">
                       <CurrencyDisplay value={piutangList.reduce((s, i) => s + i.totalTagihan, 0)} size="sm" />
                     </td>
-                    <td className="px-3 py-2 text-right text-sm text-green-700">
+                    <td className="px-3 py-2 text-right text-sm text-[#5B2C6F]">
+                      <CurrencyDisplay value={piutangList.reduce((s, i) => s + i.pendapatanAkrual, 0)} size="sm" />
+                    </td>
+                    <td className="px-3 py-2 text-right text-sm text-green-700 hidden md:table-cell">
                       <CurrencyDisplay value={piutangList.reduce((s, i) => s + i.totalDibayar, 0)} size="sm" />
                     </td>
                     <td className="px-3 py-2 text-right text-sm text-orange-700">
                       <CurrencyDisplay value={stats.totalPiutang} size="sm" />
                     </td>
-                    <td className="hidden md:table-cell" />
+                    <td />
                   </tr>
                 </tfoot>
               </table>
@@ -924,6 +1043,173 @@ export function Dashboard() {
           )}
         </CardContent>
       </Card>
+
+      {/* ─── Drill-down SlideOver ─────────────────────────────── */}
+      <SlideOver open={!!drillDown} onClose={() => setDrillDown(null)} title={drillDown?.title ?? ''} width="max-w-2xl">
+        {drillDown && <DrillDownContent type={drillDown.type} allKompensasi={allKompensasi} allCashIn={allCashIn} daftarKS={daftarKS} daftarPDDM={daftarPDDM} allPengakuan={allPengakuan} piutangList={piutangList} />}
+      </SlideOver>
+    </div>
+  )
+}
+
+// ─── Drill-down content component ─────────────────────────────────────────
+
+function DrillDownContent({ type, allKompensasi, allCashIn, daftarKS, daftarPDDM, allPengakuan, piutangList }: {
+  type: string
+  allKompensasi: any[]; allCashIn: any[]; daftarKS: any[]; daftarPDDM: any[]; allPengakuan: any[]; piutangList: any[]
+}) {
+  const tahun = new Date().getFullYear()
+  const BULAN_LABEL = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des']
+
+  if (type === 'tagihan') {
+    const data = allKompensasi.filter(k => new Date(k.tgl_jatuh_tempo).getFullYear() === tahun)
+    const byProgram: Record<string, { nama: string; items: any[]; total: number }> = {}
+    data.forEach(k => {
+      const rkap = k.rkap_kode || 'Tanpa Proker'
+      if (!byProgram[rkap]) byProgram[rkap] = { nama: rkap, items: [], total: 0 }
+      byProgram[rkap].items.push(k)
+      byProgram[rkap].total += k.total_tagihan ?? 0
+    })
+    const bulanan = Array(12).fill(0)
+    data.forEach(k => { bulanan[new Date(k.tgl_jatuh_tempo).getMonth()] += k.total_tagihan ?? 0 })
+    return <DrillTable title="Rincian Tagihan" byProgram={byProgram} bulanan={bulanan} BULAN={BULAN_LABEL} valueKey="total_tagihan" />
+  }
+
+  if (type === 'cashin') {
+    const byProgram: Record<string, { nama: string; items: any[]; total: number }> = {}
+    const bulanan = Array(12).fill(0)
+    allKompensasi.forEach(k => {
+      (k.pembayaran ?? []).forEach((p: any) => {
+        const d = new Date(p.tgl_bayar)
+        if (d.getFullYear() !== tahun) return
+        const rkap = k.rkap_kode || 'Tanpa Proker'
+        if (!byProgram[rkap]) byProgram[rkap] = { nama: rkap, items: [], total: 0 }
+        byProgram[rkap].items.push({ ...p, ksNama: daftarKS.find(x => x.id === k.ks_id)?.nama_mitra ?? '-', periodeLabel: k.periode_label })
+        byProgram[rkap].total += p.nominal_bayar
+        bulanan[d.getMonth()] += p.nominal_bayar
+      })
+    })
+    allCashIn.filter(ci => new Date(ci.tgl_terima).getFullYear() === tahun).forEach(ci => {
+      const rkap = ci.rkap_kode || 'Denda/Lainnya'
+      if (!byProgram[rkap]) byProgram[rkap] = { nama: rkap, items: [], total: 0 }
+      byProgram[rkap].items.push(ci)
+      byProgram[rkap].total += ci.nominal
+      bulanan[new Date(ci.tgl_terima).getMonth()] += ci.nominal
+    })
+    return <DrillTable title="Rincian Cash In" byProgram={byProgram} bulanan={bulanan} BULAN={BULAN_LABEL} valueKey="nominal_bayar" />
+  }
+
+  if (type === 'piutang') {
+    const byProgram: Record<string, { nama: string; items: any[]; total: number }> = {}
+    piutangList.forEach((item: any) => {
+      const komp = allKompensasi.find(k => k.id === item.kompensasiId)
+      const rkap = komp?.rkap_kode || 'Tanpa Proker'
+      if (!byProgram[rkap]) byProgram[rkap] = { nama: rkap, items: [], total: 0 }
+      byProgram[rkap].items.push(item)
+      byProgram[rkap].total += item.sisaPiutang
+    })
+    const bulanan = Array(12).fill(0)
+    piutangList.forEach((item: any) => {
+      const komp = allKompensasi.find(k => k.id === item.kompensasiId)
+      if (komp) bulanan[new Date(komp.tgl_jatuh_tempo).getMonth()] += item.sisaPiutang
+    })
+    return <DrillTable title="Rincian Piutang" byProgram={byProgram} bulanan={bulanan} BULAN={BULAN_LABEL} valueKey="sisaPiutang" isPiutang />
+  }
+
+  if (type === 'dimuka') {
+    const byProgram: Record<string, { nama: string; items: any[]; total: number }> = {}
+    daftarPDDM.filter((p: any) => p.status === 'aktif').forEach((p: any) => {
+      const rkap = 'Kontrak Sewa'
+      if (!byProgram[rkap]) byProgram[rkap] = { nama: rkap, items: [], total: 0 }
+      byProgram[rkap].items.push(p)
+      byProgram[rkap].total += p.sisa_dimuka
+    })
+    return (
+      <div className="space-y-4 text-xs">
+        {daftarPDDM.filter((p: any) => p.status === 'aktif').map((p: any) => (
+          <div key={p.id} className="border rounded p-3">
+            <p className="font-semibold">{p.nama_kontrak}</p>
+            <div className="grid grid-cols-3 gap-2 mt-2 text-[11px]">
+              <div><span className="text-gray-400">NKM:</span> {formatRupiah(p.total_nkm)}</div>
+              <div><span className="text-gray-400">Diakui:</span> {formatRupiah(p.sudah_diakui)}</div>
+              <div><span className="text-gray-400">Sisa:</span> {formatRupiah(p.sisa_dimuka)}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  if (type === 'diakui') {
+    const byProgram: Record<string, { nama: string; items: any[]; total: number }> = {}
+    const bulanan = Array(12).fill(0)
+    allPengakuan.filter((pp: any) => pp.status === 'diakui').forEach((pp: any) => {
+      const d = new Date(pp.tgl_awal)
+      if (d.getFullYear() !== tahun) return
+      const pddm = daftarPDDM.find((p: any) => p.id === pp.pddm_id)
+      const rkap = pddm?.nama_kontrak || 'Tanpa Kontrak'
+      if (!byProgram[rkap]) byProgram[rkap] = { nama: rkap, items: [], total: 0 }
+      byProgram[rkap].items.push({ ...pp, namaKontrak: pddm?.nama_kontrak ?? '-' })
+      byProgram[rkap].total += pp.nominal
+      bulanan[d.getMonth()] += pp.nominal
+    })
+    return <DrillTable title="Rincian Pendapatan Diakui" byProgram={byProgram} bulanan={bulanan} BULAN={BULAN_LABEL} valueKey="nominal" />
+  }
+
+  return null
+}
+
+function DrillTable({ title, byProgram, bulanan, BULAN, valueKey, isPiutang }: {
+  title: string; byProgram: Record<string, { nama: string; items: any[]; total: number }>; bulanan: number[]; BULAN: string[]; valueKey: string; isPiutang?: boolean
+}) {
+  const grandTotal = Object.values(byProgram).reduce((s, p) => s + p.total, 0)
+  return (
+    <div className="space-y-4 text-xs">
+      {/* Per Proker */}
+      <div>
+        <p className="font-semibold text-gray-700 mb-2">{title} per Program</p>
+        {Object.entries(byProgram).map(([kode, prog]) => (
+          <div key={kode} className="mb-3 border rounded">
+            <div className="flex justify-between bg-gray-50 px-3 py-1.5 font-medium">
+              <span>{prog.nama}</span>
+              <span>{formatRupiah(prog.total)}</span>
+            </div>
+            <table className="w-full">
+              <tbody>
+                {prog.items.slice(0, 20).map((item, i) => (
+                  <tr key={i} className="border-t">
+                    <td className="px-3 py-1 text-gray-600">{item.periodeLabel || item.periode_label || item.namaKontrak || '-'}</td>
+                    <td className="px-3 py-1 text-right">{formatRupiah(isPiutang ? item.sisaPiutang : (item[valueKey] ?? item.nominal ?? item.total_tagihan ?? 0))}</td>
+                  </tr>
+                ))}
+                {prog.items.length > 20 && <tr><td colSpan={2} className="px-3 py-1 text-gray-400 italic">+{prog.items.length - 20} item lainnya</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        ))}
+        <p className="text-right font-bold text-sm">Total: {formatRupiah(grandTotal)}</p>
+      </div>
+
+      {/* Tabel Bulanan */}
+      <div>
+        <p className="font-semibold text-gray-700 mb-2">Distribusi per Bulan (Juta Rp)</p>
+        <table className="w-full border">
+          <thead>
+            <tr className="bg-gray-50">
+              {BULAN.map(b => <th key={b} className="py-1 px-1 text-[10px] border">{b}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              {bulanan.map((v, i) => (
+                <td key={i} className={`py-1 px-1 text-[10px] text-right border ${v > 0 ? 'font-semibold' : 'text-gray-300'}`}>
+                  {v > 0 ? Math.round(v / 1_000_000).toLocaleString('id-ID') : '-'}
+                </td>
+              ))}
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }

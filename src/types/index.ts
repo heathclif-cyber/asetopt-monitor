@@ -87,6 +87,7 @@ export interface KerjaSama {
   prospek_id: string | null
   nama_mitra: string
   no_perjanjian: string | null
+  no_kontrak_sap: string | null
   tgl_mulai: string
   tgl_selesai: string
   status: KerjaSamaStatus
@@ -114,6 +115,8 @@ export interface Kompensasi {
   maks_hari_bayar: number
   persen_denda_per_hari: number
   tgl_jatuh_tempo: string
+  no_invoice_sap: string | null
+  no_billing_sap: string | null
   keterangan: string | null
   created_at: string
   kerja_sama?: KerjaSama
@@ -378,4 +381,62 @@ export interface KatalogFactsheetData {
   documentRef: string
   // Photos (slot_id -> url mapping)
   photos: Record<string, string>
+}
+
+// ---- PSAK 73 Accrual Accounting ----
+
+export type PDDMStatus = 'aktif' | 'selesai'
+export type PengakuanStatus = 'proyeksi' | 'diakui'
+
+export interface PendapatanDiterimaDimuka {
+  id: string
+  ks_id: string | null
+  nama_kontrak: string
+  total_nkm: number
+  total_bulan: number
+  nilai_per_bulan: number
+  tgl_mulai: string
+  tgl_selesai: string
+  sudah_diakui: number
+  sisa_dimuka: number
+  status: PDDMStatus
+  created_at: string
+  updated_at: string
+  kerja_sama?: KerjaSama
+  pengakuan_pendapatan?: PengakuanPendapatan[]
+}
+
+export interface PengakuanPendapatan {
+  id: string
+  pddm_id: string
+  periode_ke: number
+  tgl_awal: string
+  tgl_akhir: string
+  nominal: number
+  status: PengakuanStatus
+  created_at: string
+}
+
+export interface JadwalAmortisasi {
+  pddm: PendapatanDiterimaDimuka
+  entries: PengakuanPendapatan[]
+  progressPersen: number
+}
+
+export interface PendapatanAkrualStats {
+  totalDimuka: number
+  totalDiakuiYTD: number
+  totalDiakuiKontrak: number
+  totalKontrak: number
+  totalNKM: number
+  akrualPerBulan: number[]
+  cashPerBulan: number[]
+  kontrakTerbesar: {
+    id: string
+    namaKontrak: string
+    totalNKM: number
+    sudahDiakui: number
+    sisaDimuka: number
+    progress: number
+  }[]
 }
