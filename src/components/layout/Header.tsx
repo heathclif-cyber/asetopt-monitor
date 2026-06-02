@@ -12,6 +12,7 @@ const breadcrumbMap: Record<string, string[]> = {
   '/jalur-b/pbb': ['Jalur B', 'Pembayaran PBB'],
   '/jalur-b/notifikasi': ['Jalur B', 'Notifikasi & SP'],
   '/jalur-b/laporan': ['Jalur B', 'Laporan Pendapatan'],
+  '/jalur-b/laporan2': ['Jalur B', 'Laporan Pendapatan 2'],
   '/master/aset': ['Master Data', 'Data Aset'],
   '/master/njop': ['Master Data', 'Data NJOP'],
   '/master/kjpp': ['Master Data', 'Penilaian KJPP'],

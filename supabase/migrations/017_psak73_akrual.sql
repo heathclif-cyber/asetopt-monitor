@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS pendapatan_diterima_dimuka (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   ks_id           UUID REFERENCES kerja_sama(id) ON DELETE SET NULL,
   nama_kontrak    VARCHAR(255) NOT NULL,
+  
   total_nkm       DECIMAL(15,2) NOT NULL CHECK (total_nkm > 0),
   total_bulan     INTEGER NOT NULL CHECK (total_bulan > 0),
   nilai_per_bulan DECIMAL(15,2) GENERATED ALWAYS AS (total_nkm / total_bulan) STORED,
