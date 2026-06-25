@@ -1,4 +1,5 @@
 import { RKAPItem, BULAN_LABELS } from '@/data/rkap2026'
+import { PengakuanPendapatan, PendapatanDiterimaDimuka } from '@/types'
 
 export interface MonthSummary {
   bulanIdx: number
@@ -31,10 +32,12 @@ export function hitungRKAP(
     carryOver = (i <= bulanSekarang && selisih < 0) ? Math.abs(selisih) : 0
 
     const isFuture = i > bulanSekarang
+    const isCurrent = i === bulanSekarang
     // Prognosa:
-    //   • bulan lewat / berjalan → realisasi aktual
-    //   • bulan mendatang       → targetOriginal saja (BUKAN targetAdjusted agar tidak akumulasi)
-    const prognosa = isFuture ? targetOriginal : realisasi
+    //   • bulan lewat          → realisasi aktual
+    //   • bulan berjalan       → realisasi (jika ada), atau target (jika belum)
+    //   • bulan mendatang      → targetOriginal saja (BUKAN targetAdjusted agar tidak akumulasi)
+    const prognosa = isFuture ? targetOriginal : isCurrent ? Math.max(realisasi, targetOriginal) : realisasi
 
     results.push({
       bulanIdx: i,
@@ -75,3 +78,45 @@ export function getCashInPerBulanByYear(
 // Backward-compat alias
 export const getCashInPerBulan2026 = (kompensasi: Parameters<typeof getCashInPerBulanByYear>[0], allCashIn?: any[]) =>
   getCashInPerBulanByYear(kompensasi, 2026, allCashIn)
+
+export function getPendapatanPerBulanByYear(
+  allPengakuan: PengakuanPendapatan[],
+  tahun: number
+): number[] {
+  const arr = Array(12).fill(0)
+  allPengakuan
+    .filter(e => e.status === 'diakui')
+    .forEach(e => {
+      const d = new Date(e.tgl_awal)
+      if (d.getFullYear() === tahun) arr[d.getMonth()] += e.nominal
+    })
+  return arr
+}
+
+export function getPendapatanPerKode(
+  allPengakuan: PengakuanPendapatan[],
+  daftarPDDM: PendapatanDiterimaDimuka[],
+  allKompensasi: { ks_id: string; tgl_jatuh_tempo: string; rkap_kode: string | null }[],
+  tahun: number
+): Record<string, number[]> {
+  const byKey: Record<string, number[]> = {}
+
+  allPengakuan
+    .filter(pp => pp.status === 'diakui')
+    .forEach(pp => {
+      const pddm = daftarPDDM.find(p => p.id === pp.pddm_id)
+      if (!pddm?.ks_id) return
+      const komp = allKompensasi.find(
+        k => k.ks_id === pddm.ks_id && k.tgl_jatuh_tempo === pp.tgl_awal
+      )
+      const key = komp?.rkap_kode
+      if (!key) return
+      if (!byKey[key]) byKey[key] = Array(12).fill(0)
+      const d = new Date(pp.tgl_awal)
+      if (d.getFullYear() === tahun) {
+        byKey[key][d.getMonth()] += pp.nominal
+      }
+    })
+
+  return byKey
+}

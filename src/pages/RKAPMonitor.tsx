@@ -2,9 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { useKompensasiStore } from '@/store/kompensasiStore'
 import { useCashInStore } from '@/store/cashInStore'
+import { usePendapatanStore } from '@/store/pendapatanStore'
 import { useRKAPStore, rowToRKAPItem, BULAN_COLS, RKAPTargetRow } from '@/store/rkapStore'
 import { BULAN_LABELS } from '@/data/rkap2026'
-import { hitungRKAP, getCashInPerBulanByYear, MonthSummary } from '@/utils/rkapUtils'
+import { hitungRKAP, getCashInPerBulanByYear, getPendapatanPerBulanByYear, getPendapatanPerKode, MonthSummary } from '@/utils/rkapUtils'
 import { RKAPItem } from '@/data/rkap2026'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -14,6 +15,7 @@ import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { CurrencyDisplay } from '@/components/common/CurrencyDisplay'
 import { formatRupiah } from '@/lib/utils'
+import { supabase } from '@/lib/supabase'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { Target, TrendingUp, AlertTriangle, CheckCircle, Plus, Pencil, Trash2, Upload, Download, ChevronLeft, ChevronRight, FileDown, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -24,66 +26,126 @@ import { z } from 'zod'
 // ── Excel export ──────────────────────────────────────────────────────────────
 function exportRKAPExcel(
   tahun: number,
-  rkapData: MonthSummary[],
+  rkapDataCashIn: MonthSummary[],
   rkapItems: RKAPItem[],
   totalTarget: number,
   efektifBulan: number,   // bulan terakhir yang sudah berjalan (0–11), -1 jika tahun depan
-  cashInPerNama: Record<string, number[]> // NEW PARAMETER
+  cashInPerNama: Record<string, number[]>, // NEW PARAMETER
+  rkapDataPendapatan?: MonthSummary[],
+  pendapatanPerNama?: Record<string, number[]>,
+  nonaktifKodes?: Set<string>,
 ) {
+  const nonaktif = nonaktifKodes ?? new Set<string>()
   const wb = XLSX.utils.book_new()
   const now = new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })
-  const rp = (v: number | null) => v != null && v !== 0 ? v : null
+  const fmt = (v: number | null) => v != null && v !== 0 ? v.toLocaleString('id-ID') : null
   const pct = (v: number, t: number) => t > 0 ? +((v / t) * 100).toFixed(1) : null
 
-  const ytdReal = rkapData.slice(0, efektifBulan + 1).reduce((s, m) => s + m.realisasi, 0)
-  const ytdTarget = rkapData.slice(0, efektifBulan + 1).reduce((s, m) => s + m.targetOriginal, 0)
-  const carryAktif = rkapData[efektifBulan]?.carryOver ?? 0
-
-  // ── Sheet 1: Ringkasan Prognosa ─────────────────────────────────────────────
-  const sh1: any[][] = [
-    [`RKAP Monitor ${tahun} — Laporan Prognosa`],
-    [`Diekspor pada: ${now}`],
-    [],
-    ['Bulan', 'Target RKAP (Rp)', 'Carry-over (Rp)', 'Target Disesuaikan (Rp)',
-      'Realisasi / Cash In (Rp)', 'Selisih (Rp)', 'Achievement (%)', 'Prognosa (Rp)', 'Status'],
-  ]
-  rkapData.forEach((m, i) => {
-    const past = i < efektifBulan
-    const current = i === efektifBulan
-    const status = past ? (m.selisih >= 0 ? 'Tercapai' : 'Tidak Tercapai (carry-over)')
-      : current ? 'Berjalan'
-        : '—'
-    sh1.push([
-      m.label,
-      rp(m.targetOriginal),
-      rp(m.carryOver),
-      rp(m.targetAdjusted),
-      rp(m.realisasi),
-      (past || current) ? m.selisih : null,
-      m.targetAdjusted > 0 ? pct(m.realisasi, m.targetAdjusted) : null,
-      rp(m.prognosa),
-      status,
-    ])
-  })
-
-  const totalPrognosa = rkapData.reduce((s, m) => s + m.prognosa, 0);
-
-  sh1.push(
-    [],
-    ['TOTAL', rp(totalTarget), null, rp(totalTarget),
-      rp(rkapData.reduce((s, m) => s + m.realisasi, 0)), null,
-      pct(ytdReal, ytdTarget), rp(totalPrognosa), ''],
-    [],
-    [`Carry-over aktif: ${carryAktif > 0 ? formatRupiah(carryAktif) : 'Tidak ada'}`],
-    ['Prognosa = realisasi bulan yang telah lewat/berjalan, dan target RKAP original untuk bulan-bulan mendatang.'],
-  )
-
-  const ws1 = XLSX.utils.aoa_to_sheet(sh1)
-  ws1['!cols'] = [14, 22, 18, 26, 26, 20, 16, 22, 26].map(wch => ({ wch }))
-  XLSX.utils.book_append_sheet(wb, ws1, `Ringkasan ${tahun}`)
-
-  // ── Sheet 2: Per Obyek ──────────────────────────────────────────────────────
   const BL = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des']
+
+  // ── Helper: build ringkasan sheet ─────────────────────────────────────────
+  function buildRingkasanSheet(
+    data: MonthSummary[],
+    titleLabel: string,
+    sheetName: string,
+    realisasiLabel: string,
+  ) {
+    const ytdReal = data.slice(0, efektifBulan + 1).reduce((s, m) => s + m.realisasi, 0)
+    const ytdTarget = data.slice(0, efektifBulan + 1).reduce((s, m) => s + m.targetOriginal, 0)
+    const carryAktif = data[efektifBulan]?.carryOver ?? 0
+    const totalProg = data.reduce((s, m) => s + m.prognosa, 0)
+
+    const sh: any[][] = [
+      [`RKAP Monitor ${tahun} — ${titleLabel}`],
+      [`Diekspor pada: ${now}`],
+      [],
+      ['Bulan', 'Target RKAP (Rp)', 'Carry-over (Rp)', 'Target Disesuaikan (Rp)',
+        `${realisasiLabel} (Rp)`, 'Selisih (Rp)', 'Achievement (%)', 'Prognosa (Rp)', 'Status'],
+    ]
+    data.forEach((m, i) => {
+      const past = i < efektifBulan
+      const current = i === efektifBulan
+      const status = past ? (m.selisih >= 0 ? 'Tercapai' : 'Tidak Tercapai (carry-over)')
+        : current ? 'Berjalan'
+          : '—'
+      sh.push([
+        m.label,
+        fmt(m.targetOriginal),
+        fmt(m.carryOver),
+        fmt(m.targetAdjusted),
+        fmt(m.realisasi),
+        (past || current) ? m.selisih : null,
+        m.targetAdjusted > 0 ? pct(m.realisasi, m.targetAdjusted) : null,
+        fmt(m.prognosa),
+        status,
+      ])
+    })
+
+    sh.push(
+      [],
+      ['TOTAL', fmt(totalTarget), null, fmt(totalTarget),
+        fmt(data.reduce((s, m) => s + m.realisasi, 0)), null,
+        pct(ytdReal, ytdTarget), fmt(totalProg), ''],
+      [],
+      [`Carry-over aktif: ${carryAktif > 0 ? formatRupiah(carryAktif) : 'Tidak ada'}`],
+      ['Prognosa = realisasi bulan yang telah lewat/berjalan, dan target RKAP original untuk bulan-bulan mendatang.'],
+    )
+
+    const ws = XLSX.utils.aoa_to_sheet(sh)
+    ws['!cols'] = [14, 22, 18, 26, 26, 20, 16, 22, 26].map(wch => ({ wch }))
+    XLSX.utils.book_append_sheet(wb, ws, sheetName)
+  }
+
+  // ── Helper: build prognosa per obyek sheet ─────────────────────────────────
+  function buildPerObyekSheet(
+    perNama: Record<string, number[]>,
+    titleLabel: string,
+    sheetName: string,
+    nonaktif: Set<string> = new Set(),
+  ) {
+    const sh: any[][] = [
+      [`${titleLabel} ${tahun} (Rp)`],
+      [`Diekspor pada: ${now}`],
+      [],
+      ['No', 'Obyek Kerjasama', ...BL, 'Total Prognosa'],
+    ]
+
+    let totalProgObjek = 0
+    const prognosaPerBulanAll = Array(12).fill(0)
+
+    rkapItems.forEach(item => {
+      const realPerBulan = perNama[item.kode ?? ''] ?? perNama[item.nama] ?? Array(12).fill(0)
+      const isNonaktif = !!(item.kode && nonaktif.has(item.kode))
+      const progBulan = item.bulan.map((target, i) => {
+        const isFuture = i > efektifBulan
+        const isCurrent = i === efektifBulan
+        // Nonaktif: prognosa masa depan = 0, bulan lewat tetap realisasi
+        const prog = isNonaktif && (isFuture || isCurrent) ? 0
+          : isFuture ? target
+          : isCurrent ? Math.max(realPerBulan[i], target)
+          : realPerBulan[i]
+        prognosaPerBulanAll[i] += prog
+        return prog
+      })
+      const totalProg = progBulan.reduce((s, v) => s + v, 0)
+      totalProgObjek += totalProg
+      sh.push([item.no, item.nama, ...progBulan.map(fmt), fmt(totalProg)])
+    })
+
+    sh.push(
+      [],
+      ['', 'TOTAL', ...prognosaPerBulanAll.map(fmt), fmt(totalProgObjek)],
+    )
+
+    const ws = XLSX.utils.aoa_to_sheet(sh)
+    ws['!cols'] = [{ wch: 5 }, { wch: 42 }, ...BL.map(() => ({ wch: 16 })), { wch: 18 }]
+    XLSX.utils.book_append_sheet(wb, ws, sheetName)
+  }
+
+  // ── Sheet 1: Ringkasan Prognosa Cash In ────────────────────────────────────
+  buildRingkasanSheet(rkapDataCashIn, 'Laporan Prognosa Cash In', `Ringkasan Cash In ${tahun}`, 'Realisasi / Cash In')
+
+  // ── Sheet 2: Target Per Obyek ──────────────────────────────────────────────
   const sh2: any[][] = [
     [`Target RKAP per Obyek Kerjasama ${tahun} (Rp)`],
     [`Diekspor pada: ${now}`],
@@ -91,13 +153,13 @@ function exportRKAPExcel(
     ['No', 'Obyek Kerjasama', ...BL, 'Total'],
   ]
   rkapItems.forEach(item =>
-    sh2.push([item.no, item.nama, ...item.bulan.map(rp), rp(item.total)])
+    sh2.push([item.no, item.nama, ...item.bulan.map(fmt), fmt(item.total)])
   )
   sh2.push(
     [],
     ['', 'TOTAL',
-      ...BL.map((_, i) => rp(rkapItems.reduce((s, it) => s + (it.bulan[i] ?? 0), 0))),
-      rp(totalTarget),
+      ...BL.map((_, i) => fmt(rkapItems.reduce((s, it) => s + (it.bulan[i] ?? 0), 0))),
+      fmt(totalTarget),
     ],
   )
 
@@ -105,44 +167,186 @@ function exportRKAPExcel(
   ws2['!cols'] = [{ wch: 5 }, { wch: 42 }, ...BL.map(() => ({ wch: 16 })), { wch: 18 }]
   XLSX.utils.book_append_sheet(wb, ws2, `Target Per Obyek ${tahun}`)
 
-  // ── Sheet 3: Prognosa Per Obyek ──────────────────────────────────────────────
-  const sh3: any[][] = [
-    [`Prognosa Per Obyek Kerjasama ${tahun} (Rp)`],
-    [`Diekspor pada: ${now}`],
-    [],
-    ['No', 'Obyek Kerjasama', ...BL, 'Total Prognosa'],
-  ]
+  // ── Sheet 3: Prognosa Per Obyek Cash In ────────────────────────────────────
+  buildPerObyekSheet(cashInPerNama, 'Prognosa Per Obyek Cash In', `Prog Cash In Per Obyek ${tahun}`, nonaktif)
 
-  let totalPrognosaSeluruhObjek = 0;
-  const prognosaPerBulanAll = Array(12).fill(0);
+  // ── Sheet 4: Ringkasan Prognosa Pendapatan (PSAK 73) ───────────────────────
+  if (rkapDataPendapatan) {
+    buildRingkasanSheet(rkapDataPendapatan, 'Laporan Prognosa Pendapatan (PSAK 73)', `Ringkasan Pendapatan ${tahun}`, 'Realisasi / Pendapatan')
+  }
 
-  rkapItems.forEach(item => {
-    const realPerBulan = cashInPerNama[item.kode ?? ''] ?? cashInPerNama[item.nama] ?? Array(12).fill(0);
-    const progBulan = item.bulan.map((target, i) => {
-      const isFuture = i > efektifBulan;
-      const prog = isFuture ? target : realPerBulan[i];
-      prognosaPerBulanAll[i] += prog;
-      return prog;
-    });
-    const totalProgObjek = progBulan.reduce((s, v) => s + v, 0);
-    totalPrognosaSeluruhObjek += totalProgObjek;
-
-    sh3.push([item.no, item.nama, ...progBulan.map(rp), rp(totalProgObjek)]);
-  })
-
-  sh3.push(
-    [],
-    ['', 'TOTAL',
-      ...prognosaPerBulanAll.map(rp),
-      rp(totalPrognosaSeluruhObjek),
-    ],
-  )
-
-  const ws3 = XLSX.utils.aoa_to_sheet(sh3)
-  ws3['!cols'] = [{ wch: 5 }, { wch: 42 }, ...BL.map(() => ({ wch: 16 })), { wch: 18 }]
-  XLSX.utils.book_append_sheet(wb, ws3, `Prognosa Per Obyek ${tahun}`)
+  // ── Sheet 5: Prognosa Per Obyek Pendapatan (PSAK 73) ───────────────────────
+  if (pendapatanPerNama) {
+    buildPerObyekSheet(pendapatanPerNama, 'Prognosa Per Obyek Pendapatan (PSAK 73)', `Prog Pendapatan Per Obyek ${tahun}`, nonaktif)
+  }
 
   XLSX.writeFile(wb, `RKAP_Prognosa_${tahun}_${new Date().toISOString().slice(0, 10)}.xlsx`)
+}
+
+// ── Helper: fetch RKAP for arbitrary year (tanpa ubah store) ─────────────────
+async function fetchRKAPForYear(tahun: number): Promise<RKAPTargetRow[]> {
+  const { data } = await supabase
+    .from('rkap_target')
+    .select('*')
+    .eq('tahun', tahun)
+    .order('no', { ascending: true })
+  return (data ?? []) as RKAPTargetRow[]
+}
+
+// ── Helper: realisasi per kode for arbitrary year (cash-in) ──────────────────
+function getRealisasiPerKode(
+  allKompensasi: { rkap_kode: string | null; pembayaran?: { tgl_bayar: string; nominal_bayar: number }[] }[],
+  allCashIn: { rkap_kode: string | null; tgl_terima: string; nominal: number }[],
+  tahun: number
+): Record<string, number[]> {
+  const byKey: Record<string, number[]> = {}
+  allKompensasi.forEach(k => {
+    const key = k.rkap_kode
+    if (!key) return
+    if (!byKey[key]) byKey[key] = Array(12).fill(0)
+    ;(k.pembayaran ?? []).forEach(p => {
+      const d = new Date(p.tgl_bayar)
+      if (d.getFullYear() === tahun) byKey[key][d.getMonth()] += p.nominal_bayar
+    })
+  })
+  allCashIn.forEach(ci => {
+    const key = ci.rkap_kode
+    if (!key) return
+    if (!byKey[key]) byKey[key] = Array(12).fill(0)
+    const d = new Date(ci.tgl_terima)
+    if (d.getFullYear() === tahun) byKey[key][d.getMonth()] += ci.nominal
+  })
+  return byKey
+}
+
+// ── Export Perbandingan Multi-Tahun ───────────────────────────────────────────
+
+interface PerbandinganRow {
+  no: number
+  nama: string
+  realisasiPrev: number
+  rkapCur: number
+  progCur: number
+  rkapNxt: number
+}
+
+async function fetchPerbandinganData(
+  tahun: number,
+  rkapItems: RKAPItem[],
+  basis: 'cash_in' | 'pendapatan',
+  cashInPerNama: Record<string, number[]>,
+  pendapatanPerNama: Record<string, number[]>,
+  allKompensasi: any[],
+  allCashIn: any[],
+  allPengakuan: any[],
+  daftarPDDM: any[],
+  efektifBulan: number,
+  nonaktifKodes: Set<string>,
+): Promise<{ rows: PerbandinganRow[]; total: PerbandinganRow; tahunPrev: number; tahunNext: number; basisLabel: string }> {
+  const tahunPrev = tahun - 1
+  const tahunNext = tahun + 1
+  const basisLabel = basis === 'cash_in' ? 'Cash In' : 'Pendapatan (PSAK 73)'
+
+  const [rowsPrev, rowsNext] = await Promise.all([
+    fetchRKAPForYear(tahunPrev),
+    fetchRKAPForYear(tahunNext),
+  ])
+  const itemsPrev = rowsPrev.map(rowToRKAPItem)
+  const itemsNext = rowsNext.map(rowToRKAPItem)
+
+  const allKodes = new Set<string>()
+  rkapItems.forEach(it => { if (it.kode) allKodes.add(it.kode) })
+  itemsPrev.forEach(it => { if (it.kode) allKodes.add(it.kode) })
+  itemsNext.forEach(it => { if (it.kode) allKodes.add(it.kode) })
+  const kodeList = Array.from(allKodes).sort()
+
+  const realisasiPrevPerKode: Record<string, number[]> = basis === 'cash_in'
+    ? getRealisasiPerKode(allKompensasi, allCashIn, tahunPrev)
+    : getPendapatanPerKode(allPengakuan, daftarPDDM, allKompensasi, tahunPrev)
+
+  const activePerNama = basis === 'cash_in' ? cashInPerNama : pendapatanPerNama
+  const prognosaPerKode: Record<string, number[]> = {}
+  rkapItems.forEach(item => {
+    const key = item.kode
+    if (!key) return
+    const real = activePerNama[key] ?? Array(12).fill(0)
+    const isNonaktif = nonaktifKodes.has(key)
+    prognosaPerKode[key] = item.bulan.map((target, i) => {
+      const isFuture = i > efektifBulan
+      const isCurrent = i === efektifBulan
+      if (isNonaktif && (isFuture || isCurrent)) return 0
+      if (isFuture) return target
+      if (isCurrent) return Math.max(real[i], target)
+      return real[i]
+    })
+  })
+
+  function getBulan(items: RKAPItem[], kode: string): number[] {
+    const found = items.find(it => it.kode === kode)
+    return found ? found.bulan : Array(12).fill(0)
+  }
+
+  let tRealisasi = 0, tRKAP = 0, tPrognosa = 0, tRKAPNext = 0
+  const rows: PerbandinganRow[] = kodeList.map((kode, idx) => {
+    const nama = rkapItems.find(it => it.kode === kode)?.nama
+      ?? itemsPrev.find(it => it.kode === kode)?.nama
+      ?? itemsNext.find(it => it.kode === kode)?.nama
+      ?? kode
+
+    const realisasiPrev = (realisasiPrevPerKode[kode] ?? Array(12).fill(0)).reduce((s: number, v: number) => s + v, 0)
+    const rkapCur = getBulan(rkapItems, kode).reduce((s, v) => s + v, 0)
+    const progCur = (prognosaPerKode[kode] ?? Array(12).fill(0)).reduce((s: number, v: number) => s + v, 0)
+    const rkapNxt = getBulan(itemsNext, kode).reduce((s, v) => s + v, 0)
+
+    tRealisasi += realisasiPrev
+    tRKAP += rkapCur
+    tPrognosa += progCur
+    tRKAPNext += rkapNxt
+
+    return { no: idx + 1, nama, realisasiPrev, rkapCur, progCur, rkapNxt }
+  })
+
+  return {
+    rows,
+    total: { no: 0, nama: 'TOTAL', realisasiPrev: tRealisasi, rkapCur: tRKAP, progCur: tPrognosa, rkapNxt: tRKAPNext },
+    tahunPrev,
+    tahunNext,
+    basisLabel,
+  }
+}
+
+function downloadPerbandinganExcel(
+  data: { rows: PerbandinganRow[]; total: PerbandinganRow; tahunPrev: number; tahunNext: number; basisLabel: string },
+  tahun: number,
+) {
+  const wb = XLSX.utils.book_new()
+  const now = new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })
+  const fmt = (v: number | null) => v != null && v !== 0 ? v.toLocaleString('id-ID') : null
+
+  const sh: any[][] = [
+    [`Perbandingan RKAP ${data.tahunPrev}–${data.tahunNext} — Basis: ${data.basisLabel}`],
+    [`Diekspor pada: ${now}`],
+    [],
+    ['No', 'Obyek Kerjasama', `Realisasi ${data.tahunPrev}`, `RKAP ${tahun}`, `Prognosa ${tahun}`, `RKAP ${data.tahunNext}`],
+  ]
+
+  data.rows.forEach(r => {
+    sh.push([r.no, r.nama, fmt(r.realisasiPrev), fmt(r.rkapCur), fmt(r.progCur), fmt(r.rkapNxt)])
+  })
+
+  sh.push(
+    [],
+    ['', 'TOTAL', fmt(data.total.realisasiPrev), fmt(data.total.rkapCur), fmt(data.total.progCur), fmt(data.total.rkapNxt)],
+  )
+
+  const ws = XLSX.utils.aoa_to_sheet(sh)
+  ws['!cols'] = [
+    { wch: 5 }, { wch: 48 },
+    { wch: 22 }, { wch: 22 }, { wch: 22 }, { wch: 22 },
+  ]
+  XLSX.utils.book_append_sheet(wb, ws, `Perbandingan ${data.tahunPrev}-${data.tahunNext}`)
+
+  XLSX.writeFile(wb, `RKAP_Perbandingan_${data.tahunPrev}-${data.tahunNext}_${new Date().toISOString().slice(0, 10)}.xlsx`)
 }
 
 // ── CSV parser ────────────────────────────────────────────────────────────────
@@ -190,6 +394,7 @@ const CURRENT_MONTH = new Date().getMonth()
 export function RKAPMonitor() {
   const { allKompensasi, fetchAllKompensasi } = useKompensasiStore()
   const { allCashIn, fetchAllCashIn } = useCashInStore()
+  const { daftarPDDM, allPengakuan, fetchAll: fetchPendapatan } = usePendapatanStore()
   const { rows, tahunAktif, isLoading, fetchRKAP, upsertRow, deleteRow, bulkImport, setTahunAktif } = useRKAPStore()
 
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -203,6 +408,26 @@ export function RKAPMonitor() {
   const [breakdownKode, setBreakdownKode] = useState<string | null>(null)
   const [breakdownNama, setBreakdownNama] = useState('')
 
+  // Toggle prognosa type
+  const [prognosaType, setPrognosaType] = useState<'cash_in' | 'pendapatan'>('cash_in')
+
+  // Preview perbandingan
+  const [perbandinganOpen, setPerbandinganOpen] = useState(false)
+  const [perbandinganData, setPerbandinganData] = useState<Awaited<ReturnType<typeof fetchPerbandinganData>> | null>(null)
+  const [perbandinganLoading, setPerbandinganLoading] = useState(false)
+
+  // Nonaktif items (tidak tercapai → tidak carry-over, prognosa 0)
+  const [nonaktifKodes, setNonaktifKodes] = useState<Set<string>>(new Set())
+
+  const toggleNonaktif = (kode: string) => {
+    setNonaktifKodes(prev => {
+      const next = new Set(prev)
+      if (next.has(kode)) next.delete(kode)
+      else next.add(kode)
+      return next
+    })
+  }
+
   const { register, handleSubmit, reset, watch, formState: { errors } } = useForm<RowForm>({
     resolver: zodResolver(rowSchema),
     defaultValues: { no: rows.length + 1 },
@@ -210,6 +435,7 @@ export function RKAPMonitor() {
 
   useEffect(() => { fetchAllKompensasi() }, [])
   useEffect(() => { fetchAllCashIn() }, [])
+  useEffect(() => { fetchPendapatan() }, [])
   useEffect(() => { fetchRKAP(tahunAktif) }, [tahunAktif])
 
   // ── Computed data ──────────────────────────────────────────────────────────
@@ -220,24 +446,44 @@ export function RKAPMonitor() {
     [allKompensasi, tahunAktif, allCashIn]
   )
 
+  const pendapatanPerBulan = useMemo(() =>
+    getPendapatanPerBulanByYear(allPengakuan, tahunAktif),
+    [allPengakuan, tahunAktif]
+  )
+
   // Bulan terakhir yang sudah "berjalan" — tergantung tahun yang sedang dilihat
   const efektifBulan = tahunAktif < CURRENT_YEAR ? 11
     : tahunAktif === CURRENT_YEAR ? CURRENT_MONTH
       : -1
 
-  const rkapData = useMemo(
-    () => hitungRKAP(rkapItems, cashIn, efektifBulan),
-    [rkapItems, cashIn, efektifBulan]
+  // Items yang aktif (tidak dinonaktifkan) — digunakan untuk carry-over & prognosa
+  const activeItems = useMemo(
+    () => rkapItems.filter(item => !nonaktifKodes.has(item.kode)),
+    [rkapItems, nonaktifKodes]
   )
+
+  const rkapDataCashIn = useMemo(
+    () => hitungRKAP(activeItems, cashIn, efektifBulan),
+    [activeItems, cashIn, efektifBulan]
+  )
+
+  const rkapDataPendapatan = useMemo(
+    () => hitungRKAP(activeItems, pendapatanPerBulan, efektifBulan),
+    [activeItems, pendapatanPerBulan, efektifBulan]
+  )
+
+  const rkapData = prognosaType === 'cash_in' ? rkapDataCashIn : rkapDataPendapatan
+  const activeRealisasiPerBulan = prognosaType === 'cash_in' ? cashIn : pendapatanPerBulan
 
   const totalTarget = useMemo(() => rkapItems.reduce((s, i) => s + i.total, 0), [rkapItems])
 
   const ytdTargetOri = rkapData.slice(0, efektifBulan + 1).reduce((s, m) => s + m.targetOriginal, 0)
-  const ytdRealisasi = cashIn.slice(0, efektifBulan + 1).reduce((s, v) => s + v, 0)
+  const ytdRealisasi = activeRealisasiPerBulan.slice(0, efektifBulan + 1).reduce((s, v) => s + v, 0)
   const ytdAchievement = ytdTargetOri > 0 ? (ytdRealisasi / ytdTargetOri) * 100 : 0
   const currentCarryOver = rkapData[efektifBulan]?.carryOver ?? 0
   // Prognosa tahunan = realisasi bulan lewat + target(+carry-over) bulan mendatang
   const totalPrognosa = rkapData.reduce((s, m) => s + m.prognosa, 0)
+  const totalPrognosaPendapatan = rkapDataPendapatan.reduce((s, m) => s + m.prognosa, 0)
 
   const chartData = rkapData.map(m => ({
     bulan: m.label,
@@ -275,6 +521,30 @@ export function RKAPMonitor() {
     })
     return byKey
   }, [allKompensasi, allCashIn, tahunAktif])
+
+  // Agregasi pendapatan diakui per rkap_kode per bulan (untuk tabel & Excel)
+  const pendapatanPerNama = useMemo(() => {
+    const byKey: Record<string, number[]> = {}
+    allPengakuan
+      .filter(pp => pp.status === 'diakui')
+      .forEach(pp => {
+        const pddm = daftarPDDM.find(p => p.id === pp.pddm_id)
+        if (!pddm?.ks_id) return
+        const komp = allKompensasi.find(
+          k => k.ks_id === pddm.ks_id && k.tgl_jatuh_tempo === pp.tgl_awal
+        )
+        const key = komp?.rkap_kode
+        if (!key) return
+        if (!byKey[key]) byKey[key] = Array(12).fill(0)
+        const d = new Date(pp.tgl_awal)
+        if (d.getFullYear() === tahunAktif) {
+          byKey[key][d.getMonth()] += pp.nominal
+        }
+      })
+    return byKey
+  }, [allPengakuan, daftarPDDM, allKompensasi, tahunAktif])
+
+  const activePerNama = prognosaType === 'cash_in' ? cashInPerNama : pendapatanPerNama
 
   // ── Helpers form ──────────────────────────────────────────────────────────
   const openAdd = () => {
@@ -372,9 +642,27 @@ export function RKAPMonitor() {
         </Button>
         <Button
           size="sm" variant="outline"
-          onClick={() => exportRKAPExcel(tahunAktif, rkapData, rkapItems, totalTarget, efektifBulan, cashInPerNama)}
+          onClick={() => exportRKAPExcel(tahunAktif, rkapDataCashIn, rkapItems, totalTarget, efektifBulan, cashInPerNama, rkapDataPendapatan, pendapatanPerNama, nonaktifKodes)}
         >
           <FileDown size={14} /> Export Excel
+        </Button>
+        <Button
+          size="sm" variant="outline"
+          onClick={async () => {
+            setPerbandinganOpen(true)
+            setPerbandinganLoading(true)
+            setPerbandinganData(null)
+            const data = await fetchPerbandinganData(
+              tahunAktif, rkapItems, prognosaType,
+              cashInPerNama, pendapatanPerNama,
+              allKompensasi, allCashIn, allPengakuan, daftarPDDM,
+              efektifBulan, nonaktifKodes,
+            )
+            setPerbandinganData(data)
+            setPerbandinganLoading(false)
+          }}
+        >
+          <FileDown size={14} /> Export Perbandingan
         </Button>
         {rows.length === 0 && tahunAktif === 2026 && (
           <Button size="sm" variant="outline" onClick={seedFromHardcode}>
@@ -385,6 +673,35 @@ export function RKAPMonitor() {
         <span className="text-xs text-gray-400 flex items-center">
           {rows.length > 0 ? `${rows.length} baris di database` : tahunAktif === 2026 ? '(menampilkan data hardcode 2026)' : 'Belum ada data'}
         </span>
+      </div>
+
+      {/* ── Toggle Prognosa Type ────────────────────────────────────────────── */}
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-gray-500 font-medium">Prognosa berdasarkan:</span>
+        <div className="inline-flex rounded-lg border border-gray-200 bg-gray-100 p-0.5">
+          <button
+            onClick={() => setPrognosaType('cash_in')}
+            className={cn(
+              'px-3 py-1 text-xs font-medium rounded-md transition-colors',
+              prognosaType === 'cash_in'
+                ? 'bg-white text-[#1B4F72] shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            )}
+          >
+            Cash In
+          </button>
+          <button
+            onClick={() => setPrognosaType('pendapatan')}
+            className={cn(
+              'px-3 py-1 text-xs font-medium rounded-md transition-colors',
+              prognosaType === 'pendapatan'
+                ? 'bg-white text-[#5B2C6F] shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            )}
+          >
+            Pendapatan (PSAK 73)
+          </button>
+        </div>
       </div>
 
       {/* KPI Cards */}
@@ -442,10 +759,22 @@ export function RKAPMonitor() {
           <CardContent className="p-4">
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-[11px] text-gray-500 font-medium">Prognosa Tahunan</p>
+                <p className="text-[11px] text-gray-500 font-medium">
+                  Prognosa Tahunan
+                  <span className={cn('ml-1 text-[10px] font-semibold',
+                    prognosaType === 'cash_in' ? 'text-[#1B4F72]' : 'text-[#5B2C6F]'
+                  )}>
+                    ({prognosaType === 'cash_in' ? 'Cash In' : 'PSAK 73'})
+                  </span>
+                </p>
                 <CurrencyDisplay value={totalPrognosa} size="lg" className={cn('mt-1 block', totalPrognosa >= totalTarget ? 'text-green-700' : 'text-orange-600')} />
                 <p className="text-[10px] text-gray-400 mt-1">
                   {totalTarget > 0 ? `${((totalPrognosa / totalTarget) * 100).toFixed(1)}% dari target` : '—'}
+                  {prognosaType === 'cash_in' && (
+                    <span className="ml-1 text-[#5B2C6F]">
+                      | PSAK 73: {totalTarget > 0 ? `${((totalPrognosaPendapatan / totalTarget) * 100).toFixed(1)}%` : '—'}
+                    </span>
+                  )}
                 </p>
               </div>
               <TrendingUp size={18} className={cn('mt-0.5', totalPrognosa >= totalTarget ? 'text-green-600' : 'text-orange-500')} />
@@ -470,7 +799,7 @@ export function RKAPMonitor() {
       {/* Chart */}
       <Card>
         <CardHeader>
-          <CardTitle>Target RKAP vs Realisasi & Prognosa per Bulan (Juta Rp) — {tahunAktif}</CardTitle>
+          <CardTitle>Target RKAP vs Realisasi & Prognosa per Bulan (Juta Rp) — {tahunAktif} ({prognosaType === 'cash_in' ? 'Cash In' : 'PSAK 73'})</CardTitle>
         </CardHeader>
         <CardContent>
           <ResponsiveContainer width="100%" height={260}>
@@ -543,7 +872,7 @@ export function RKAPMonitor() {
                   <td className="px-3 py-2 text-right">{formatRupiah(totalTarget)}</td>
                   <td className="px-3 py-2 text-right text-orange-600">—</td>
                   <td className="px-3 py-2 text-right">{formatRupiah(totalTarget)}</td>
-                  <td className="px-3 py-2 text-right text-green-700">{formatRupiah(cashIn.reduce((s, v) => s + v, 0))}</td>
+                  <td className="px-3 py-2 text-right text-green-700">{formatRupiah(activeRealisasiPerBulan.reduce((s, v) => s + v, 0))}</td>
                   <td className={cn('px-3 py-2 text-right font-bold', totalPrognosa >= totalTarget ? 'text-green-700' : 'text-orange-600')}>
                     {formatRupiah(totalPrognosa)}
                   </td>
@@ -558,7 +887,22 @@ export function RKAPMonitor() {
       {/* Tabel per obyek */}
       <Card>
         <CardHeader>
-          <CardTitle>Target per Obyek Kerjasama {tahunAktif} (Juta Rp)</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle>Target per Obyek Kerjasama {tahunAktif} (Juta Rp)</CardTitle>
+            <div className="flex items-center gap-2">
+              {nonaktifKodes.size > 0 && (
+                <span className="text-xs text-red-500 font-medium">
+                  {nonaktifKodes.size} dinonaktifkan
+                  <button
+                    onClick={() => setNonaktifKodes(new Set())}
+                    className="ml-2 text-blue-600 hover:underline text-[11px]"
+                  >
+                    Aktifkan semua
+                  </button>
+                </span>
+              )}
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
@@ -568,6 +912,7 @@ export function RKAPMonitor() {
                 <tr className="bg-gray-100 border-b">
                   <th className="px-2 py-1.5 text-left font-semibold text-gray-500 w-7" rowSpan={2}>No</th>
                   <th className="px-2 py-1.5 text-left font-semibold text-gray-600 min-w-[160px]" rowSpan={2}>Obyek Kerjasama</th>
+                  <th className="px-2 py-1.5 w-8" rowSpan={2} title="Nonaktifkan agar tidak carry-over">⚡</th>
                   {BULAN_LABELS.map(b => (
                     <th key={b} colSpan={2} className="px-2 py-1.5 text-center font-semibold text-gray-600 border-l border-gray-200">
                       {b}
@@ -592,13 +937,16 @@ export function RKAPMonitor() {
               </thead>
               <tbody>
                 {displayRows.map(row => {
-                  const realPerBulan: number[] = cashInPerNama[row.kode ?? ''] ?? cashInPerNama[row.nama] ?? Array(12).fill(0)
+                  const realPerBulan: number[] = activePerNama[row.kode ?? ''] ?? activePerNama[row.nama] ?? Array(12).fill(0)
                   const totalReal = realPerBulan.reduce((s, v) => s + v, 0)
                   const totalTgt = row.total ?? 0
                   const pctTotal = totalTgt > 0 ? (totalReal / totalTgt) * 100 : null
                   const rowKode = row.kode || row.nama
                   return (
-                    <tr key={row.id} className="border-b hover:bg-gray-50/60 group">
+                    <tr key={row.id} className={cn(
+                      'border-b hover:bg-gray-50/60 group',
+                      row.kode && nonaktifKodes.has(row.kode) && 'opacity-40 bg-gray-50'
+                    )}>
                       <td className="px-2 py-1.5 text-gray-400">{row.no}</td>
                       <td className="px-2 py-1.5 text-gray-700 font-medium">
                         <button
@@ -654,7 +1002,21 @@ export function RKAPMonitor() {
                         {totalReal > 0 ? (totalReal / 1_000_000).toFixed(2) : '—'}
                       </td>
                       <td className="px-2 py-1.5">
-                        <div className="flex gap-1">
+                        <div className="flex gap-1 items-center">
+                          {row.kode && (
+                            <button
+                              onClick={() => toggleNonaktif(row.kode!)}
+                              className={cn(
+                                'p-1 rounded text-xs transition-colors',
+                                nonaktifKodes.has(row.kode)
+                                  ? 'bg-red-100 text-red-500 hover:bg-red-200'
+                                  : 'text-gray-300 hover:text-orange-500 hover:bg-orange-50'
+                              )}
+                              title={nonaktifKodes.has(row.kode) ? 'Aktifkan kembali' : 'Nonaktifkan (prognosa 0, tidak carry-over)'}
+                            >
+                              {nonaktifKodes.has(row.kode) ? '⊘' : '○'}
+                            </button>
+                          )}
                           <button onClick={() => openEdit(row)} className="p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-700" title="Edit">
                             <Pencil size={12} />
                           </button>
@@ -675,7 +1037,7 @@ export function RKAPMonitor() {
                   <td /><td className="px-2 py-2 text-[#1B4F72]">Total Target</td>
                   {BULAN_COLS.map((col, i) => {
                     const tgt = displayRows.reduce((s, r) => s + (r[col] ?? 0), 0)
-                    const real = cashIn[i] ?? 0
+                    const real = activeRealisasiPerBulan[i] ?? 0
                     return (
                       <>
                         <td key={`${col}-t`} className={cn('px-2 py-2 text-right border-l border-gray-100', tgt > 0 ? 'text-[#1B4F72]' : 'text-gray-300')}>
@@ -688,7 +1050,7 @@ export function RKAPMonitor() {
                     )
                   })}
                   <td className="px-2 py-2 text-right text-[#1B4F72] border-l border-gray-100">{(totalTarget / 1_000_000).toFixed(2)}</td>
-                  <td className="px-2 py-2 text-right text-green-700">{(cashIn.reduce((s, v) => s + v, 0) / 1_000_000).toFixed(2)}</td>
+                  <td className="px-2 py-2 text-right text-green-700">{(activeRealisasiPerBulan.reduce((s, v) => s + v, 0) / 1_000_000).toFixed(2)}</td>
                   <td />
                 </tr>
                 {/* Achievement per bulan */}
@@ -696,7 +1058,7 @@ export function RKAPMonitor() {
                   <td /><td className="px-2 py-1.5 text-gray-400">Achievement</td>
                   {BULAN_COLS.map((col, i) => {
                     const tgt = displayRows.reduce((s, r) => s + (r[col] ?? 0), 0)
-                    const real = cashIn[i] ?? 0
+                    const real = activeRealisasiPerBulan[i] ?? 0
                     const pct = tgt > 0 ? (real / tgt) * 100 : null
                     const cls = pct == null ? 'text-gray-300' : pct >= 100 ? 'text-green-700' : pct >= 75 ? 'text-yellow-600' : 'text-red-600'
                     return (
@@ -1069,6 +1431,71 @@ export function RKAPMonitor() {
               <X size={14} className="mr-1" /> Tutup
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Dialog Preview Perbandingan ─────────────────────────────────── */}
+      <Dialog open={perbandinganOpen} onOpenChange={setPerbandinganOpen}>
+        <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>
+              {perbandinganData
+                ? `Perbandingan RKAP ${perbandinganData.tahunPrev}–${perbandinganData.tahunNext} — ${perbandinganData.basisLabel}`
+                : 'Perbandingan RKAP'}
+            </DialogTitle>
+          </DialogHeader>
+
+          {perbandinganLoading ? (
+            <div className="py-12 text-center text-sm text-gray-400">Memuat data...</div>
+          ) : perbandinganData ? (
+            <>
+              <div className="overflow-auto flex-1 -mx-6 px-6">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-gray-50">
+                    <tr className="border-b">
+                      <th className="text-left px-3 py-2 w-8">No</th>
+                      <th className="text-left px-3 py-2">Obyek Kerjasama</th>
+                      <th className="text-right px-3 py-2">Realisasi {perbandinganData.tahunPrev}</th>
+                      <th className="text-right px-3 py-2">RKAP {tahunAktif}</th>
+                      <th className="text-right px-3 py-2">Prognosa {tahunAktif}</th>
+                      <th className="text-right px-3 py-2">RKAP {perbandinganData.tahunNext}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {perbandinganData.rows.map((r, i) => (
+                      <tr key={i} className="hover:bg-gray-50/60">
+                        <td className="px-3 py-1.5 text-gray-400">{r.no}</td>
+                        <td className="px-3 py-1.5 font-medium text-gray-700">{r.nama}</td>
+                        <td className="px-3 py-1.5 text-right text-green-700">{formatRupiah(r.realisasiPrev)}</td>
+                        <td className="px-3 py-1.5 text-right text-[#1B4F72]">{formatRupiah(r.rkapCur)}</td>
+                        <td className="px-3 py-1.5 text-right text-blue-600">{formatRupiah(r.progCur)}</td>
+                        <td className="px-3 py-1.5 text-right text-gray-500">{formatRupiah(r.rkapNxt)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t-2 bg-gray-50 font-bold text-xs">
+                      <td colSpan={2} className="px-3 py-2 text-gray-700">TOTAL</td>
+                      <td className="px-3 py-2 text-right text-green-700">{formatRupiah(perbandinganData.total.realisasiPrev)}</td>
+                      <td className="px-3 py-2 text-right text-[#1B4F72]">{formatRupiah(perbandinganData.total.rkapCur)}</td>
+                      <td className="px-3 py-2 text-right text-blue-600">{formatRupiah(perbandinganData.total.progCur)}</td>
+                      <td className="px-3 py-2 text-right text-gray-500">{formatRupiah(perbandinganData.total.rkapNxt)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setPerbandinganOpen(false)}>
+                  <X size={14} className="mr-1" /> Tutup
+                </Button>
+                <Button onClick={() => downloadPerbandinganExcel(perbandinganData, tahunAktif)}>
+                  <FileDown size={14} className="mr-1" /> Download Excel
+                </Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <div className="py-12 text-center text-sm text-gray-400">Gagal memuat data.</div>
+          )}
         </DialogContent>
       </Dialog>
 

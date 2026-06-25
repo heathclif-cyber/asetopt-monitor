@@ -3,14 +3,15 @@ import { useKompensasiStore } from '@/store/kompensasiStore'
 import { useKerjaSamaStore } from '@/store/kerjaSamaStore'
 import { usePendapatanStore } from '@/store/pendapatanStore'
 import { CurrencyDisplay } from '@/components/common/CurrencyDisplay'
-import { formatTanggal, formatRupiah } from '@/lib/utils'
+import { formatTanggal, formatRupiah, cn } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
 import { ChevronUp, ChevronDown, ChevronsUpDown, Filter } from 'lucide-react'
 import { hitungDenda } from '@/utils/taxUtils'
 
 type SortKey = 'namaMitra' | 'namaAset' | 'periodeLabel' | 'totalTagihan' | 'cashIn' | 'sisa' | 'status'
 type SortDir = 'asc' | 'desc'
-type StatusFilter = 'all' | 'lunas' | 'sebagian' | 'belum_bayar' | 'terlambat'
+type StatusFilter = 'all' | 'lunas' | 'sebagian' | 'belum_bayar' | 'terlambat' | 'belum_lunas'
+type PeriodeMode = 'semua' | 'terbaru' | 'terdekat'
 
 const STATUS_LABEL: Record<string, string> = {
   lunas: 'Lunas',
@@ -33,7 +34,7 @@ function resolveStatus(totalDibayar: number, efektifTagihan: number, hariTerlamb
   return 'belum_bayar'
 }
 
-export default function LaporanPendapatan2() {
+export default function LaporanPendapatan() {
   const { allKompensasi, fetchAllKompensasi } = useKompensasiStore()
   const { daftarKS, fetchKS } = useKerjaSamaStore()
   const { daftarPDDM, allPengakuan, fetchAll: fetchPDDM } = usePendapatanStore()
@@ -49,8 +50,9 @@ export default function LaporanPendapatan2() {
 
   const [tahun, setTahun] = useState(new Date().getFullYear())
   const [filterMitra, setFilterMitra] = useState('all')
-  const [filterStatus, setFilterStatus] = useState<StatusFilter>('all')
-  const [periodeTermbaru, setPeriodeTermbaru] = useState(false)
+  const [filterStatus, setFilterStatus] = useState<StatusFilter>('belum_lunas')
+  const [periodeMode, setPeriodeMode] = useState<PeriodeMode>('terdekat')
+  const [selectedMonths, setSelectedMonths] = useState<number[]>([0,1,2,3,4,5,6,7,8,9,10,11])
 
   // ── Sort ─────────────────────────────────────────────────────────────────
   const [sortKey, setSortKey] = useState<SortKey>('periodeLabel')
@@ -94,6 +96,7 @@ export default function LaporanPendapatan2() {
           namaAset: (ks?.aset as any)?.nama_aset ?? '-',
           periodeLabel: k.periode_label ?? formatTanggal(k.tgl_jatuh_tempo),
           tglJatuhTempo: k.tgl_jatuh_tempo,
+          tglBilling: k.tgl_jatuh_tempo,
           noPerjanjian: ks?.no_perjanjian ?? '-',
           noKontrakSAP: ks?.no_kontrak_sap ?? '-',
           noInvoice: k.no_invoice_sap ?? '-',
@@ -119,9 +122,11 @@ export default function LaporanPendapatan2() {
     let data = allRows
 
     if (filterMitra !== 'all') data = data.filter(r => r.ksId === filterMitra)
-    if (filterStatus !== 'all') data = data.filter(r => r.status === filterStatus)
+    if (filterStatus === 'belum_lunas') data = data.filter(r => r.status !== 'lunas')
+    else if (filterStatus !== 'all') data = data.filter(r => r.status === filterStatus)
+    if (selectedMonths.length < 12) data = data.filter(r => selectedMonths.includes(new Date(r.tglJatuhTempo).getMonth()))
 
-    if (periodeTermbaru) {
+    if (periodeMode === 'terbaru') {
       const latestByKs = new Map<string, string>()
       data.forEach(r => {
         const cur = latestByKs.get(r.ksId)
@@ -130,18 +135,38 @@ export default function LaporanPendapatan2() {
       data = data.filter(r => latestByKs.get(r.ksId) === r.tglJatuhTempo)
     }
 
+    if (periodeMode === 'terdekat') {
+      const todayTs = new Date().getTime()
+      const nearestByKs = new Map<string, string>()
+      data.forEach(r => {
+        const cur = nearestByKs.get(r.ksId)
+        if (!cur) { nearestByKs.set(r.ksId, r.tglJatuhTempo); return }
+        const curDiff = Math.abs(new Date(cur).getTime() - todayTs)
+        const newDiff = Math.abs(new Date(r.tglJatuhTempo).getTime() - todayTs)
+        if (newDiff < curDiff) nearestByKs.set(r.ksId, r.tglJatuhTempo)
+      })
+      data = data.filter(r => nearestByKs.get(r.ksId) === r.tglJatuhTempo)
+    }
+
     const dir = sortDir === 'asc' ? 1 : -1
+    // Sort: saat mode terdekat, selalu urutkan by tglJatuhTempo terdekat dulu
+    const effectiveSortKey = periodeMode === 'terdekat' ? 'tglJatuhTempo' : sortKey
+    const effectiveSortDir = periodeMode === 'terdekat' ? 'asc' : sortDir
+    const effectiveDir = effectiveSortDir === 'asc' ? 1 : -1
     data = [...data].sort((a, b) => {
-      if (sortKey === 'totalTagihan') return (a.totalTagihan - b.totalTagihan) * dir
-      if (sortKey === 'cashIn') return (a.cashIn - b.cashIn) * dir
-      if (sortKey === 'sisa') return (a.sisa - b.sisa) * dir
-      const av = a[sortKey as keyof typeof a] as string
-      const bv = b[sortKey as keyof typeof b] as string
-      return av.localeCompare(bv) * dir
+      if (effectiveSortKey === 'totalTagihan') return (a.totalTagihan - b.totalTagihan) * effectiveDir
+      if (effectiveSortKey === 'cashIn') return (a.cashIn - b.cashIn) * effectiveDir
+      if (effectiveSortKey === 'sisa') return (a.sisa - b.sisa) * effectiveDir
+      if (effectiveSortKey === 'tglJatuhTempo') {
+        return (new Date(a.tglJatuhTempo).getTime() - new Date(b.tglJatuhTempo).getTime()) * effectiveDir
+      }
+      const av = a[effectiveSortKey as keyof typeof a] as string
+      const bv = b[effectiveSortKey as keyof typeof b] as string
+      return av.localeCompare(bv) * effectiveDir
     })
 
     return data
-  }, [allRows, filterMitra, filterStatus, periodeTermbaru, sortKey, sortDir])
+  }, [allRows, filterMitra, filterStatus, periodeMode, sortKey, sortDir])
 
   // ── Summary ───────────────────────────────────────────────────────────────
   const totalTagihan = rows.reduce((s, r) => s + r.totalTagihan, 0)
@@ -185,8 +210,8 @@ export default function LaporanPendapatan2() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-lg font-bold text-gray-800">Laporan Pendapatan 2 — {tahun}</h1>
-        <p className="text-xs text-gray-500 mt-1">Filter & sort interaktif · Cash In · Pendapatan Akrual (PSAK 73) · Referensi SAP</p>
+        <h1 className="text-lg font-bold text-gray-800">Laporan Pendapatan — {tahun}</h1>
+        <p className="text-xs text-gray-500 mt-1">Filter & sort interaktif · Bulan · Cash In · Pendapatan Akrual (PSAK 73) · Referensi SAP</p>
       </div>
 
       {/* ── Filter bar ───────────────────────────────────────────────────── */}
@@ -224,6 +249,7 @@ export default function LaporanPendapatan2() {
             className="text-xs border rounded-md px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-[#1B4F72]"
           >
             <option value="all">Semua Status</option>
+            <option value="belum_lunas">⚠ Belum Lunas</option>
             <option value="lunas">Lunas</option>
             <option value="sebagian">Sebagian</option>
             <option value="belum_bayar">Belum Bayar</option>
@@ -231,17 +257,60 @@ export default function LaporanPendapatan2() {
           </select>
         </div>
 
-        <label className="flex items-center gap-1.5 cursor-pointer select-none ml-1">
-          <input
-            type="checkbox"
-            checked={periodeTermbaru}
-            onChange={e => setPeriodeTermbaru(e.target.checked)}
-            className="rounded border-gray-300 text-[#1B4F72] focus:ring-[#1B4F72]"
-          />
-          <span className="text-xs text-gray-700 whitespace-nowrap">Periode Terbaru Saja</span>
-        </label>
+        <div className="flex items-center gap-1.5">
+          <label className="text-xs text-gray-500 whitespace-nowrap">Periode</label>
+          <select
+            value={periodeMode}
+            onChange={e => setPeriodeMode(e.target.value as PeriodeMode)}
+            className="text-xs border rounded-md px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-[#1B4F72]"
+          >
+            <option value="semua">Semua Periode</option>
+            <option value="terbaru">Periode Terbaru</option>
+            <option value="terdekat">Tagihan Terdekat</option>
+          </select>
+        </div>
 
         <span className="ml-auto text-xs text-gray-400">{rows.length} baris</span>
+      </div>
+
+      {/* ── Month filter ──────────────────────────────────────────────────── */}
+      <div className="bg-white border rounded-xl px-4 py-2.5 flex flex-wrap items-center gap-1.5">
+        <span className="text-xs text-gray-500 font-medium mr-1">Bulan:</span>
+        {['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'].map((label, idx) => {
+          const active = selectedMonths.includes(idx)
+          return (
+            <button
+              key={idx}
+              onClick={() => {
+                if (active && selectedMonths.length === 1) return // minimal 1 bulan dipilih
+                setSelectedMonths(prev => {
+                  if (active) {
+                    // Klik bulan yang sudah aktif & ada bulan lain → isolasi hanya bulan ini
+                    if (prev.length > 1) return [idx]
+                    return prev.filter(m => m !== idx)
+                  }
+                  return [...prev, idx].sort((a, b) => a - b)
+                })
+              }}
+              className={cn(
+                'px-2 py-0.5 text-xs rounded-md border transition-colors select-none',
+                active
+                  ? 'bg-[#1B4F72] text-white border-[#1B4F72] font-medium'
+                  : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
+              )}
+            >
+              {label}
+            </button>
+          )
+        })}
+        {selectedMonths.length < 12 && (
+          <button
+            onClick={() => setSelectedMonths([0,1,2,3,4,5,6,7,8,9,10,11])}
+            className="ml-1 text-[10px] text-blue-600 hover:underline"
+          >
+            Reset
+          </button>
+        )}
       </div>
 
       {/* ── Summary cards ────────────────────────────────────────────────── */}
@@ -258,27 +327,30 @@ export default function LaporanPendapatan2() {
 
       {/* ── Table ────────────────────────────────────────────────────────── */}
       <div className="bg-white rounded-xl border overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="overflow-auto max-h-[70vh]">
           <table className="w-full text-xs">
-            <thead>
-              <tr className="bg-gray-50 text-gray-500 uppercase">
+            <thead className="sticky top-0 z-10">
+              <tr className="bg-gray-50 text-gray-500 uppercase shadow-[0_1px_0_#e5e7eb]">
                 <th className="text-left px-3 py-2.5 w-6">#</th>
                 <SortTh label="Mitra" col="namaMitra" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                 <SortTh label="Aset" col="namaAset" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                 <SortTh label="Periode" col="periodeLabel" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                <th className="text-left px-3 py-2.5">No Perjanjian</th>
                 <SortTh label="Status" col="status" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                <th className="text-left px-3 py-2.5">Tgl Billing</th>
                 <th className="text-left px-3 py-2.5">No Kontrak SAP</th>
                 <th className="text-left px-3 py-2.5">No Invoice SAP</th>
                 <th className="text-left px-3 py-2.5">No Billing SAP</th>
                 <SortTh label="Total Tagihan" col="totalTagihan" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
                 <SortTh label="Cash In" col="cashIn" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
+                <th className="text-right px-3 py-2.5 font-semibold text-gray-500">Pendapatan Akrual</th>
                 <SortTh label="Sisa" col="sisa" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
               </tr>
             </thead>
             <tbody className="divide-y">
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={11} className="px-4 py-8 text-center text-gray-400">
+                  <td colSpan={14} className="px-4 py-8 text-center text-gray-400">
                     Tidak ada data untuk filter yang dipilih
                   </td>
                 </tr>
@@ -289,11 +361,13 @@ export default function LaporanPendapatan2() {
                   <td className="px-3 py-2 font-medium">{row.namaMitra}</td>
                   <td className="px-3 py-2 text-gray-600">{row.namaAset}</td>
                   <td className="px-3 py-2 text-gray-600">{row.periodeLabel}</td>
+                  <td className="px-3 py-2 text-gray-500">{row.noPerjanjian}</td>
                   <td className="px-3 py-2">
                     <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-medium ${STATUS_COLOR[row.status]}`}>
                       {STATUS_LABEL[row.status]}
                     </span>
                   </td>
+                  <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{formatTanggal(row.tglBilling)}</td>
 
                   <td className="px-3 py-2">
                     <EditableCell
@@ -339,6 +413,9 @@ export default function LaporanPendapatan2() {
                     <CurrencyDisplay value={row.cashIn} size="sm" />
                   </td>
                   <td className="px-3 py-2 text-right">
+                    <CurrencyDisplay value={row.pendapatanAkrual} size="sm" className="text-[#5B2C6F]" />
+                  </td>
+                  <td className="px-3 py-2 text-right">
                     <CurrencyDisplay value={row.sisa} size="sm" className={row.sisa > 0 ? 'text-red-600' : 'text-gray-400'} />
                   </td>
                 </tr>
@@ -347,7 +424,7 @@ export default function LaporanPendapatan2() {
             {rows.length > 0 && (
               <tfoot>
                 <tr className="border-t-2 bg-gray-50 font-semibold text-xs">
-                  <td colSpan={8} className="px-3 py-2.5 text-gray-700">Total ({rows.length} tagihan)</td>
+                  <td colSpan={11} className="px-3 py-2.5 text-gray-700">Total ({rows.length} tagihan)</td>
                   <td className="px-3 py-2.5 text-right"><CurrencyDisplay value={totalTagihan} size="sm" /></td>
                   <td className="px-3 py-2.5 text-right text-green-700"><CurrencyDisplay value={totalCashIn} size="sm" /></td>
                   <td className="px-3 py-2.5 text-right text-red-600"><CurrencyDisplay value={totalSisa} size="sm" /></td>

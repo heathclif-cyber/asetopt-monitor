@@ -7,8 +7,7 @@ import { KerjaSama } from './pages/jalurB/KerjaSama'
 import { Kompensasi } from './pages/jalurB/Kompensasi'
 import { PembayaranPBB } from './pages/jalurB/PembayaranPBB'
 import { NotifikasiSP } from './pages/jalurB/NotifikasiSP'
-import LaporanPendapatan from './pages/jalurB/LaporanPendapatan'
-import LaporanPendapatan2 from './pages/jalurB/LaporanPendapatan2'
+import LaporanPendapatan from './pages/jalurB/LaporanPendapatan2'
 import { DataAset } from './pages/master/DataAset'
 import { DataNJOP } from './pages/master/DataNJOP'
 import { PenilaianKJPP } from './pages/master/PenilaianKJPP'
@@ -28,7 +27,6 @@ function App() {
         <Route path="/jalur-b/pbb" element={<PembayaranPBB />} />
         <Route path="/jalur-b/notifikasi" element={<NotifikasiSP />} />
         <Route path="/jalur-b/laporan" element={<LaporanPendapatan />} />
-        <Route path="/jalur-b/laporan2" element={<LaporanPendapatan2 />} />
         <Route path="/master/aset" element={<DataAset />} />
         <Route path="/master/njop" element={<DataNJOP />} />
         <Route path="/master/kjpp" element={<PenilaianKJPP />} />
