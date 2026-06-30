@@ -232,10 +232,10 @@ export function InputPembayaran() {
           supermanReady ? 'bg-green-50 border-green-200 text-green-800' : 'bg-amber-50 border-amber-200 text-amber-800'
         }`}>
           {!supermanStatus.configured && (
-            <p>Superman belum dikonfigurasi — set <code>SUPERMAN_USER</code> dan <code>SUPERMAN_PASSWORD</code> di <code>api/.env</code>.</p>
+            <p>Superman belum dikonfigurasi — set <code>SUPERMAN_USER</code> dan <code>SUPERMAN_PASSWORD</code> di service API Railway (bukan service frontend).</p>
           )}
           {supermanStatus.configured && !supermanStatus.playwright_ready && (
-            <p>Playwright belum siap: {supermanStatus.playwright_error ?? 'jalankan'} <code>python scripts/setup_playwright.py</code> di folder <code>api/</code>.</p>
+            <p>Playwright belum siap: {supermanStatus.playwright_error ?? 'periksa deploy service API (Dockerfile Playwright)'}</p>
           )}
           {supermanStatus.configured && supermanStatus.playwright_ready && !supermanStatus.session_valid && (
             <p>Session Superman kedaluwarsa — klik <strong>Kirim ke Superman</strong> atau verifikasi captcha saat diminta.</p>
