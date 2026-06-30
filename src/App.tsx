@@ -6,6 +6,8 @@ import { PotensiPendapatan } from './pages/jalurA/PotensiPendapatan'
 import { KerjaSama } from './pages/jalurB/KerjaSama'
 import { Kompensasi } from './pages/jalurB/Kompensasi'
 import { PembayaranPBB } from './pages/jalurB/PembayaranPBB'
+import { InputPembayaran } from './pages/jalurB/InputPembayaran'
+import { BuatInvoice } from './pages/jalurB/BuatInvoice'
 import { NotifikasiSP } from './pages/jalurB/NotifikasiSP'
 import LaporanPendapatan from './pages/jalurB/LaporanPendapatan2'
 import { DataAset } from './pages/master/DataAset'
@@ -24,6 +26,8 @@ function App() {
         <Route path="/jalur-a/potensi" element={<PotensiPendapatan />} />
         <Route path="/jalur-b/kerja-sama" element={<KerjaSama />} />
         <Route path="/jalur-b/kompensasi" element={<Kompensasi />} />
+        <Route path="/jalur-b/invoice" element={<BuatInvoice />} />
+        <Route path="/jalur-b/pembayaran" element={<InputPembayaran />} />
         <Route path="/jalur-b/pbb" element={<PembayaranPBB />} />
         <Route path="/jalur-b/notifikasi" element={<NotifikasiSP />} />
         <Route path="/jalur-b/laporan" element={<LaporanPendapatan />} />

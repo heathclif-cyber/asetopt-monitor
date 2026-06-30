@@ -11,6 +11,7 @@ export interface RKAPTargetRow {
   no: number
   kode?: string
   nama: string
+  basis?: string
   total: number
   jan: number; feb: number; mar: number; apr: number
   mei: number; jun: number; jul: number; agu: number

@@ -225,6 +225,10 @@ interface KSPBBCardProps {
 function KSPBBCard({ ks, pbbRecords, hasil, onAdd, onEdit, onDelete, onInvoice }: KSPBBCardProps) {
   const [expanded, setExpanded] = useState(false)
   const anyArea = hasil.detail.some(r => r.hasAreaData)
+  const today = new Date().toISOString().split('T')[0]
+  const canInvoicePBB = pbbRecords.some(
+    p => p.tgl_jatuh_tempo && p.tgl_jatuh_tempo <= today && p.status_bayar !== 'lunas',
+  )
 
   return (
     <div className="rounded-xl border bg-white overflow-hidden">
@@ -268,7 +272,14 @@ function KSPBBCard({ ks, pbbRecords, hasil, onAdd, onEdit, onDelete, onInvoice }
           {/* Action bar */}
           <div className="flex items-center justify-end gap-2">
             {hasil.detail.length > 0 && (
-              <Button size="sm" variant="outline" className="text-[#1B4F72] border-[#1B4F72]" onClick={onInvoice}>
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-[#1B4F72] border-[#1B4F72]"
+                onClick={onInvoice}
+                disabled={!canInvoicePBB}
+                title={canInvoicePBB ? 'Buat invoice tagihan PBB' : 'Invoice PBB aktif setelah jatuh tempo dan belum lunas'}
+              >
                 <FileDown size={13} /> Invoice PBB
               </Button>
             )}
@@ -664,6 +675,7 @@ export function PembayaranPBB() {
       tgl_jatuh_tempo:    data.tgl_jatuh_tempo || null,
       tgl_bayar_pbb:      data.tgl_bayar_pbb || null,
       jumlah_pbb_dibayar: jumlahDibayar > 0 ? jumlahDibayar : null,
+      no_invoice:         editTarget?.no_invoice ?? null,
       status_bayar,
     }
 

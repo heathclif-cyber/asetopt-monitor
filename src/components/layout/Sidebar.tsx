@@ -38,6 +38,8 @@ const navItems: NavItem[] = [
     children: [
       { label: 'Kerja Sama', to: '/jalur-b/kerja-sama' },
       { label: 'Kompensasi', to: '/jalur-b/kompensasi' },
+      { label: 'Buat Invoice', to: '/jalur-b/invoice' },
+      { label: 'Input Pembayaran', to: '/jalur-b/pembayaran' },
       { label: 'Pembayaran PBB', to: '/jalur-b/pbb' },
       { label: 'Notifikasi & SP', to: '/jalur-b/notifikasi' },
       { label: 'Laporan Pendapatan', to: '/jalur-b/laporan' },

@@ -117,6 +117,9 @@ export interface Kompensasi {
   tgl_jatuh_tempo: string
   no_invoice_sap: string | null
   no_billing_sap: string | null
+  no_invoice: string | null
+  invoice_tgl: string | null
+  superman: string | null
   keterangan: string | null
   created_at: string
   kerja_sama?: KerjaSama
@@ -126,11 +129,65 @@ export interface Kompensasi {
 export interface Pembayaran {
   id: string
   kompensasi_id: string
+  no_pembayaran: string | null
   tgl_bayar: string
   nominal_bayar: number
+  is_pph_disetor: boolean
+  superman: string | null
   bukti_url: string | null
   keterangan: string | null
   created_at: string
+}
+
+export interface DocumentUpload {
+  id: string
+  entity_type: string
+  entity_id: string
+  doc_type: string
+  file_name: string
+  storage_path: string
+  uploaded_at: string
+}
+
+export type SupermanDocType = 'kontrak' | 'invoice' | 'kuitansi' | 'rekening_koran'
+
+export interface SupermanDocRequirement {
+  doc_type: SupermanDocType
+  label: string
+  required: boolean
+  uploaded: boolean
+  file_name?: string | null
+  entity_type?: string
+  entity_id?: string
+}
+
+export interface SupermanDeklarasiResult {
+  superman_saved?: string | null
+  superman?: string | null
+  sppn_no?: string | null
+  sppb_no?: string | null
+  message?: string
+  superman_url?: string
+}
+
+export interface SupermanDeklarasiProgress {
+  job_id: string
+  kompensasi_id?: string
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  percent: number
+  stage: string
+  result?: SupermanDeklarasiResult | null
+  error?: string | null
+}
+
+export interface SupermanStatus {
+  configured: boolean
+  session_exists: boolean
+  session_valid: boolean
+  playwright_ready: boolean
+  playwright_error?: string | null
+  base_url: string
+  captcha_hint?: string | null
 }
 
 export interface SuratPeringatan {
@@ -177,6 +234,7 @@ export interface PBB {
   tgl_jatuh_tempo: string | null
   tgl_bayar_pbb: string | null
   jumlah_pbb_dibayar: number | null
+  no_invoice: string | null
   status_bayar: string
   created_at: string
   aset?: Aset

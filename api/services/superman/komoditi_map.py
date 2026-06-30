@@ -1,0 +1,18 @@
+from __future__ import annotations
+
+import os
+
+GL_PPN = os.getenv("SUPERMAN_GL_PPN", "21060008")
+GL_PPH = os.getenv("SUPERMAN_GL_PPH", "11600000")
+CF_PPH_ID = os.getenv("SUPERMAN_CF_PPH", "204")
+KPP_RECIPIENT_NAME = os.getenv("SUPERMAN_KPP_NAME", "KPP Wajib Pajak Besar 3")
+SAP_CUSTOMER = "8S00000001"
+PROFIT_CENTER_SEARCH = os.getenv("SUPERMAN_PROFIT_CENTER_SEARCH", "Regional 8")
+PROFIT_CENTER_PPN_SEARCH = os.getenv("SUPERMAN_PROFIT_CENTER_PPN", "A0102")
+CF_PENDAPATAN_ID = "1"
+CF_PPN_ID = "2"
+DEFAULT_GL_PENDAPATAN_ASET = os.getenv("SUPERMAN_GL_PENDAPATAN_ASET", "41100030")
+
+
+def resolve_gl_pendapatan_aset() -> str:
+    return DEFAULT_GL_PENDAPATAN_ASET
