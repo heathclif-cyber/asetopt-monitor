@@ -52,14 +52,21 @@ def _set_readonly_input(page: Page, selector: str, value: str) -> None:
     )
 
 
-def _fill_nama_alamat_diterima(page: Page) -> None:
+def _fill_nama_alamat_diterima(page: Page, payload: DeklarasiPayload) -> None:
+    nama = (payload.mitra_pembeli or "-").strip()
+    alamat = nama
     if page.locator("#nama_diterima_sppn").count():
         try:
             page.select_option("#nama_diterima_sppn", "tertanggu", force=True)
         except Exception:
             pass
-    page.fill("#nama_diterima_sppn_input", "tertanggu")
-    page.fill("#alamat_diterima_sppn_input", "tertanggu")
+        page.locator("#nama_diterima_sppn").dispatch_event("change")
+        page.wait_for_timeout(300)
+    page.fill("#nama_diterima_sppn_input", nama)
+    page.fill("#alamat_diterima_sppn_input", alamat)
+    for sel in ("#nama_diterima_sppn_input", "#alamat_diterima_sppn_input"):
+        page.locator(sel).dispatch_event("input")
+        page.locator(sel).dispatch_event("change")
 
 
 def _fill_shared_informasi(page: Page, payload: DeklarasiPayload, cfg: SupermanConfig) -> None:
@@ -92,7 +99,7 @@ def _fill_shared_informasi(page: Page, payload: DeklarasiPayload, cfg: SupermanC
             [payload.kpp_recipient],
         )
         page.wait_for_timeout(800)
-        _fill_nama_alamat_diterima(page)
+        _fill_nama_alamat_diterima(page, payload)
         return
 
     page.fill("#kwitansi_sppn", payload.mitra_pembeli)
@@ -103,7 +110,7 @@ def _fill_shared_informasi(page: Page, payload: DeklarasiPayload, cfg: SupermanC
     if payload.tanggal_transfer:
         _set_readonly_input(page, "#tanggal_sppn", payload.tanggal_transfer)
         page.locator("#tanggal_sppn").dispatch_event("blur")
-    _fill_nama_alamat_diterima(page)
+    _fill_nama_alamat_diterima(page, payload)
 
 
 def _set_ckeditor(page: Page, editor_id: str, text: str) -> None:
@@ -140,8 +147,13 @@ def _set_ckeditor(page: Page, editor_id: str, text: str) -> None:
 
 
 def _fill_isi_sppn_block(page: Page, isi_index: int, item: LineItem) -> None:
-    pick_gl(page, isi_index, item.gl_code)
-    pick_customer(page, isi_index, item.sap_customer)
+    if item.gl_code.startswith("411"):
+        page.select_option(f"#jenis_sap_sppn_{isi_index}", "customer", force=True)
+        page.wait_for_timeout(500)
+        pick_customer(page, isi_index, item.sap_customer)
+    else:
+        pick_gl(page, isi_index, item.gl_code)
+        pick_customer(page, isi_index, item.sap_customer)
     pick_profit_center(page, isi_index, item.profit_center_search)
     pick_cash_flow(page, isi_index, item.cash_flow)
 
@@ -210,22 +222,17 @@ def _upload_support_docs(page: Page, support_docs: list[Path], *, combined: bool
         page.wait_for_timeout(600)
         _upload_files_to_input(page, "#dokumen_pendukung_sppn", paths)
 
-    try:
-        page.wait_for_function(
-            """(expected) => {
-                const tab = document.querySelector('#tab-informasi-sppn') || document.body;
-                const markers = tab.querySelectorAll(
-                    'table tbody tr, .file-row, .dz-preview, .uploaded-file, [data-filename], .list-dokumen li'
-                ).length;
-                const input = document.querySelector('#dokumen_pendukung_sppn');
-                const inputCount = input && input.files ? input.files.length : 0;
-                return markers >= expected || inputCount >= expected;
-            }""",
-            len(paths),
-            timeout=60000,
-        )
-    except Exception:
-        pass
+    page.wait_for_function(
+        """(expected) => {
+            const tab = document.querySelector('#tab-informasi-sppn') || document.body;
+            const markers = tab.querySelectorAll(
+                'table tbody tr, .file-row, .dz-preview, .uploaded-file, [data-filename], .list-dokumen li'
+            ).length;
+            return markers >= expected;
+        }""",
+        len(paths),
+        timeout=90000,
+    )
 
     page.evaluate(
         """() => {
@@ -319,10 +326,14 @@ def _audit_empty_fields(page: Page, *, combined: bool) -> list[str]:
             const uploadedMarkers = tab.querySelectorAll(
                 'table tbody tr, .file-row, .dz-preview, .uploaded-file, [data-filename], .list-dokumen li'
             ).length;
-            const fileInput = document.querySelector('#dokumen_pendukung_sppn');
-            const fileCount = fileInput && fileInput.files ? fileInput.files.length : 0;
-            if (uploadedMarkers < 1 && fileCount < 1) {
+            if (uploadedMarkers < 1) {
                 missing.push('Dokumen Pendukung SPPn (belum ter-upload ke Superman)');
+            }
+            for (const [sel, label] of [
+                ['#nama_diterima_sppn_input', 'Nama Diterima SPPn'],
+                ['#alamat_diterima_sppn_input', 'Alamat Diterima SPPn'],
+            ]) {
+                if (!val(sel)) missing.push(label);
             }
             if (combined) {
                 for (const [sel, label] of [
@@ -342,6 +353,24 @@ def _audit_empty_fields(page: Page, *, combined: bool) -> list[str]:
                 const pcSelect = document.querySelector(`#select_profit_center_sppn_${i}`);
                 if (pcSelect && !String(pcSelect.value || '').trim()) {
                     missing.push(`Profit Center baris SPPn ${i}`);
+                }
+                const custIds = [
+                    `sap_customer_id_sppn_${i}`,
+                    `select_customer_id_sppn_${i}`,
+                    `customer_id_sppn_${i}`,
+                ];
+                const custEl = custIds.map(id => document.getElementById(id)).find(Boolean);
+                if (custEl && !String(custEl.value || '').trim()) {
+                    missing.push(`Customer SAP baris SPPn ${i}`);
+                }
+                const pcHiddenIds = [
+                    `profit_center_sppn_id_${i}`,
+                    `select_profit_center_sppn_id_${i}`,
+                    `master_profit_center_id_sppn_${i}`,
+                ];
+                const pcHidden = pcHiddenIds.map(id => document.getElementById(id)).find(Boolean);
+                if (pcHidden && !String(pcHidden.value || '').trim()) {
+                    missing.push(`Profit Center (hidden) baris SPPn ${i}`);
                 }
                 const cfSel = document.querySelector(i === 1 ? '#cash_flow_sppn' : `#cash_flow_sppn_${i}`);
                 if (cfSel && !String(cfSel.value || '').trim()) {

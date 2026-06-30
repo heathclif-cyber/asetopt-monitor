@@ -57,6 +57,34 @@ def _fetch_profit_center(page: Page, search: str) -> dict | None:
     return rows[0] if rows else None
 
 
+def _customer_field_exists(page: Page, isi_index: int) -> bool:
+    for sid in (
+        f"sap_customer_sppn_{isi_index}",
+        f"select_customer_sppn_{isi_index}",
+        f"customer_sppn_{isi_index}",
+    ):
+        if page.locator(f"#{sid}").count():
+            return True
+    return False
+
+
+def _verify_hidden_value(
+    page: Page,
+    hidden_ids: tuple[str, ...],
+    expected: str,
+    label: str,
+) -> None:
+    expected_s = str(expected).strip()
+    for hid in hidden_ids:
+        loc = page.locator(f"#{hid}")
+        if not loc.count():
+            continue
+        val = str(loc.input_value() or "").strip()
+        if val:
+            return
+    raise RuntimeError(f"{label}: hidden ID tidak terisi ({', '.join(hidden_ids)})")
+
+
 def _set_select2_value(page: Page, select_id: str, hidden_id: str, option_id: str, option_text: str) -> None:
     page.evaluate(
         """([selectId, hiddenId, optId, optText]) => {
@@ -78,9 +106,13 @@ def _set_select2_value(page: Page, select_id: str, hidden_id: str, option_id: st
 
 
 def pick_customer(page: Page, isi_index: int, customer_code: str) -> None:
+    if not _customer_field_exists(page, isi_index):
+        return
+
     row = _fetch_customer(page, customer_code)
     if not row:
-        return
+        raise RuntimeError(f"Customer SAP {customer_code} tidak ditemukan di master Superman")
+
     customer_id = str(
         row.get("master_customer_id")
         or row.get("customer_id")
@@ -88,7 +120,8 @@ def pick_customer(page: Page, isi_index: int, customer_code: str) -> None:
         or ""
     )
     if not customer_id:
-        return
+        raise RuntimeError(f"Customer SAP {customer_code}: ID kosong di response API")
+
     code = (
         row.get("master_customer_kode")
         or row.get("customer_kode")
@@ -106,7 +139,15 @@ def pick_customer(page: Page, isi_index: int, customer_code: str) -> None:
         if not page.locator(f"#{select_id}").count():
             continue
         _set_select2_value(page, select_id, hidden_id, customer_id, text)
+        _verify_hidden_value(
+            page,
+            (hidden_id,),
+            customer_id,
+            f"Customer SAP baris SPPn {isi_index}",
+        )
         return
+
+    raise RuntimeError(f"Tidak ada field customer SPPn untuk baris {isi_index}")
 
 
 def pick_gl(page: Page, isi_index: int, gl_kode: str) -> None:
@@ -123,6 +164,12 @@ def pick_gl(page: Page, isi_index: int, gl_kode: str) -> None:
         f"sap_gl_sppn_id_{isi_index}",
         gl_id,
         text,
+    )
+    _verify_hidden_value(
+        page,
+        (f"sap_gl_sppn_id_{isi_index}",),
+        gl_id,
+        f"GL baris SPPn {isi_index}",
     )
 
 
@@ -143,6 +190,12 @@ def pick_profit_center(page: Page, isi_index: int, search: str = "Regional 8") -
     for hidden_id in hidden_candidates:
         if page.locator(f"#{hidden_id}").count():
             _set_select2_value(page, select_id, hidden_id, pc_id, text)
+            _verify_hidden_value(
+                page,
+                (hidden_id,),
+                pc_id,
+                f"Profit Center baris SPPn {isi_index}",
+            )
             return
     page.evaluate(
         """([selectId, optId, optText]) => {
@@ -155,6 +208,12 @@ def pick_profit_center(page: Page, isi_index: int, search: str = "Regional 8") -
         [select_id, pc_id, text],
     )
     page.wait_for_timeout(600)
+    _verify_hidden_value(
+        page,
+        hidden_candidates,
+        pc_id,
+        f"Profit Center baris SPPn {isi_index}",
+    )
 
 
 def pick_cash_flow(page: Page, isi_index: int, cf_id: str) -> None:

@@ -27,7 +27,7 @@ def _to_superman_date(raw: str) -> str:
     parts = raw.split("-")
     if len(parts) == 3 and len(parts[0]) == 4:
         y, m, d = parts
-        return f"{d}-{m}-{y}"
+        return f"{d}/{m}/{y}"
     return raw
 
 
