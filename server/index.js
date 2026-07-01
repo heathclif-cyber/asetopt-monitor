@@ -15,6 +15,7 @@ if (API_PROXY_URL) {
   const proxy = createProxyMiddleware({
     target: API_PROXY_URL,
     changeOrigin: true,
+    pathFilter: (pathname) => pathname.startsWith('/api') || pathname.startsWith('/rest/v1'),
     on: {
       error: (err, _req, res) => {
         console.error('API proxy error:', err.message)
@@ -24,8 +25,7 @@ if (API_PROXY_URL) {
       },
     },
   })
-  app.use('/api', proxy)
-  app.use('/rest/v1', proxy)
+  app.use(proxy)
   console.log(`Proxy /api dan /rest/v1 → ${API_PROXY_URL}`)
 } else {
   console.warn('API_PROXY_URL tidak diset — /api tidak di-proxy (gunakan VITE_API_URL saat build atau set API_PROXY_URL)')
