@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo } from 'react'
+import { useLocation } from 'react-router-dom'
 import { useKompensasiStore } from '@/store/kompensasiStore'
 import { useKerjaSamaStore } from '@/store/kerjaSamaStore'
 import { usePendapatanStore } from '@/store/pendapatanStore'
@@ -10,21 +11,26 @@ import { hitungDenda } from '@/utils/taxUtils'
 
 type SortKey = 'namaMitra' | 'namaAset' | 'periodeLabel' | 'totalTagihan' | 'cashIn' | 'sisa' | 'status'
 type SortDir = 'asc' | 'desc'
-type StatusFilter = 'all' | 'lunas' | 'sebagian' | 'belum_bayar' | 'terlambat' | 'belum_lunas'
+type StatusFilter = 'all' | 'lunas' | 'belum_lunas'
 type PeriodeMode = 'semua' | 'terbaru' | 'terdekat'
 
 const STATUS_LABEL: Record<string, string> = {
   lunas: 'Lunas',
-  sebagian: 'Sebagian',
-  belum_bayar: 'Belum Bayar',
-  terlambat: 'Terlambat',
+  sebagian: 'Belum Lunas',
+  belum_bayar: 'Belum Lunas',
+  terlambat: 'Belum Lunas',
 }
 
 const STATUS_COLOR: Record<string, string> = {
   lunas: 'bg-green-100 text-green-700',
-  sebagian: 'bg-yellow-100 text-yellow-700',
+  sebagian: 'bg-amber-100 text-amber-700',
   belum_bayar: 'bg-gray-100 text-gray-600',
   terlambat: 'bg-red-100 text-red-700',
+}
+
+function parseTglParts(dateStr: string): { year: number; month: number } {
+  const [y, m] = dateStr.slice(0, 10).split('-').map(Number)
+  return { year: y, month: m - 1 }
 }
 
 function resolveStatus(totalDibayar: number, efektifTagihan: number, hariTerlambat: number): string {
@@ -35,6 +41,7 @@ function resolveStatus(totalDibayar: number, efektifTagihan: number, hariTerlamb
 }
 
 export default function LaporanPendapatan() {
+  const location = useLocation()
   const { allKompensasi, fetchAllKompensasi } = useKompensasiStore()
   const { daftarKS, fetchKS } = useKerjaSamaStore()
   const { daftarPDDM, allPengakuan, fetchAll: fetchPDDM } = usePendapatanStore()
@@ -44,14 +51,14 @@ export default function LaporanPendapatan() {
 
   // ── Filters ───────────────────────────────────────────────────────────────
   const tahunList = useMemo(() => {
-    const years = new Set(allKompensasi.map(k => new Date(k.tgl_jatuh_tempo).getFullYear()))
+    const years = new Set(allKompensasi.map(k => parseTglParts(k.tgl_jatuh_tempo).year))
     return Array.from(years).sort((a, b) => b - a)
   }, [allKompensasi])
 
   const [tahun, setTahun] = useState(new Date().getFullYear())
   const [filterMitra, setFilterMitra] = useState('all')
-  const [filterStatus, setFilterStatus] = useState<StatusFilter>('belum_lunas')
-  const [periodeMode, setPeriodeMode] = useState<PeriodeMode>('terdekat')
+  const [filterStatus, setFilterStatus] = useState<StatusFilter>('all')
+  const [periodeMode, setPeriodeMode] = useState<PeriodeMode>('semua')
   const [selectedMonths, setSelectedMonths] = useState<number[]>([0,1,2,3,4,5,6,7,8,9,10,11])
 
   // ── Sort ─────────────────────────────────────────────────────────────────
@@ -59,8 +66,10 @@ export default function LaporanPendapatan() {
   const [sortDir, setSortDir] = useState<SortDir>('desc')
 
   useEffect(() => {
-    fetchAllKompensasi(); fetchKS(); fetchPDDM()
-  }, [])
+    fetchAllKompensasi()
+    fetchKS()
+    fetchPDDM()
+  }, [location.key])
 
   // Keep tahun in sync when kompensasi loads
   useEffect(() => {
@@ -70,9 +79,9 @@ export default function LaporanPendapatan() {
   // ── Build rows ────────────────────────────────────────────────────────────
   const allRows = useMemo(() => {
     return allKompensasi
-      .filter(k => new Date(k.tgl_jatuh_tempo).getFullYear() === tahun)
+      .filter(k => parseTglParts(k.tgl_jatuh_tempo).year === tahun)
       .map(k => {
-        const ks = daftarKS.find(x => x.id === k.ks_id)
+        const ks = daftarKS.find(x => x.id === k.ks_id) ?? k.kerja_sama
         const totalDibayar = (k.pembayaran ?? []).reduce((s, p) => s + p.nominal_bayar, 0)
         const efektifTagihan = Math.max(0, (k.total_tagihan ?? 0) - (k.pengurang ?? 0))
         const sisa = Math.max(0, efektifTagihan - totalDibayar)
@@ -122,9 +131,11 @@ export default function LaporanPendapatan() {
     let data = allRows
 
     if (filterMitra !== 'all') data = data.filter(r => r.ksId === filterMitra)
-    if (filterStatus === 'belum_lunas') data = data.filter(r => r.status !== 'lunas')
-    else if (filterStatus !== 'all') data = data.filter(r => r.status === filterStatus)
-    if (selectedMonths.length < 12) data = data.filter(r => selectedMonths.includes(new Date(r.tglJatuhTempo).getMonth()))
+    if (filterStatus === 'lunas') data = data.filter(r => r.status === 'lunas')
+    else if (filterStatus === 'belum_lunas') data = data.filter(r => r.status !== 'lunas')
+    if (selectedMonths.length < 12) {
+      data = data.filter(r => selectedMonths.includes(parseTglParts(r.tglJatuhTempo).month))
+    }
 
     if (periodeMode === 'terbaru') {
       const latestByKs = new Map<string, string>()
@@ -166,7 +177,7 @@ export default function LaporanPendapatan() {
     })
 
     return data
-  }, [allRows, filterMitra, filterStatus, periodeMode, sortKey, sortDir])
+  }, [allRows, filterMitra, filterStatus, selectedMonths, periodeMode, sortKey, sortDir])
 
   // ── Summary ───────────────────────────────────────────────────────────────
   const totalTagihan = rows.reduce((s, r) => s + r.totalTagihan, 0)
@@ -211,7 +222,9 @@ export default function LaporanPendapatan() {
     <div className="space-y-4">
       <div>
         <h1 className="text-lg font-bold text-gray-800">Laporan Pendapatan — {tahun}</h1>
-        <p className="text-xs text-gray-500 mt-1">Filter & sort interaktif · Bulan · Cash In · Pendapatan Akrual (PSAK 73) · Referensi SAP</p>
+        <p className="text-xs text-gray-500 mt-1">
+          Satu baris = satu tahap kompensasi dari menu Kompensasi · Cash In dari pembayaran · Kolom SAP diisi manual setelah posting
+        </p>
       </div>
 
       {/* ── Filter bar ───────────────────────────────────────────────────── */}
@@ -248,12 +261,9 @@ export default function LaporanPendapatan() {
             onChange={e => setFilterStatus(e.target.value as StatusFilter)}
             className="text-xs border rounded-md px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-[#1B4F72]"
           >
-            <option value="all">Semua Status</option>
-            <option value="belum_lunas">⚠ Belum Lunas</option>
+            <option value="all">Semua</option>
+            <option value="belum_lunas">Belum Lunas</option>
             <option value="lunas">Lunas</option>
-            <option value="sebagian">Sebagian</option>
-            <option value="belum_bayar">Belum Bayar</option>
-            <option value="terlambat">Terlambat</option>
           </select>
         </div>
 
@@ -282,11 +292,10 @@ export default function LaporanPendapatan() {
             <button
               key={idx}
               onClick={() => {
-                if (active && selectedMonths.length === 1) return // minimal 1 bulan dipilih
                 setSelectedMonths(prev => {
+                  if (prev.length === 12) return [idx]
                   if (active) {
-                    // Klik bulan yang sudah aktif & ada bulan lain → isolasi hanya bulan ini
-                    if (prev.length > 1) return [idx]
+                    if (prev.length === 1) return prev
                     return prev.filter(m => m !== idx)
                   }
                   return [...prev, idx].sort((a, b) => a - b)
