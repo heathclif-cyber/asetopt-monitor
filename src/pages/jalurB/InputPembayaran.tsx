@@ -21,7 +21,19 @@ import { KuitansiDialog } from '@/components/common/KuitansiDialog'
 
 import { api } from '@/lib/apiClient'
 import { formatRupiah, formatTanggal } from '@/lib/utils'
-import { Kompensasi, Pembayaran, SupermanStatus } from '@/types'
+import { Kompensasi, Pembayaran, SupermanDocRequirement, SupermanStatus } from '@/types'
+
+function supermanDocBlockMessage(requirements: SupermanDocRequirement[], ready: boolean): string | null {
+  if (ready) return null
+  const required = requirements.filter(r => r.required)
+  const uploaded = required.filter(r => r.uploaded).length
+  const total = required.length
+  const missing = required.filter(r => !r.uploaded).map(r => r.label).join(', ')
+  return (
+    `Dokumen pendukung Superman belum terlampir (${uploaded}/${total} file). `
+    + `Coba upload ulang ${missing || 'Kontrak, Invoice, dan Rekening Koran'}.`
+  )
+}
 
 const schema = z.object({
   kompensasi_id: z.string().min(1),
@@ -85,6 +97,10 @@ export function InputPembayaran() {
       form.setValue('kompensasi_id', kid)
     }
   }, [allKompensasi, params])
+
+  useEffect(() => {
+    setDocsReady(false)
+  }, [selectedId])
 
   useEffect(() => {
     if (!selectedId) { setRiwayat([]); return }
@@ -173,9 +189,16 @@ export function InputPembayaran() {
       return
     }
     const willLunas = ws ? (ws.totalDibayar + data.nominal_bayar >= ws.efektifTagihan - 0.5) : false
-    if (willLunas && !docsReady) {
-      alert('Lengkapi dokumen Superman (invoice + rekening koran) terlebih dahulu.')
-      return
+    if (willLunas) {
+      const docRes = await api.get<{ requirements: SupermanDocRequirement[]; ready: boolean }>(
+        `/api/superman/doc-requirements?kompensasi_id=${data.kompensasi_id}`,
+      )
+      setDocsReady(docRes.ready)
+      const blockMessage = supermanDocBlockMessage(docRes.requirements, docRes.ready)
+      if (blockMessage) {
+        alert(blockMessage)
+        return
+      }
     }
     try {
       const saved = await api.post<Pembayaran & { superman_job?: { job_id: string } }>('/api/pembayaran', {

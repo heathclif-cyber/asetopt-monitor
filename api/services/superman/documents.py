@@ -131,18 +131,22 @@ def _upload_status(
 ) -> tuple[bool, str | None]:
     upload = _latest_upload(db, entity_type, entity_id, doc_type)
     if upload:
+        file_name = upload.file_name
         if upload.storage_path:
             try:
-                get_file_path(upload.storage_path)
-                return True, upload.file_name
+                path = Path(get_file_path(upload.storage_path))
+                if path.is_file():
+                    return True, file_name
             except StorageError:
                 pass
         try:
             path = _path_from_upload(upload)
             if path.is_file():
-                return True, upload.file_name
+                return True, file_name
         except StorageError:
             pass
+        if upload.storage_path:
+            return True, file_name
 
     scanned = _scan_folder(entity_type, entity_id, doc_type)
     if scanned and scanned.is_file():
@@ -201,6 +205,44 @@ def _latest_pembayaran(kompensasi: models.Kompensasi) -> models.Pembayaran | Non
     return pay_rows[0] if pay_rows else None
 
 
+def _resolve_rekening_koran(db: Session, kompensasi: models.Kompensasi, label: str) -> ResolvedSupportDoc:
+    komp_id = str(kompensasi.id)
+    try:
+        return _resolve_upload(
+            db,
+            entity_type="kompensasi",
+            entity_id=komp_id,
+            doc_type="rekening_koran",
+            label=label,
+        )
+    except FileNotFoundError:
+        pass
+
+    pay_rows = sorted(
+        kompensasi.pembayaran or [],
+        key=lambda p: (p.tgl_bayar or "", p.no_pembayaran or ""),
+        reverse=True,
+    )
+    last_error: FileNotFoundError | None = None
+    for pay in pay_rows:
+        try:
+            return _resolve_upload(
+                db,
+                entity_type="pembayaran",
+                entity_id=str(pay.id),
+                doc_type="rekening_koran",
+                label=label,
+            )
+        except FileNotFoundError as exc:
+            last_error = exc
+    if last_error:
+        raise last_error
+    raise FileNotFoundError(
+        f"Dokumen {label} tidak ditemukan untuk kompensasi={kompensasi.id} "
+        "(doc_type=rekening_koran). Upload di AsetOpt Monitor."
+    )
+
+
 def _rekening_koran_uploaded(db: Session, kompensasi: models.Kompensasi) -> tuple[bool, str | None]:
     komp_id = str(kompensasi.id)
     uploaded, file_name = _upload_status(
@@ -212,15 +254,21 @@ def _rekening_koran_uploaded(db: Session, kompensasi: models.Kompensasi) -> tupl
     if uploaded:
         return uploaded, file_name
 
-    latest = _latest_pembayaran(kompensasi)
-    if not latest:
-        return False, None
-    return _upload_status(
-        db,
-        entity_type="pembayaran",
-        entity_id=str(latest.id),
-        doc_type="rekening_koran",
+    pay_rows = sorted(
+        kompensasi.pembayaran or [],
+        key=lambda p: (p.tgl_bayar or "", p.no_pembayaran or ""),
+        reverse=True,
     )
+    for pay in pay_rows:
+        uploaded, file_name = _upload_status(
+            db,
+            entity_type="pembayaran",
+            entity_id=str(pay.id),
+            doc_type="rekening_koran",
+        )
+        if uploaded:
+            return uploaded, file_name
+    return False, None
 
 
 def _kompensasi_mandatory_sources(kompensasi: models.Kompensasi) -> list[SupportSource]:
@@ -248,6 +296,26 @@ def _kompensasi_optional_sources(kompensasi: models.Kompensasi) -> list[SupportS
         return []
     pay_id = str(pay_rows[0].id)
     return [("pembayaran", pay_id, "kuitansi", "Kuitansi")]
+
+
+def superman_doc_gate_message(
+    requirements: list[dict[str, str | bool | None]],
+    *,
+    ready: bool,
+) -> str | None:
+    if ready:
+        return None
+    required = [req for req in requirements if req.get("required", True)]
+    if not required:
+        return "Dokumen pendukung Superman belum terlampir. Upload Kontrak, Invoice, dan Rekening Koran."
+    uploaded = sum(1 for req in required if req.get("uploaded"))
+    total = len(required)
+    missing_labels = [str(req.get("label") or req.get("doc_type") or "dokumen") for req in required if not req.get("uploaded")]
+    missing_text = ", ".join(missing_labels) if missing_labels else "Kontrak, Invoice, dan Rekening Koran"
+    return (
+        f"Dokumen pendukung Superman belum terlampir ({uploaded}/{total} file). "
+        f"Coba upload ulang {missing_text}."
+    )
 
 
 def superman_doc_requirements_for_kompensasi(
@@ -314,32 +382,9 @@ def resolve_support_docs_for_kompensasi(db: Session, kompensasi_id: str) -> list
                 missing.append(label)
                 continue
             try:
-                resolved.append(
-                    _resolve_upload(
-                        db,
-                        entity_type="kompensasi",
-                        entity_id=entity_id,
-                        doc_type=doc_type,
-                        label=label,
-                    )
-                )
+                resolved.append(_resolve_rekening_koran(db, kompensasi, label))
             except FileNotFoundError:
-                latest = _latest_pembayaran(kompensasi)
-                if not latest:
-                    missing.append(label)
-                    continue
-                try:
-                    resolved.append(
-                        _resolve_upload(
-                            db,
-                            entity_type="pembayaran",
-                            entity_id=str(latest.id),
-                            doc_type=doc_type,
-                            label=label,
-                        )
-                    )
-                except FileNotFoundError:
-                    missing.append(label)
+                missing.append(label)
             continue
 
         uploaded, _ = _upload_status(

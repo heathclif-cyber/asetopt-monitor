@@ -8,6 +8,10 @@ from sqlalchemy.orm import Session, joinedload
 import models
 import schemas
 from database import get_db
+from services.superman.documents import (
+    superman_doc_gate_message,
+    superman_doc_requirements_for_kompensasi,
+)
 from services.superman.runner import start_deklarasi_job
 
 router = APIRouter(prefix="/api/pembayaran", tags=["Pembayaran"])
@@ -78,6 +82,24 @@ def _pembayaran_out(p: models.Pembayaran) -> schemas.PembayaranOut:
     return data
 
 
+def _will_be_lunas(
+    db: Session,
+    kompensasi: models.Kompensasi,
+    nominal: float,
+    exclude_id: Optional[UUID] = None,
+) -> bool:
+    efektif = _efektif_tagihan(kompensasi)
+    paid = _paid_total(db, kompensasi.id, exclude_id=exclude_id)
+    return paid + nominal + 0.5 >= efektif
+
+
+def _ensure_superman_docs_for_lunas(db: Session, kompensasi: models.Kompensasi) -> None:
+    reqs, ready = superman_doc_requirements_for_kompensasi(db, str(kompensasi.id))
+    message = superman_doc_gate_message(reqs, ready=ready)
+    if message:
+        raise HTTPException(status_code=400, detail=message)
+
+
 def _maybe_trigger_superman(db: Session, kompensasi: models.Kompensasi) -> dict | None:
     if _kompensasi_has_superman(kompensasi):
         return None
@@ -110,6 +132,8 @@ def create_pembayaran(body: schemas.PembayaranCreate, db: Session = Depends(get_
 
     nominal = float(body.nominal_bayar)
     _validate_aggregate(db, kompensasi, nominal)
+    if _will_be_lunas(db, kompensasi, nominal):
+        _ensure_superman_docs_for_lunas(db, kompensasi)
 
     saved = models.Pembayaran(
         kompensasi_id=body.kompensasi_id,
