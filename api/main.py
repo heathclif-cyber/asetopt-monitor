@@ -32,4 +32,9 @@ app.include_router(superman_router)
 
 @app.get("/health")
 def health_check():
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "service": "api",
+        "git_commit": os.getenv("RAILWAY_GIT_COMMIT_SHA", "local"),
+        "deployment_id": os.getenv("RAILWAY_DEPLOYMENT_ID", ""),
+    }
