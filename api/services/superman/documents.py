@@ -145,8 +145,6 @@ def _upload_status(
                 return True, file_name
         except StorageError:
             pass
-        if upload.storage_path:
-            return True, file_name
 
     scanned = _scan_folder(entity_type, entity_id, doc_type)
     if scanned and scanned.is_file():

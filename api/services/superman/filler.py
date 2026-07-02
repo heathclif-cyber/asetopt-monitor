@@ -192,45 +192,127 @@ def _is_upload_response(resp) -> bool:
     )
 
 
-def _upload_files_to_input(page: Page, selector: str, paths: list[str]) -> None:
+def _count_doc_markers(page: Page, *, tab_selector: str, input_selector: str) -> int:
+    return int(
+        page.evaluate(
+            """([tabSel, inputSel]) => {
+                const tab = document.querySelector(tabSel);
+                const root = tab || document.body;
+                const input = document.querySelector(inputSel);
+                const inputCount = input && input.files ? input.files.length : 0;
+                const listMarkers = root.querySelectorAll(
+                    '.file-row, .dz-preview, .dz-success, .uploaded-file, [data-filename], .list-dokumen li, .list-dokumen-sppn li'
+                ).length;
+                const tableMarkers = root.querySelectorAll(
+                    'table tbody tr, table.dokumen tbody tr, #list-dokumen-sppn tr, #list_dokumen_sppn tr'
+                ).length;
+                const hiddenMarkers = root.querySelectorAll(
+                    'input[type="hidden"][name*="dokumen"], input[type="hidden"][id*="dokumen"]'
+                ).length;
+                return Math.max(inputCount, listMarkers, tableMarkers, hiddenMarkers);
+            }""",
+            [tab_selector, input_selector],
+        )
+    )
+
+
+def _wait_doc_markers(page: Page, *, tab_selector: str, input_selector: str, minimum: int, timeout: int = 90000) -> None:
+    page.wait_for_function(
+        """([tabSel, inputSel, minimum]) => {
+            const tab = document.querySelector(tabSel);
+            const root = tab || document.body;
+            const input = document.querySelector(inputSel);
+            const inputCount = input && input.files ? input.files.length : 0;
+            const listMarkers = root.querySelectorAll(
+                '.file-row, .dz-preview, .dz-success, .uploaded-file, [data-filename], .list-dokumen li, .list-dokumen-sppn li'
+            ).length;
+            const tableMarkers = root.querySelectorAll(
+                'table tbody tr, table.dokumen tbody tr, #list-dokumen-sppn tr, #list_dokumen_sppn tr'
+            ).length;
+            const hiddenMarkers = root.querySelectorAll(
+                'input[type="hidden"][name*="dokumen"], input[type="hidden"][id*="dokumen"]'
+            ).length;
+            const total = Math.max(inputCount, listMarkers, tableMarkers, hiddenMarkers);
+            return total >= minimum;
+        }""",
+        [tab_selector, input_selector, minimum],
+        timeout=timeout,
+    )
+
+
+def _upload_files_to_input(
+    page: Page,
+    selector: str,
+    paths: list[str],
+    *,
+    tab_selector: str,
+) -> None:
+    locator = page.locator(selector).first
+    locator.wait_for(state="attached", timeout=15000)
     for path in paths:
+        before = _count_doc_markers(
+            page,
+            tab_selector=tab_selector,
+            input_selector=selector,
+        )
         try:
-            with page.expect_response(_is_upload_response, timeout=45000):
-                page.set_input_files(selector, path)
-                page.locator(selector).dispatch_event("change")
+            with page.expect_response(_is_upload_response, timeout=60000):
+                locator.set_input_files(path)
+                locator.dispatch_event("change")
         except Exception:
-            page.set_input_files(selector, path)
-            page.locator(selector).dispatch_event("change")
+            locator.set_input_files(path)
+            locator.dispatch_event("change")
+            page.wait_for_timeout(3000)
+        try:
+            _wait_doc_markers(
+                page,
+                tab_selector=tab_selector,
+                input_selector=selector,
+                minimum=max(before + 1, 1),
+                timeout=60000,
+            )
+        except Exception:
             page.wait_for_timeout(2500)
-        page.wait_for_timeout(1200)
+        page.wait_for_timeout(800)
 
 
 def _upload_support_docs(page: Page, support_docs: list[Path], *, combined: bool) -> None:
     paths = [str(path) for path in support_docs if path.exists()]
     if not paths:
-        return
+        raise RuntimeError(
+            "File dokumen pendukung tidak ditemukan di server API. "
+            "Upload ulang Kontrak, Invoice, dan Rekening Koran di Input Pembayaran."
+        )
 
     if combined:
         page.locator('a[href="#tab-informasi-sppb"]').click(force=True)
         page.wait_for_timeout(500)
-        _upload_files_to_input(page, "#dokumen_pendukung_sppb", paths)
-        page.locator('a[href="#tab-informasi-sppn"]').click(force=True)
-        page.wait_for_timeout(500)
-        _upload_files_to_input(page, "#dokumen_pendukung_sppn", paths)
-    else:
-        page.locator('a[href="#tab-informasi-sppn"]').click(force=True)
-        page.wait_for_timeout(600)
-        _upload_files_to_input(page, "#dokumen_pendukung_sppn", paths)
+        _upload_files_to_input(
+            page,
+            "#dokumen_pendukung_sppb",
+            paths,
+            tab_selector="#tab-informasi-sppb",
+        )
+        _wait_doc_markers(
+            page,
+            tab_selector="#tab-informasi-sppb",
+            input_selector="#dokumen_pendukung_sppb",
+            minimum=1,
+        )
 
-    page.wait_for_function(
-        """(expected) => {
-            const tab = document.querySelector('#tab-informasi-sppn') || document.body;
-            const markers = tab.querySelectorAll(
-                'table tbody tr, .file-row, .dz-preview, .uploaded-file, [data-filename], .list-dokumen li'
-            ).length;
-            return markers >= expected;
-        }""",
-        len(paths),
+    page.locator('a[href="#tab-informasi-sppn"]').click(force=True)
+    page.wait_for_timeout(600)
+    _upload_files_to_input(
+        page,
+        "#dokumen_pendukung_sppn",
+        paths,
+        tab_selector="#tab-informasi-sppn",
+    )
+    _wait_doc_markers(
+        page,
+        tab_selector="#tab-informasi-sppn",
+        input_selector="#dokumen_pendukung_sppn",
+        minimum=1,
         timeout=90000,
     )
 
@@ -241,7 +323,7 @@ def _upload_support_docs(page: Page, support_docs: list[Path], *, combined: bool
             }
         }"""
     )
-    page.wait_for_timeout(1500)
+    page.wait_for_timeout(1200)
 
 
 def fill_sppn_draft(
@@ -265,14 +347,8 @@ def fill_sppn_draft(
     _select_form(page, cfg, payload.jenis_form)
     _fill_shared_informasi(page, payload, cfg)
 
-    if support_docs:
-        existing = [doc for doc in support_docs if doc.exists()]
-        if existing:
-            report(45, "Mengunggah dokumen pendukung")
-            _upload_support_docs(page, existing, combined=combined)
-
     if combined and payload.sppb_item:
-        report(55, "Mengisi baris SPPb (PPh)")
+        report(50, "Mengisi baris SPPb (PPh)")
         page.locator('a[href="#tab-isi-sppb"]').click(force=True)
         page.wait_for_timeout(1000)
         _fill_isi_sppb_block(page, 1, payload.sppb_item)
@@ -282,14 +358,22 @@ def fill_sppn_draft(
 
     total_lines = max(len(payload.line_items), 1)
     for idx, item in enumerate(payload.line_items, start=1):
-        line_pct = 60 + int((idx / total_lines) * 20)
+        line_pct = 55 + int((idx / total_lines) * 20)
         report(line_pct, f"Mengisi baris SPPn ({idx}/{total_lines})")
         if idx > 1:
             page.locator('button[onclick="tambah_isi_sppn()"]').click()
             page.wait_for_timeout(1200)
         _fill_isi_sppn_block(page, idx, item)
 
+    if support_docs:
+        existing = [doc for doc in support_docs if doc.exists()]
+        if existing:
+            report(78, "Mengunggah dokumen pendukung")
+            _upload_support_docs(page, existing, combined=combined)
+
     report(82, "Memvalidasi isian form")
+    page.locator('a[href="#tab-informasi-sppn"]').click(force=True)
+    page.wait_for_timeout(600)
     page.evaluate("() => { if (typeof bandingkan_dpp_sisa === 'function') bandingkan_dpp_sisa(); }")
     page.wait_for_timeout(500)
     missing = _audit_empty_fields(page, combined=combined)
@@ -323,10 +407,15 @@ def _audit_empty_fields(page: Page, *, combined: bool) -> list[str]:
                 if (!val(sel)) missing.push(label);
             }
             const tab = document.querySelector('#tab-informasi-sppn') || document.body;
+            const fileInput = document.querySelector('#dokumen_pendukung_sppn');
+            const fileCount = fileInput && fileInput.files ? fileInput.files.length : 0;
             const uploadedMarkers = tab.querySelectorAll(
-                'table tbody tr, .file-row, .dz-preview, .uploaded-file, [data-filename], .list-dokumen li'
+                '.file-row, .dz-preview, .dz-success, .uploaded-file, [data-filename], .list-dokumen li, .list-dokumen-sppn li, table tbody tr, #list-dokumen-sppn tr, #list_dokumen_sppn tr'
             ).length;
-            if (uploadedMarkers < 1) {
+            const hiddenDocs = tab.querySelectorAll(
+                'input[type="hidden"][name*="dokumen"], input[type="hidden"][id*="dokumen"]'
+            ).length;
+            if (uploadedMarkers < 1 && fileCount < 1 && hiddenDocs < 1) {
                 missing.push('Dokumen Pendukung SPPn (belum ter-upload ke Superman)');
             }
             for (const [sel, label] of [
@@ -407,10 +496,13 @@ def _dump_form_diagnostic(page: Page) -> str:
             ['#kwitansi_sppn','#referensi_sppn','#au58_sppn','#sp_opl_sppn','#tanggal_sppn','#bagian_sppn'].forEach((sel) => {
                 lines.push(`${sel}=${JSON.stringify(pick(sel))}`);
             });
-            const docs = document.querySelectorAll(
-                '#tab-informasi-sppn table tbody tr, #tab-informasi-sppn .file-row, #tab-informasi-sppn .dz-preview'
-            ).length;
-            lines.push(`uploaded_doc_rows=${docs}`);
+            const tab = document.querySelector('#tab-informasi-sppn');
+            const input = document.querySelector('#dokumen_pendukung_sppn');
+            const fileCount = input && input.files ? input.files.length : 0;
+            const docs = tab ? tab.querySelectorAll(
+                '.file-row, .dz-preview, .dz-success, table tbody tr, .list-dokumen li'
+            ).length : 0;
+            lines.push(`uploaded_doc_rows=${docs}; file_input_count=${fileCount}`);
             document.querySelectorAll('[id^="nominal_sppn_"]').forEach((el, idx) => {
                 const i = idx + 1;
                 lines.push(`line${i}_nominal=${el.value}`);
