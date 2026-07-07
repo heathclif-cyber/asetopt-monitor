@@ -119,7 +119,7 @@ export default function LaporanPendapatan() {
           noBilling: k.no_billing_sap ?? '-',
           totalTagihan: k.total_tagihan ?? 0,
           cashIn: totalDibayar,
-          pendapatanAkrual: match?.status === 'diakui' ? (match.nominal ?? 0) : 0,
+          pendapatanAkrual: match?.nominal ?? k.nominal ?? 0,
           sisa,
           status,
         }
@@ -230,7 +230,7 @@ export default function LaporanPendapatan() {
       <div>
         <h1 className="text-lg font-bold text-gray-800">Laporan Pendapatan — {tahun}</h1>
         <p className="text-xs text-gray-500 mt-1">
-          Satu baris = satu tahap kompensasi dari menu Kompensasi · Cash In dari pembayaran · Kolom SAP diisi manual setelah posting
+          Satu baris = satu tahap kompensasi · Akrual = nominal NKM (tercatat saat tagihan jatuh tempo) · Cash In = pembayaran yang sudah diterima · Kolom SAP diisi manual setelah posting
         </p>
       </div>
 
