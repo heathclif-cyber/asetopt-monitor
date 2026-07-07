@@ -440,7 +440,7 @@ export default function LaporanPendapatan() {
             {rows.length > 0 && (
               <tfoot>
                 <tr className="border-t-2 bg-gray-50 font-semibold text-xs">
-                  <td colSpan={11} className="px-3 py-2.5 text-gray-700">Total ({rows.length} tagihan)</td>
+                  <td colSpan={10} className="px-3 py-2.5 text-gray-700">Total ({rows.length} tagihan)</td>
                   <td className="px-3 py-2.5 text-right"><CurrencyDisplay value={totalTagihan} size="sm" /></td>
                   <td className="px-3 py-2.5 text-right text-green-700"><CurrencyDisplay value={totalCashIn} size="sm" /></td>
                   <td className="px-3 py-2.5 text-right text-[#5B2C6F]"><CurrencyDisplay value={totalAkrual} size="sm" /></td>
