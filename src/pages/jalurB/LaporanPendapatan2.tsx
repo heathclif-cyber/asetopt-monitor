@@ -33,6 +33,10 @@ function parseTglParts(dateStr: string): { year: number; month: number } {
   return { year: y, month: m - 1 }
 }
 
+function dateKey(dateStr: string): string {
+  return dateStr.slice(0, 10)
+}
+
 function resolveStatus(totalDibayar: number, efektifTagihan: number, hariTerlambat: number): string {
   if (totalDibayar >= efektifTagihan && efektifTagihan > 0) return 'lunas'
   if (totalDibayar > 0) return hariTerlambat > 0 ? 'terlambat' : 'sebagian'
@@ -94,9 +98,12 @@ export default function LaporanPendapatan() {
         })
         const status = resolveStatus(totalDibayar, efektifTagihan, denda.hariTerlambat)
 
-        const pddm = daftarPDDM.find(p => p.ks_id === k.ks_id && p.status === 'aktif')
-        const jtTime = new Date(k.tgl_jatuh_tempo).getTime()
-        const match = pddm ? allPengakuan.find(pp => pp.pddm_id === pddm.id && new Date(pp.tgl_awal).getTime() === jtTime) : null
+        const pddm = daftarPDDM.find(p => p.ks_id === k.ks_id)
+        const match = pddm
+          ? allPengakuan.find(
+              pp => pp.pddm_id === pddm.id && dateKey(pp.tgl_awal) === dateKey(k.tgl_jatuh_tempo),
+            )
+          : null
 
         return {
           id: k.id,
@@ -112,7 +119,7 @@ export default function LaporanPendapatan() {
           noBilling: k.no_billing_sap ?? '-',
           totalTagihan: k.total_tagihan ?? 0,
           cashIn: totalDibayar,
-          pendapatanAkrual: match?.nominal ?? k.nominal ?? 0,
+          pendapatanAkrual: match?.status === 'diakui' ? (match.nominal ?? 0) : 0,
           sisa,
           status,
         }
@@ -436,6 +443,7 @@ export default function LaporanPendapatan() {
                   <td colSpan={11} className="px-3 py-2.5 text-gray-700">Total ({rows.length} tagihan)</td>
                   <td className="px-3 py-2.5 text-right"><CurrencyDisplay value={totalTagihan} size="sm" /></td>
                   <td className="px-3 py-2.5 text-right text-green-700"><CurrencyDisplay value={totalCashIn} size="sm" /></td>
+                  <td className="px-3 py-2.5 text-right text-[#5B2C6F]"><CurrencyDisplay value={totalAkrual} size="sm" /></td>
                   <td className="px-3 py-2.5 text-right text-red-600"><CurrencyDisplay value={totalSisa} size="sm" /></td>
                 </tr>
               </tfoot>
