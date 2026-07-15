@@ -22,12 +22,12 @@ export const KATEGORI_BY_KODE: Record<string, string> = {
   'R800006-0007': 'Properti',
   'R800033-0028': 'Properti',
   'R800010-0010': 'Properti',
-  'R800004-0005': 'Properti',
   'R800032-0027': 'Properti',
   'R800005-0006': 'Properti',
   'R800007-0008': 'Peternakan',
   'R800026-0014': 'Properti',
   'R800041-0035': 'Properti',
+  // Kanonik KS Meilani / Sekper (ex R800004-0005 Gedung Timur di seed lama)
   'R800042-0036': 'Properti',
 }
 
