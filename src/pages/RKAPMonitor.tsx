@@ -711,254 +711,351 @@ export function RKAPMonitor() {
 
   const displayRows = rows
 
+  const ytdBulanLabel = efektifBulan >= 0 ? BULAN_LABELS[efektifBulan] : '—'
+  const prognosaPct = totalTarget > 0 ? (totalPrognosa / totalTarget) * 100 : 0
+  const ytdRealisasiPctOfAnnual = totalTarget > 0 ? (ytdRealisasi / totalTarget) * 100 : 0
+
   // ─────────────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-5">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-bold text-gray-900">RKAP Monitor</h1>
-          <p className="text-xs text-gray-500 mt-0.5">Target RKAP vs Realisasi — defisit bulan lalu carry ke bulan berikutnya</p>
+      {/* ── Page header ───────────────────────────────────────────────────── */}
+      <div className="rounded-2xl border bg-gradient-to-br from-[#0f3a57] via-[#1B4F72] to-[#2a6a8f] text-white px-5 py-5 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-white/15">
+                <Target size={16} />
+              </span>
+              <p className="text-[11px] uppercase tracking-wider text-blue-100/90 font-medium">Optimalisasi Aset</p>
+            </div>
+            <h1 className="text-xl font-bold tracking-tight">RKAP Monitor</h1>
+            <p className="text-sm text-blue-100/90 mt-1 max-w-xl">
+              Target vs realisasi per ID Monika · carry-over defisit otomatis · prognosa Cash In / PSAK 73
+            </p>
+          </div>
+
+          <div className="flex flex-col items-end gap-2">
+            <div className="inline-flex items-center gap-1 rounded-xl bg-white/10 border border-white/15 p-1 backdrop-blur-sm">
+              <button
+                type="button"
+                onClick={() => setTahunAktif(tahunAktif - 1)}
+                className="p-1.5 rounded-lg hover:bg-white/15 transition-colors"
+                title="Tahun sebelumnya"
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <span className="text-base font-bold tabular-nums w-14 text-center">{tahunAktif}</span>
+              <button
+                type="button"
+                onClick={() => setTahunAktif(tahunAktif + 1)}
+                className="p-1.5 rounded-lg hover:bg-white/15 transition-colors"
+                title="Tahun berikutnya"
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
+            <p className="text-[11px] text-blue-100/80">
+              {rows.length > 0 ? `${rows.length} proker · ID Monika` : 'Belum ada data RKAP'}
+            </p>
+          </div>
         </div>
 
-        {/* Year nav */}
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <button onClick={() => setTahunAktif(tahunAktif - 1)} className="p-1 rounded hover:bg-gray-100">
-            <ChevronLeft size={15} className="text-gray-500" />
-          </button>
-          <span className="text-sm font-bold text-gray-800 w-10 text-center">{tahunAktif}</span>
-          <button onClick={() => setTahunAktif(tahunAktif + 1)} className="p-1 rounded hover:bg-gray-100">
-            <ChevronRight size={15} className="text-gray-500" />
-          </button>
+        {/* Toolbar */}
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <Button size="sm" className="bg-white text-[#1B4F72] hover:bg-blue-50 border-0 shadow-sm" onClick={openAdd}>
+            <Plus size={14} /> Tambah Proker
+          </Button>
+          <Button size="sm" variant="outline" className="border-white/30 bg-white/10 text-white hover:bg-white/20 hover:text-white" onClick={() => fileRef.current?.click()}>
+            <Upload size={14} /> Upload CSV
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="border-white/30 bg-white/10 text-white hover:bg-white/20 hover:text-white"
+            onClick={() => exportRKAPExcel(tahunAktif, rkapDataCashIn, rkapItems, totalTarget, efektifBulan, cashInPerNama, rkapDataPendapatan, pendapatanPerNama, nonaktifKodes)}
+          >
+            <FileDown size={14} /> Export Excel
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="border-white/30 bg-white/10 text-white hover:bg-white/20 hover:text-white"
+            onClick={async () => {
+              setPerbandinganOpen(true)
+              setPerbandinganLoading(true)
+              setPerbandinganData(null)
+              const data = await fetchPerbandinganData(
+                tahunAktif, rkapItems, prognosaType,
+                cashInPerNama, pendapatanPerNama,
+                allKompensasi, allCashIn, allPengakuan, daftarPDDM,
+                efektifBulan, nonaktifKodes,
+              )
+              setPerbandinganData(data)
+              setPerbandinganLoading(false)
+            }}
+          >
+            <FileDown size={14} /> Perbandingan
+          </Button>
+          {rows.length === 0 && tahunAktif === 2026 && (
+            <Button size="sm" variant="outline" className="border-white/30 bg-white/10 text-white hover:bg-white/20 hover:text-white" onClick={seedFromHardcode}>
+              <Download size={14} /> Import Data 2026
+            </Button>
+          )}
+          <input ref={fileRef} type="file" accept=".csv,.txt" className="hidden" onChange={onFileChange} />
+
+          <div className="ml-auto inline-flex rounded-lg border border-white/20 bg-black/10 p-0.5">
+            <button
+              type="button"
+              onClick={() => setPrognosaType('cash_in')}
+              className={cn(
+                'px-3 py-1.5 text-xs font-medium rounded-md transition-all',
+                prognosaType === 'cash_in'
+                  ? 'bg-white text-[#1B4F72] shadow-sm'
+                  : 'text-blue-100 hover:text-white',
+              )}
+            >
+              Cash In
+            </button>
+            <button
+              type="button"
+              onClick={() => setPrognosaType('pendapatan')}
+              className={cn(
+                'px-3 py-1.5 text-xs font-medium rounded-md transition-all',
+                prognosaType === 'pendapatan'
+                  ? 'bg-white text-[#5B2C6F] shadow-sm'
+                  : 'text-blue-100 hover:text-white',
+              )}
+            >
+              PSAK 73
+            </button>
+          </div>
         </div>
       </div>
 
       {rkapMissingMonika.length > 0 && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-          <p className="font-semibold">Ada {rkapMissingMonika.length} baris RKAP tanpa ID Monika</p>
-          <p className="text-xs mt-1 text-red-700">
-            Proker harus terikat ID Monika dari master Data Aset (bukan nama bebas). Edit baris berikut dan pilih ID Monika:
-            {' '}
-            {rkapMissingMonika.map(r => r.nama).join('; ')}
-          </p>
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 flex items-start gap-3">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0 text-red-500" />
+          <div>
+            <p className="font-semibold">Ada {rkapMissingMonika.length} baris RKAP tanpa ID Monika</p>
+            <p className="text-xs mt-1 text-red-700">
+              Proker harus terikat ID Monika dari master Data Aset. Edit:{' '}
+              {rkapMissingMonika.map(r => r.nama).join('; ')}
+            </p>
+          </div>
         </div>
       )}
 
-      {/* Action buttons */}
-      <div className="flex flex-wrap gap-2">
-        <Button size="sm" onClick={openAdd}>
-          <Plus size={14} /> Tambah Baris
-        </Button>
-        <Button size="sm" variant="outline" onClick={() => fileRef.current?.click()}>
-          <Upload size={14} /> Upload CSV
-        </Button>
-        <Button
-          size="sm" variant="outline"
-          onClick={() => exportRKAPExcel(tahunAktif, rkapDataCashIn, rkapItems, totalTarget, efektifBulan, cashInPerNama, rkapDataPendapatan, pendapatanPerNama, nonaktifKodes)}
-        >
-          <FileDown size={14} /> Export Excel
-        </Button>
-        <Button
-          size="sm" variant="outline"
-          onClick={async () => {
-            setPerbandinganOpen(true)
-            setPerbandinganLoading(true)
-            setPerbandinganData(null)
-            const data = await fetchPerbandinganData(
-              tahunAktif, rkapItems, prognosaType,
-              cashInPerNama, pendapatanPerNama,
-              allKompensasi, allCashIn, allPengakuan, daftarPDDM,
-              efektifBulan, nonaktifKodes,
-            )
-            setPerbandinganData(data)
-            setPerbandinganLoading(false)
-          }}
-        >
-          <FileDown size={14} /> Export Perbandingan
-        </Button>
-        {rows.length === 0 && tahunAktif === 2026 && (
-          <Button size="sm" variant="outline" onClick={seedFromHardcode}>
-            <Download size={14} /> Import Data 2026
-          </Button>
-        )}
-        <input ref={fileRef} type="file" accept=".csv,.txt" className="hidden" onChange={onFileChange} />
-        <span className="text-xs text-gray-400 flex items-center">
-          {rows.length > 0 ? `${rows.length} baris di database` : tahunAktif === 2026 ? '(menampilkan data hardcode 2026)' : 'Belum ada data'}
-        </span>
-      </div>
-
-      {/* ── Toggle Prognosa Type ────────────────────────────────────────────── */}
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-gray-500 font-medium">Prognosa berdasarkan:</span>
-        <div className="inline-flex rounded-lg border border-gray-200 bg-gray-100 p-0.5">
-          <button
-            onClick={() => setPrognosaType('cash_in')}
-            className={cn(
-              'px-3 py-1 text-xs font-medium rounded-md transition-colors',
-              prognosaType === 'cash_in'
-                ? 'bg-white text-[#1B4F72] shadow-sm'
-                : 'text-gray-500 hover:text-gray-700'
-            )}
-          >
-            Cash In
-          </button>
-          <button
-            onClick={() => setPrognosaType('pendapatan')}
-            className={cn(
-              'px-3 py-1 text-xs font-medium rounded-md transition-colors',
-              prognosaType === 'pendapatan'
-                ? 'bg-white text-[#5B2C6F] shadow-sm'
-                : 'text-gray-500 hover:text-gray-700'
-            )}
-          >
-            Pendapatan (PSAK 73)
-          </button>
+      {/* ── KPI Cards ─────────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 xl:grid-cols-5 gap-3">
+        <div className="rounded-xl border bg-white p-4 shadow-sm hover:shadow-md transition-shadow">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-[11px] font-medium text-gray-500 uppercase tracking-wide">Target {tahunAktif}</p>
+              <CurrencyDisplay value={totalTarget} size="lg" className="text-[#1B4F72] mt-1.5 block truncate" />
+              <p className="text-[10px] text-gray-400 mt-1">{rows.length} proker</p>
+            </div>
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-[#1B4F72]">
+              <Target size={16} />
+            </span>
+          </div>
         </div>
-      </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-[11px] text-gray-500 font-medium">Total Target {tahunAktif}</p>
-                <CurrencyDisplay value={totalTarget} size="lg" className="text-[#1B4F72] mt-1 block" />
-              </div>
-              <Target size={18} className="text-[#1B4F72] mt-0.5" />
+        <div className="rounded-xl border bg-white p-4 shadow-sm hover:shadow-md transition-shadow">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-[11px] font-medium text-gray-500 uppercase tracking-wide">YTD Target</p>
+              <CurrencyDisplay value={ytdTargetOri} size="lg" className="text-gray-800 mt-1.5 block truncate" />
+              <p className="text-[10px] text-gray-400 mt-1">s.d. {ytdBulanLabel}</p>
             </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-[11px] text-gray-500 font-medium">YTD Target (s.d. {BULAN_LABELS[CURRENT_MONTH]})</p>
-                <CurrencyDisplay value={ytdTargetOri} size="lg" className="text-gray-800 mt-1 block" />
-              </div>
-              <Target size={18} className="text-gray-400 mt-0.5" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-[11px] text-gray-500 font-medium">YTD Realisasi</p>
-                <CurrencyDisplay value={ytdRealisasi} size="lg" className="text-[#117A65] mt-1 block" />
-              </div>
-              <TrendingUp size={18} className="text-[#117A65] mt-0.5" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-[11px] text-gray-500 font-medium">Achievement YTD</p>
-                <p className={cn('text-2xl font-bold mt-1', pctColor(ytdAchievement))}>
-                  {ytdAchievement.toFixed(1)}%
-                </p>
-              </div>
-              {ytdAchievement >= 100
-                ? <CheckCircle size={18} className="text-green-600 mt-0.5" />
-                : <AlertTriangle size={18} className="text-red-500 mt-0.5" />}
-            </div>
-          </CardContent>
-        </Card>
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
+              <Target size={16} />
+            </span>
+          </div>
+        </div>
 
-        <Card className={totalPrognosa >= totalTarget ? 'border-green-300' : 'border-orange-300'}>
-          <CardContent className="p-4">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-[11px] text-gray-500 font-medium">
-                  Prognosa Tahunan
-                  <span className={cn('ml-1 text-[10px] font-semibold',
-                    prognosaType === 'cash_in' ? 'text-[#1B4F72]' : 'text-[#5B2C6F]'
-                  )}>
-                    ({prognosaType === 'cash_in' ? 'Cash In' : 'PSAK 73'})
-                  </span>
-                </p>
-                <CurrencyDisplay value={totalPrognosa} size="lg" className={cn('mt-1 block', totalPrognosa >= totalTarget ? 'text-green-700' : 'text-orange-600')} />
-                <p className="text-[10px] text-gray-400 mt-1">
-                  {totalTarget > 0 ? `${((totalPrognosa / totalTarget) * 100).toFixed(1)}% dari target` : '—'}
-                  {prognosaType === 'cash_in' && (
-                    <span className="ml-1 text-[#5B2C6F]">
-                      | PSAK 73: {totalTarget > 0 ? `${((totalPrognosaPendapatan / totalTarget) * 100).toFixed(1)}%` : '—'}
-                    </span>
+        <div className="rounded-xl border bg-white p-4 shadow-sm hover:shadow-md transition-shadow">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-[11px] font-medium text-gray-500 uppercase tracking-wide">YTD Realisasi</p>
+              <CurrencyDisplay value={ytdRealisasi} size="lg" className="text-[#117A65] mt-1.5 block truncate" />
+              <p className="text-[10px] text-gray-400 mt-1">{ytdRealisasiPctOfAnnual.toFixed(1)}% dari target tahunan</p>
+            </div>
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-[#117A65]">
+              <TrendingUp size={16} />
+            </span>
+          </div>
+        </div>
+
+        <div className="rounded-xl border bg-white p-4 shadow-sm hover:shadow-md transition-shadow">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0 w-full">
+              <p className="text-[11px] font-medium text-gray-500 uppercase tracking-wide">Achievement YTD</p>
+              <p className={cn('text-2xl font-bold mt-1.5 tabular-nums', pctColor(ytdAchievement))}>
+                {ytdAchievement.toFixed(1)}%
+              </p>
+              <div className="mt-2 h-1.5 w-full rounded-full bg-gray-100 overflow-hidden">
+                <div
+                  className={cn(
+                    'h-full rounded-full transition-all',
+                    ytdAchievement >= 100 ? 'bg-green-500' : ytdAchievement >= 80 ? 'bg-amber-400' : 'bg-red-400',
                   )}
-                </p>
+                  style={{ width: `${Math.min(100, Math.max(0, ytdAchievement))}%` }}
+                />
               </div>
-              <TrendingUp size={18} className={cn('mt-0.5', totalPrognosa >= totalTarget ? 'text-green-600' : 'text-orange-500')} />
             </div>
-          </CardContent>
-        </Card>
+            <span className={cn(
+              'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg',
+              ytdAchievement >= 100 ? 'bg-green-50 text-green-600' : 'bg-red-50 text-red-500',
+            )}>
+              {ytdAchievement >= 100 ? <CheckCircle size={16} /> : <AlertTriangle size={16} />}
+            </span>
+          </div>
+        </div>
+
+        <div className={cn(
+          'rounded-xl border bg-white p-4 shadow-sm hover:shadow-md transition-shadow col-span-2 xl:col-span-1',
+          totalPrognosa >= totalTarget ? 'border-green-200 ring-1 ring-green-100' : 'border-orange-200 ring-1 ring-orange-100',
+        )}>
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-[11px] font-medium text-gray-500 uppercase tracking-wide">
+                Prognosa {tahunAktif}
+                <span className={cn('ml-1 normal-case font-semibold',
+                  prognosaType === 'cash_in' ? 'text-[#1B4F72]' : 'text-[#5B2C6F]',
+                )}>
+                  · {prognosaType === 'cash_in' ? 'Cash In' : 'PSAK 73'}
+                </span>
+              </p>
+              <CurrencyDisplay
+                value={totalPrognosa}
+                size="lg"
+                className={cn('mt-1.5 block truncate', totalPrognosa >= totalTarget ? 'text-green-700' : 'text-orange-600')}
+              />
+              <p className="text-[10px] text-gray-400 mt-1">
+                {prognosaPct.toFixed(1)}% target
+                {prognosaType === 'cash_in' && totalTarget > 0 && (
+                  <span className="text-[#5B2C6F]"> · PSAK {(totalPrognosaPendapatan / totalTarget * 100).toFixed(1)}%</span>
+                )}
+              </p>
+            </div>
+            <span className={cn(
+              'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg',
+              totalPrognosa >= totalTarget ? 'bg-green-50 text-green-600' : 'bg-orange-50 text-orange-500',
+            )}>
+              <TrendingUp size={16} />
+            </span>
+          </div>
+        </div>
       </div>
 
-      {/* Carry-over alert */}
-      {currentCarryOver > 0 && (
-        <div className="flex items-start gap-3 bg-orange-50 border border-orange-200 rounded-lg px-4 py-3 text-sm">
-          <AlertTriangle size={15} className="text-orange-500 mt-0.5 flex-shrink-0" />
-          <span className="text-orange-700">
-            <strong className="text-orange-800">Carry-over aktif:</strong> Defisit{' '}
-            <strong>{formatRupiah(currentCarryOver)}</strong> dari bulan lalu ditambahkan ke target{' '}
-            {BULAN_LABELS[CURRENT_MONTH]}.
-            Target bulan ini menjadi <strong>{formatRupiah(rkapData[CURRENT_MONTH]?.targetAdjusted ?? 0)}</strong>.
+      {currentCarryOver > 0 && efektifBulan >= 0 && (
+        <div className="flex items-start gap-3 rounded-xl border border-orange-200 bg-gradient-to-r from-orange-50 to-amber-50 px-4 py-3 text-sm shadow-sm">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-orange-100 text-orange-600">
+            <AlertTriangle size={15} />
           </span>
+          <div className="text-orange-800">
+            <p className="font-semibold text-orange-900">Carry-over aktif — {BULAN_LABELS[efektifBulan]}</p>
+            <p className="text-xs mt-0.5 text-orange-700">
+              Defisit <strong>{formatRupiah(currentCarryOver)}</strong> dari bulan lalu ditambahkan ke target bulan ini →{' '}
+              <strong>{formatRupiah(rkapData[efektifBulan]?.targetAdjusted ?? 0)}</strong>.
+            </p>
+          </div>
         </div>
       )}
 
-      {/* Chart */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Target RKAP vs Realisasi & Prognosa per Bulan (Juta Rp) — {tahunAktif} ({prognosaType === 'cash_in' ? 'Cash In' : 'PSAK 73'})</CardTitle>
+      {/* ── Chart ─────────────────────────────────────────────────────────── */}
+      <Card className="overflow-hidden shadow-sm border-gray-200/80">
+        <CardHeader className="border-b bg-gray-50/80 py-3 px-5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <CardTitle className="text-sm font-semibold text-gray-800">
+                Target vs Realisasi & Prognosa
+              </CardTitle>
+              <p className="text-[11px] text-gray-500 mt-0.5">
+                {tahunAktif} · satuan juta Rp · mode {prognosaType === 'cash_in' ? 'Cash In' : 'Pendapatan PSAK 73'}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-3 text-[10px] text-gray-500">
+              <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm bg-slate-300" /> Target</span>
+              <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm bg-slate-400" /> Target+C/O</span>
+              <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm bg-[#117A65]" /> Realisasi</span>
+              <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm bg-[#3B82F6]" /> Prognosa</span>
+            </div>
+          </div>
         </CardHeader>
-        <CardContent>
-          <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="bulan" tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `${v}jt`} />
-              <Tooltip formatter={(v: number) => `Rp ${v.toLocaleString('id-ID')}jt`} />
-              <Legend wrapperStyle={{ fontSize: 12 }} />
-              <Bar dataKey="Target RKAP" fill="#cbd5e1" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="Target + C/O" fill="#94a3b8" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="Realisasi" fill="#117A65" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="Prognosa" fill="#3B82F6" radius={[4, 4, 0, 0]} opacity={0.7} />
+        <CardContent className="pt-4 px-2 sm:px-4">
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart data={chartData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }} barGap={2} barCategoryGap="18%">
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+              <XAxis dataKey="bulan" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} tickFormatter={v => `${v}`} width={36} />
+              <Tooltip
+                cursor={{ fill: '#f8fafc' }}
+                contentStyle={{ borderRadius: 10, border: '1px solid #e2e8f0', fontSize: 12, boxShadow: '0 4px 12px rgba(0,0,0,.06)' }}
+                formatter={(v: number) => [`Rp ${Number(v).toLocaleString('id-ID')} jt`, '']}
+              />
+              <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} iconType="circle" iconSize={8} />
+              <Bar dataKey="Target RKAP" fill="#cbd5e1" radius={[3, 3, 0, 0]} maxBarSize={22} />
+              <Bar dataKey="Target + C/O" fill="#94a3b8" radius={[3, 3, 0, 0]} maxBarSize={22} />
+              <Bar dataKey="Realisasi" fill="#117A65" radius={[3, 3, 0, 0]} maxBarSize={22} />
+              <Bar dataKey="Prognosa" fill="#3B82F6" radius={[3, 3, 0, 0]} maxBarSize={22} fillOpacity={0.75} />
             </BarChart>
           </ResponsiveContainer>
         </CardContent>
       </Card>
 
-      {/* Tabel bulanan */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Rincian Bulanan + Carry-over</CardTitle>
+      {/* ── Tabel bulanan ─────────────────────────────────────────────────── */}
+      <Card className="overflow-hidden shadow-sm border-gray-200/80">
+        <CardHeader className="border-b bg-gray-50/80 py-3 px-5">
+          <CardTitle className="text-sm font-semibold text-gray-800">Rincian Bulanan + Carry-over</CardTitle>
+          <p className="text-[11px] text-gray-500 mt-0.5">T = target · C/O = carry-over · * prognosa = proyeksi bulan mendatang</p>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-0">
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
-                <tr className="border-b bg-gray-50">
+                <tr className="border-b bg-[#f8fafc]">
                   {['Bulan', 'Target Ori', 'Carry-over', 'Target Adjusted', 'Realisasi', 'Prognosa', 'Selisih', '%'].map(h => (
-                    <th key={h} className={cn('px-3 py-2 font-semibold text-gray-600 whitespace-nowrap', h === 'Bulan' ? 'text-left' : 'text-right')}>{h}</th>
+                    <th
+                      key={h}
+                      className={cn(
+                        'px-3 py-2.5 font-semibold text-gray-600 whitespace-nowrap text-[11px] uppercase tracking-wide',
+                        h === 'Bulan' ? 'text-left' : 'text-right',
+                      )}
+                    >
+                      {h}
+                    </th>
                   ))}
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-gray-100">
                 {rkapData.map((m, i) => {
                   const isFuture = m.isFuture
+                  const isNow = tahunAktif === CURRENT_YEAR && i === CURRENT_MONTH
                   return (
-                    <tr key={i} className={cn('border-b', isFuture ? 'text-gray-400' : '', i === CURRENT_MONTH ? 'bg-blue-50/40' : 'hover:bg-gray-50/50')}>
-                      <td className="px-3 py-2 font-semibold">
+                    <tr
+                      key={i}
+                      className={cn(
+                        'transition-colors',
+                        isFuture && 'text-gray-400',
+                        isNow && 'bg-blue-50/60',
+                        !isNow && !isFuture && 'hover:bg-slate-50/80',
+                        i % 2 === 1 && !isNow && 'bg-slate-50/30',
+                      )}
+                    >
+                      <td className="px-3 py-2.5 font-semibold text-gray-800">
                         {m.label}
-                        {i === CURRENT_MONTH && <span className="ml-1.5 text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">Sekarang</span>}
+                        {isNow && (
+                          <span className="ml-1.5 text-[10px] bg-[#1B4F72] text-white px-1.5 py-0.5 rounded-full font-medium">
+                            Sekarang
+                          </span>
+                        )}
                       </td>
-                      <td className="px-3 py-2 text-right">{m.targetOriginal > 0 ? formatRupiah(m.targetOriginal) : '—'}</td>
-                      <td className="px-3 py-2 text-right text-orange-600 font-medium">{m.carryOver > 0 ? `+${formatRupiah(m.carryOver)}` : '—'}</td>
-                      <td className="px-3 py-2 text-right font-semibold">{m.targetAdjusted > 0 ? formatRupiah(m.targetAdjusted) : '—'}</td>
-                      <td className="px-3 py-2 text-right text-green-700">{m.realisasi > 0 ? formatRupiah(m.realisasi) : '—'}</td>
-                      <td className={cn('px-3 py-2 text-right font-semibold',
+                      <td className="px-3 py-2.5 text-right tabular-nums">{m.targetOriginal > 0 ? formatRupiah(m.targetOriginal) : '—'}</td>
+                      <td className="px-3 py-2.5 text-right text-orange-600 font-medium tabular-nums">{m.carryOver > 0 ? `+${formatRupiah(m.carryOver)}` : '—'}</td>
+                      <td className="px-3 py-2.5 text-right font-semibold tabular-nums">{m.targetAdjusted > 0 ? formatRupiah(m.targetAdjusted) : '—'}</td>
+                      <td className="px-3 py-2.5 text-right text-green-700 tabular-nums">{m.realisasi > 0 ? formatRupiah(m.realisasi) : '—'}</td>
+                      <td className={cn('px-3 py-2.5 text-right font-semibold tabular-nums',
                         m.isFuture ? 'text-blue-600 italic' : m.prognosa > 0 ? 'text-green-700' : 'text-gray-400'
                       )}>
                         {m.prognosa > 0
@@ -968,24 +1065,33 @@ export function RKAPMonitor() {
                           : '—'
                         }
                       </td>
-                      <td className={cn('px-3 py-2 text-right font-semibold', m.selisih >= 0 ? 'text-green-700' : 'text-red-600')}>
+                      <td className={cn('px-3 py-2.5 text-right font-semibold tabular-nums', m.selisih >= 0 ? 'text-green-700' : 'text-red-600')}>
                         {m.targetAdjusted === 0 && m.realisasi === 0 ? '—' : (m.selisih >= 0 ? '+' : '') + formatRupiah(m.selisih)}
                       </td>
-                      <td className={cn('px-3 py-2 text-right font-bold', isFuture ? 'text-gray-400' : pctColor(m.achievement))}>
-                        {m.targetAdjusted > 0 ? `${m.achievement.toFixed(0)}%` : '—'}
+                      <td className={cn('px-3 py-2.5 text-right font-bold tabular-nums', isFuture ? 'text-gray-400' : pctColor(m.achievement))}>
+                        {m.targetAdjusted > 0 ? (
+                          <span className={cn(
+                            'inline-block min-w-[2.75rem] px-1.5 py-0.5 rounded-full text-[11px]',
+                            m.achievement >= 100 ? 'bg-green-100 text-green-800'
+                              : m.achievement >= 80 ? 'bg-amber-100 text-amber-800'
+                                : m.achievement > 0 ? 'bg-red-50 text-red-700' : 'bg-gray-100 text-gray-500',
+                          )}>
+                            {m.achievement.toFixed(0)}%
+                          </span>
+                        ) : '—'}
                       </td>
                     </tr>
                   )
                 })}
               </tbody>
               <tfoot>
-                <tr className="border-t-2 bg-gray-50 font-semibold text-xs">
-                  <td className="px-3 py-2 text-gray-800">Total {tahunAktif}</td>
-                  <td className="px-3 py-2 text-right">{formatRupiah(totalTarget)}</td>
-                  <td className="px-3 py-2 text-right text-orange-600">—</td>
-                  <td className="px-3 py-2 text-right">{formatRupiah(totalTarget)}</td>
-                  <td className="px-3 py-2 text-right text-green-700">{formatRupiah(activeRealisasiPerBulan.reduce((s, v) => s + v, 0))}</td>
-                  <td className={cn('px-3 py-2 text-right font-bold', totalPrognosa >= totalTarget ? 'text-green-700' : 'text-orange-600')}>
+                <tr className="border-t-2 border-[#1B4F72]/20 bg-[#f0f5f9] font-semibold text-xs">
+                  <td className="px-3 py-2.5 text-[#1B4F72]">Total {tahunAktif}</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">{formatRupiah(totalTarget)}</td>
+                  <td className="px-3 py-2.5 text-right text-orange-600">—</td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">{formatRupiah(totalTarget)}</td>
+                  <td className="px-3 py-2.5 text-right text-green-700 tabular-nums">{formatRupiah(activeRealisasiPerBulan.reduce((s, v) => s + v, 0))}</td>
+                  <td className={cn('px-3 py-2.5 text-right font-bold tabular-nums', totalPrognosa >= totalTarget ? 'text-green-700' : 'text-orange-600')}>
                     {formatRupiah(totalPrognosa)}
                   </td>
                   <td colSpan={2} />
@@ -997,15 +1103,23 @@ export function RKAPMonitor() {
       </Card>
 
       {/* Tabel per obyek */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle>Target per Obyek Kerjasama {tahunAktif} (Juta Rp)</CardTitle>
+      <Card className="overflow-hidden shadow-sm border-gray-200/80">
+        <CardHeader className="border-b bg-gray-50/80 py-3 px-5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <CardTitle className="text-sm font-semibold text-gray-800">
+                Target per Proker · ID Monika · {tahunAktif}
+              </CardTitle>
+              <p className="text-[11px] text-gray-500 mt-0.5">
+                Satuan juta Rp · T = target · R = realisasi · klik nama proker untuk breakdown
+              </p>
+            </div>
             <div className="flex items-center gap-2">
               {nonaktifKodes.size > 0 && (
-                <span className="text-xs text-red-500 font-medium">
+                <span className="text-xs text-red-600 font-medium bg-red-50 border border-red-100 rounded-full px-2.5 py-1">
                   {nonaktifKodes.size} dinonaktifkan
                   <button
+                    type="button"
                     onClick={() => setNonaktifKodes(new Set())}
                     className="ml-2 text-blue-600 hover:underline text-[11px]"
                   >
@@ -1013,39 +1127,38 @@ export function RKAPMonitor() {
                   </button>
                 </span>
               )}
+              <span className="text-[11px] text-gray-400">{displayRows.length} baris</span>
             </div>
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          <div className="overflow-auto max-h-[70vh] rounded-b-lg">
+          <div className="overflow-auto max-h-[70vh]">
             <table className="text-xs w-full border-collapse" style={{ minWidth: 1400 }}>
               <thead>
-                {/* Baris 1: Nama bulan (colspan 2 per bulan) */}
                 <tr>
-                  <th className="px-2 py-2 text-left font-semibold text-gray-500 w-7 bg-[#f1f5f9] sticky top-0 z-20 shadow-[inset_0_-1px_0_#e2e8f0]" rowSpan={2}>No</th>
-                  <th className="px-2 py-2 text-left font-semibold text-gray-600 bg-[#f1f5f9] sticky top-0 z-20 shadow-[inset_0_-1px_0_#e2e8f0] min-w-[100px]" rowSpan={2}>ID Monika</th>
-                  <th className="px-2 py-2 text-left font-semibold text-gray-600 bg-[#f1f5f9] sticky top-0 z-20 shadow-[inset_0_-1px_0_#e2e8f0] min-w-[160px]" rowSpan={2}>Obyek Kerjasama</th>
-                  <th className="px-2 py-2 bg-[#f1f5f9] sticky top-0 z-20 shadow-[inset_0_-1px_0_#e2e8f0] w-8" rowSpan={2} title="Nonaktifkan agar tidak carry-over">⚡</th>
+                  <th className="px-2 py-2.5 text-left font-semibold text-gray-500 w-7 bg-[#1B4F72] text-white sticky top-0 z-20" rowSpan={2}>No</th>
+                  <th className="px-2 py-2.5 text-left font-semibold bg-[#1B4F72] text-white sticky top-0 z-20 min-w-[110px]" rowSpan={2}>ID Monika</th>
+                  <th className="px-2 py-2.5 text-left font-semibold bg-[#1B4F72] text-white sticky top-0 z-20 min-w-[160px]" rowSpan={2}>Obyek Kerjasama</th>
+                  <th className="px-2 py-2.5 bg-[#1B4F72] text-white sticky top-0 z-20 w-8" rowSpan={2} title="Nonaktifkan agar tidak carry-over">⚡</th>
                   {BULAN_LABELS.map(b => (
-                    <th key={b} colSpan={2} className="px-2 py-1.5 text-center font-semibold text-gray-600 bg-[#f1f5f9] sticky top-0 z-20 shadow-[inset_0_-1px_0_#e2e8f0] border-l border-gray-200">
+                    <th key={b} colSpan={2} className="px-2 py-1.5 text-center font-semibold bg-[#1B4F72] text-white sticky top-0 z-20 border-l border-white/15">
                       {b}
                     </th>
                   ))}
-                  <th colSpan={2} className="px-2 py-1.5 text-center font-semibold text-[#1B4F72] bg-[#f1f5f9] sticky top-0 z-20 shadow-[inset_0_-1px_0_#e2e8f0] border-l border-gray-200">
+                  <th colSpan={2} className="px-2 py-1.5 text-center font-semibold bg-[#153d59] text-white sticky top-0 z-20 border-l border-white/15">
                     Total
                   </th>
-                  <th className="px-2 py-1.5 bg-[#f1f5f9] sticky top-0 z-20 shadow-[inset_0_-1px_0_#e2e8f0] w-14" rowSpan={2} />
+                  <th className="px-2 py-1.5 bg-[#1B4F72] text-white sticky top-0 z-20 w-14" rowSpan={2} />
                 </tr>
-                {/* Baris 2: T / R per bulan */}
                 <tr>
                   {BULAN_LABELS.map(b => (
                     <Fragment key={`${b}-hdr`}>
-                      <th className="px-2 py-1 text-right text-[10px] font-medium text-gray-400 bg-[#f8fafc] sticky top-[33px] z-10 shadow-[inset_0_-1px_0_#e2e8f0] border-l border-gray-100 w-14">T</th>
-                      <th className="px-2 py-1 text-right text-[10px] font-medium text-green-600 bg-[#f8fafc] sticky top-[33px] z-10 shadow-[inset_0_-1px_0_#e2e8f0] w-14">R</th>
+                      <th className="px-2 py-1 text-right text-[10px] font-medium text-blue-100 bg-[#245a80] sticky top-[34px] z-10 border-l border-white/10 w-14">T</th>
+                      <th className="px-2 py-1 text-right text-[10px] font-medium text-emerald-200 bg-[#245a80] sticky top-[34px] z-10 w-14">R</th>
                     </Fragment>
                   ))}
-                  <th className="px-2 py-1 text-right text-[10px] font-medium text-gray-400 bg-[#f8fafc] sticky top-[33px] z-10 shadow-[inset_0_-1px_0_#e2e8f0] border-l border-gray-100 w-16">T</th>
-                  <th className="px-2 py-1 text-right text-[10px] font-medium text-green-600 bg-[#f8fafc] sticky top-[33px] z-10 shadow-[inset_0_-1px_0_#e2e8f0] w-16">R</th>
+                  <th className="px-2 py-1 text-right text-[10px] font-medium text-blue-100 bg-[#1a4a6b] sticky top-[34px] z-10 border-l border-white/10 w-16">T</th>
+                  <th className="px-2 py-1 text-right text-[10px] font-medium text-emerald-200 bg-[#1a4a6b] sticky top-[34px] z-10 w-16">R</th>
                 </tr>
               </thead>
               <tbody>
