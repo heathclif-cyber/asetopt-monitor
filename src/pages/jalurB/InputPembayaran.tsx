@@ -3,13 +3,17 @@ import { useSearchParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Save, FileText, Zap, Pencil, Trash2, X, Search } from 'lucide-react'
+import {
+  Save, FileText, Zap, Pencil, Trash2, X, Search,
+  Wallet, Banknote, ListChecks, ChevronDown, Building2, CalendarDays,
+} from 'lucide-react'
 import { useKompensasiStore } from '@/store/kompensasiStore'
 import { useKerjaSamaStore } from '@/store/kerjaSamaStore'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { SearchableSelect } from '@/components/common/SearchableSelect'
 import { CurrencyInput } from '@/components/common/CurrencyInput'
 import { CurrencyDisplay } from '@/components/common/CurrencyDisplay'
@@ -20,7 +24,7 @@ import { SupermanProgressDialog } from '@/components/common/SupermanProgressDial
 import { KuitansiDialog } from '@/components/common/KuitansiDialog'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { api } from '@/lib/apiClient'
-import { formatRupiah, formatTanggal } from '@/lib/utils'
+import { cn, formatRupiah, formatTanggal } from '@/lib/utils'
 import { Kompensasi, Pembayaran, SupermanStatus } from '@/types'
 
 const schema = z.object({
@@ -66,7 +70,9 @@ export function InputPembayaran() {
   })
 
   const selectedId = form.watch('kompensasi_id')
+  const nominalWatch = form.watch('nominal_bayar')
   const selected = allKompensasi.find(k => String(k.id) === String(selectedId))
+
   const resolveKs = (ksId: string | undefined) => {
     if (!ksId) return undefined
     const fromMaster = daftarKS.find(x => String(x.id) === String(ksId))
@@ -74,6 +80,7 @@ export function InputPembayaran() {
     const fromEmbed = allKompensasi.find(k => String(k.ks_id) === String(ksId))?.kerja_sama
     return fromEmbed as typeof daftarKS[number] | undefined
   }
+
   const ks = selected ? resolveKs(selected.ks_id) : resolveKs(selectedKsId)
   const ws = selected ? getKompensasiWithStatus(selected, riwayat) : null
   const lockedBySuperman = !!(selected?.superman && String(selected.superman).trim())
@@ -87,10 +94,10 @@ export function InputPembayaran() {
   useEffect(() => {
     const kid = params.get('kompensasi_id')
     if (!kid || allKompensasi.length === 0) return
-    const k = allKompensasi.find(x => x.id === kid)
+    const k = allKompensasi.find(x => String(x.id) === String(kid))
     if (k) {
-      setSelectedKsId(k.ks_id)
-      form.setValue('kompensasi_id', kid)
+      setSelectedKsId(String(k.ks_id))
+      form.setValue('kompensasi_id', String(kid))
     }
   }, [allKompensasi, params])
 
@@ -108,7 +115,6 @@ export function InputPembayaran() {
       .catch(() => setRiwayat([]))
   }, [selectedId, lastSaved, riwayatTick])
 
-  // Auto-isi nominal sisa hanya saat mode tambah (bukan edit)
   useEffect(() => {
     if (editingId) return
     if (selected && ws && ws.sisaTagihan > 0) {
@@ -116,7 +122,6 @@ export function InputPembayaran() {
     }
   }, [selectedId, ws?.sisaTagihan, editingId])
 
-  // Semua KS yang punya tagihan — dari master KS + embed kompensasi (termasuk lunas)
   const ksOptions = useMemo(() => {
     type Stats = { open: number; lunas: number; monika: Set<string>; mitra: string; aset: string; noKontrak: string }
     const byKs = new Map<string, Stats>()
@@ -182,7 +187,6 @@ export function InputPembayaran() {
       .sort((a, b) => a.jatuhTempo.localeCompare(b.jatuhTempo))
   }, [selectedKsId, allKompensasi, getKompensasiWithStatus])
 
-  /** Semua cash in (pembayaran) — sumber edit tanpa harus pilih dropdown dulu */
   const allCashInRows = useMemo(() => {
     type Row = {
       payment: Pembayaran
@@ -224,13 +228,17 @@ export function InputPembayaran() {
     })
   }, [allCashInRows, listQuery])
 
+  const totalCashInAll = useMemo(
+    () => allCashInRows.reduce((s, r) => s + (r.payment.nominal_bayar || 0), 0),
+    [allCashInRows],
+  )
+
   const handleKsChange = (ksId: string) => {
     cancelEdit()
     setSelectedKsId(ksId)
     const tahapForKs = allKompensasi
       .filter(k => String(k.ks_id) === String(ksId))
       .sort((a, b) => a.tgl_jatuh_tempo.localeCompare(b.tgl_jatuh_tempo))
-    // Prefer tahap belum lunas, fallback tahap pertama
     const prefer = tahapForKs.find(k => {
       const s = getKompensasiWithStatus(k, (k.pembayaran ?? []) as Pembayaran[])
       return s.statusBayar !== 'lunas'
@@ -239,8 +247,8 @@ export function InputPembayaran() {
   }
 
   useEffect(() => {
-    if (selected && selected.ks_id !== selectedKsId) {
-      setSelectedKsId(selected.ks_id)
+    if (selected && String(selected.ks_id) !== String(selectedKsId)) {
+      setSelectedKsId(String(selected.ks_id))
     }
   }, [selected?.ks_id])
 
@@ -271,7 +279,7 @@ export function InputPembayaran() {
     }
   }
 
-  const openEdit = (p: Pembayaran, opts?: { fromList?: boolean }) => {
+  const openEdit = (p: Pembayaran) => {
     const komp = allKompensasi.find(k => String(k.id) === String(p.kompensasi_id))
     if (komp?.superman && String(komp.superman).trim()) {
       alert('Kompensasi sudah punya nomor Superman — pembayaran tidak bisa diubah.')
@@ -285,11 +293,7 @@ export function InputPembayaran() {
     form.setValue('is_pph_disetor', p.is_pph_disetor ?? false)
     form.setValue('keterangan', p.keterangan ?? '')
     form.setValue('bukti_url', p.bukti_url ?? '')
-    if (opts?.fromList) {
-      document.getElementById('form-cash-in')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    } else {
-      window.scrollTo({ top: 0, behavior: 'smooth' })
-    }
+    document.getElementById('form-cash-in')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
   const onSubmit = async (data: FormData) => {
@@ -339,7 +343,7 @@ export function InputPembayaran() {
     setDeleting(true)
     try {
       await api.delete(`/api/pembayaran/${deleteTarget.id}`)
-      if (editingId === deleteTarget.id) cancelEdit()
+      if (editingId === String(deleteTarget.id)) cancelEdit()
       if (lastSaved?.id === deleteTarget.id) setLastSaved(null)
       setDeleteTarget(null)
       await fetchAllKompensasi()
@@ -372,146 +376,100 @@ export function InputPembayaran() {
     alert(`Superman selesai: ${ref}`)
   }
 
-  // Mode edit: boleh simpan meski sisa 0 (nominal diganti dalam batas sisa + nominal lama)
   const sisaUntukInput = editingId
-    ? (ws?.sisaTagihan ?? 0) + (riwayat.find(p => p.id === editingId)?.nominal_bayar ?? 0)
+    ? (ws?.sisaTagihan ?? 0) + (
+      riwayat.find(p => String(p.id) === String(editingId))?.nominal_bayar
+      ?? allCashInRows.find(r => String(r.payment.id) === String(editingId))?.payment.nominal_bayar
+      ?? 0
+    )
     : (ws?.sisaTagihan ?? 0)
 
   const canSave = !!(
     selected
     && !saving
     && !lockedBySuperman
-    && form.watch('nominal_bayar') > 0
+    && nominalWatch > 0
     && (editingId || sisaUntukInput > 0.5)
   )
 
-  return (
-    <div className="space-y-5 max-w-4xl">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Input Pembayaran (Cash In)</h1>
-        <p className="text-sm text-gray-500">
-          Catat realisasi pembayaran mitra. Invoice tidak wajib di sini.
-          Termasuk tagihan <strong className="font-medium text-gray-700">sudah lunas</strong> — cari nama aset / mitra / ID Monika untuk edit riwayat.
-        </p>
-      </div>
+  const previewSisa = Math.max(0, sisaUntukInput - (nominalWatch || 0))
 
-      {/* Daftar semua cash in — tidak tergantung dropdown (fixis Dapenbun/lunas) */}
-      <div className="bg-white border rounded-xl p-5 shadow-sm space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h2 className="text-sm font-semibold text-gray-900">Semua Cash In Tercatat</h2>
-            <p className="text-[11px] text-gray-500 mt-0.5">
-              Cari mitra/aset lalu klik <strong>Edit</strong> — termasuk tagihan sudah lunas.
+  return (
+    <div className="space-y-5 max-w-6xl pb-8">
+      {/* Header */}
+      <div className="rounded-2xl bg-gradient-to-br from-[#0E6655] via-[#117A65] to-[#1E8449] px-5 py-5 sm:px-6 text-white shadow-md">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="inline-flex items-center gap-2 rounded-full bg-white/15 px-2.5 py-0.5 text-[11px] font-medium text-emerald-50 mb-2">
+              <Wallet size={12} /> Jalur B · Realisasi
+            </div>
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Input Pembayaran (Cash In)</h1>
+            <p className="mt-1 text-sm text-emerald-50/90 max-w-xl">
+              Catat atau edit pembayaran mitra. Invoice tidak wajib. Cari nama aset / mitra / Monika di daftar untuk mengubah data lama.
             </p>
           </div>
-          <span className="text-[11px] text-gray-500 bg-gray-100 rounded-full px-2.5 py-1 tabular-nums">
-            {filteredCashInRows.length} / {allCashInRows.length} baris
-          </span>
-        </div>
-        <div className="relative">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <Input
-            value={listQuery}
-            onChange={e => setListQuery(e.target.value)}
-            placeholder="Cari: Dapenbun, Pelayanan 13, R800032-0027..."
-            className="pl-9"
-          />
-        </div>
-        {allCashInRows.length === 0 ? (
-          <p className="text-sm text-gray-400 italic py-4 text-center">Belum ada data pembayaran.</p>
-        ) : filteredCashInRows.length === 0 ? (
-          <p className="text-sm text-gray-400 italic py-4 text-center">Tidak ada hasil untuk “{listQuery}”.</p>
-        ) : (
-          <div className="overflow-x-auto max-h-[320px] overflow-y-auto border rounded-lg">
-            <table className="w-full text-xs">
-              <thead className="sticky top-0 bg-slate-50 border-b z-10">
-                <tr className="text-left text-gray-500">
-                  <th className="px-3 py-2 font-medium">Tgl bayar</th>
-                  <th className="px-3 py-2 font-medium">Aset / Mitra</th>
-                  <th className="px-3 py-2 font-medium">Tahap</th>
-                  <th className="px-3 py-2 font-medium text-right">Nominal</th>
-                  <th className="px-3 py-2 font-medium text-center w-28">Aksi</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredCashInRows.map(r => {
-                  const isEditing = editingId === String(r.payment.id)
-                  return (
-                    <tr
-                      key={r.payment.id}
-                      className={`border-b border-gray-50 ${isEditing ? 'bg-amber-50' : 'hover:bg-slate-50/80'}`}
-                    >
-                      <td className="px-3 py-2 whitespace-nowrap text-gray-600 tabular-nums">
-                        {formatTanggal(r.payment.tgl_bayar)}
-                      </td>
-                      <td className="px-3 py-2 min-w-[180px]">
-                        <div className="font-medium text-gray-800">{r.aset}</div>
-                        <div className="text-[10px] text-gray-500">
-                          {r.mitra}
-                          {r.monika ? ` · ${r.monika}` : ''}
-                        </div>
-                      </td>
-                      <td className="px-3 py-2 text-gray-600">{r.periode}</td>
-                      <td className="px-3 py-2 text-right font-semibold text-green-700 tabular-nums whitespace-nowrap">
-                        {formatRupiah(r.payment.nominal_bayar)}
-                      </td>
-                      <td className="px-3 py-2">
-                        <div className="flex items-center justify-center gap-0.5">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 px-2 text-blue-700"
-                            disabled={r.locked}
-                            title={r.locked ? 'Terkunci Superman' : 'Edit'}
-                            onClick={() => openEdit(r.payment, { fromList: true })}
-                          >
-                            <Pencil size={13} /> Edit
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 px-1.5 text-red-600"
-                            disabled={r.locked}
-                            title={r.locked ? 'Terkunci Superman' : 'Hapus'}
-                            onClick={() => setDeleteTarget(r.payment)}
-                          >
-                            <Trash2 size={13} />
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+          <div className="flex flex-wrap gap-2">
+            <div className="rounded-xl bg-white/15 backdrop-blur px-3.5 py-2.5 min-w-[120px]">
+              <p className="text-[10px] uppercase tracking-wide text-emerald-100/80">Total tercatat</p>
+              <p className="text-sm font-bold tabular-nums mt-0.5">{formatRupiah(totalCashInAll)}</p>
+            </div>
+            <div className="rounded-xl bg-white/15 backdrop-blur px-3.5 py-2.5 min-w-[88px]">
+              <p className="text-[10px] uppercase tracking-wide text-emerald-100/80">Transaksi</p>
+              <p className="text-sm font-bold tabular-nums mt-0.5">{allCashInRows.length}</p>
+            </div>
+            <div className="rounded-xl bg-white/15 backdrop-blur px-3.5 py-2.5 min-w-[88px]">
+              <p className="text-[10px] uppercase tracking-wide text-emerald-100/80">Mitra KS</p>
+              <p className="text-sm font-bold tabular-nums mt-0.5">{ksOptions.length}</p>
+            </div>
           </div>
-        )}
+        </div>
       </div>
 
-      <form id="form-cash-in" onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
-        <div className="bg-white border rounded-xl p-5 space-y-4 shadow-sm">
-          <h2 className="text-sm font-semibold text-gray-900 border-b pb-2">
-            {editingId ? 'Edit Cash In' : 'Tambah Cash In Baru'}
-          </h2>
-          {editingId && (
-            <div className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-              <span className="font-medium">Mode edit cash in — ubah data lalu simpan</span>
-              <button
-                type="button"
-                onClick={cancelEdit}
-                className="inline-flex items-center gap-1 text-xs font-medium text-amber-800 hover:underline"
-              >
-                <X size={12} /> Batal edit
-              </button>
-            </div>
-          )}
+      <div className="grid grid-cols-1 xl:grid-cols-5 gap-5 items-start">
+        {/* ── Form ───────────────────────────────────────────────────────── */}
+        <form
+          id="form-cash-in"
+          onSubmit={form.handleSubmit(onSubmit)}
+          className="xl:col-span-2 space-y-4 xl:sticky xl:top-20"
+        >
+          <Card className={cn(
+            'shadow-sm overflow-hidden border-gray-200/80',
+            editingId && 'ring-2 ring-amber-300/80 border-amber-200',
+          )}>
+            <CardHeader className={cn(
+              'py-3.5 px-5 border-b',
+              editingId ? 'bg-amber-50/80 border-amber-100' : 'bg-white',
+            )}>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className={cn(
+                    'flex h-8 w-8 items-center justify-center rounded-lg shrink-0',
+                    editingId ? 'bg-amber-100 text-amber-700' : 'bg-emerald-50 text-emerald-700',
+                  )}>
+                    {editingId ? <Pencil size={15} /> : <Banknote size={15} />}
+                  </span>
+                  <div className="min-w-0">
+                    <CardTitle className="text-sm font-semibold text-gray-900">
+                      {editingId ? 'Edit Cash In' : 'Tambah Cash In'}
+                    </CardTitle>
+                    <p className="text-[11px] text-gray-500 truncate">
+                      {editingId
+                        ? 'Ubah data lalu simpan perubahan'
+                        : 'Pilih mitra & tahap, isi nominal'}
+                    </p>
+                  </div>
+                </div>
+                {editingId && (
+                  <Button type="button" variant="ghost" size="sm" className="h-8 text-amber-800 shrink-0" onClick={cancelEdit}>
+                    <X size={14} /> Batal
+                  </Button>
+                )}
+              </div>
+            </CardHeader>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <Label>Aset / Mitra / Kerja Sama</Label>
-              <div className="mt-1">
+            <CardContent className="p-5 space-y-4">
+              <div className="space-y-1.5">
+                <Label className="text-xs text-gray-600">Aset / Mitra</Label>
                 <SearchableSelect
                   value={selectedKsId}
                   onValueChange={handleKsChange}
@@ -519,13 +477,7 @@ export function InputPembayaran() {
                   options={ksOptions.map(o => ({
                     value: o.id,
                     label: `${o.aset} — ${o.mitra}`,
-                    searchText: [
-                      o.aset,
-                      o.mitra,
-                      o.noKontrak,
-                      ...o.monika,
-                      o.lunas > 0 ? 'lunas' : '',
-                    ].join(' '),
+                    searchText: [o.aset, o.mitra, o.noKontrak, ...o.monika].join(' '),
                     description: [
                       o.noKontrak,
                       o.monika.length ? `Monika ${o.monika.join(', ')}` : null,
@@ -534,273 +486,378 @@ export function InputPembayaran() {
                     ].filter(Boolean).join(' · '),
                   }))}
                   placeholder="Cari aset, mitra, Monika..."
-                  searchPlaceholder="cth: Pelayanan 13, Dapenbun, R800032-0027..."
+                  searchPlaceholder="cth: Dapenbun, Pelayanan 13..."
                 />
+                {ks && (
+                  <p className="text-[11px] text-gray-500 flex items-start gap-1.5 pt-0.5">
+                    <Building2 size={12} className="mt-0.5 shrink-0 text-gray-400" />
+                    <span>
+                      {ks.nama_mitra}
+                      {ks.aset?.kode_aset ? ` · ${ks.aset.kode_aset}` : ''}
+                      {ks.no_perjanjian ? ` · ${ks.no_perjanjian}` : ''}
+                    </span>
+                  </p>
+                )}
               </div>
-              {ks && (
-                <p className="text-[11px] text-gray-500 mt-1">
-                  Mitra: {ks.nama_mitra}
-                  {ks.aset?.kode_aset ? ` · Monika ${ks.aset.kode_aset}` : ''}
-                  {ks.no_perjanjian ? ` · ${ks.no_perjanjian}` : ks.no_kontrak_sap ? ` · SAP: ${ks.no_kontrak_sap}` : ''}
-                </p>
-              )}
-            </div>
 
-            <div>
-              <Label>Tahap Tagihan</Label>
-              <div className="mt-1">
+              <div className="space-y-1.5">
+                <Label className="text-xs text-gray-600">Tahap Tagihan</Label>
                 <SearchableSelect
                   value={selectedId}
                   disabled={!selectedKsId || !!editingId}
                   onValueChange={v => {
-                    cancelEdit()
+                    if (editingId) cancelEdit()
                     form.setValue('kompensasi_id', v)
                   }}
                   options={tahapOptions.map(o => ({
                     value: o.id,
                     label: o.status === 'lunas'
-                      ? `${o.periode} — Lunas (${formatRupiah(o.dibayar)})`
+                      ? `${o.periode} — Lunas`
                       : `${o.periode} — sisa ${formatRupiah(o.sisa)}`,
                     searchText: `${o.periode} ${o.monika} ${o.status}`,
                     description: [
-                      `Tagihan ${formatRupiah(o.total)}`,
+                      formatRupiah(o.total),
                       `JT ${formatTanggal(o.jatuhTempo)}`,
-                      o.monika ? `Monika ${o.monika}` : null,
-                      o.status,
+                      o.monika || null,
                     ].filter(Boolean).join(' · '),
                   }))}
-                  placeholder="Cari & pilih tahap..."
-                  searchPlaceholder="Ketik periode / Monika..."
+                  placeholder={selectedKsId ? 'Pilih tahap...' : 'Pilih mitra dulu'}
+                  searchPlaceholder="Periode / Monika..."
                 />
-              </div>
-              {selectedTahap && (
-                <p className="text-[11px] text-gray-500 mt-1">
-                  Jatuh tempo {formatTanggal(selectedTahap.jatuhTempo)}
-                  {selectedTahap.monika ? ` · Monika ${selectedTahap.monika}` : ''}
-                  {selectedTahap.status === 'lunas' && selectedTahap.dibayar > selectedTahap.total
-                    ? ` · Kelebihan bayar ${formatRupiah(selectedTahap.dibayar - selectedTahap.total)}`
-                    : ''}
-                </p>
-              )}
-            </div>
-          </div>
-
-          {selected && ws && (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm bg-gray-50 rounded-lg p-3 border border-gray-100">
-              <div>
-                <p className="text-xs text-gray-500">Total Tagihan</p>
-                <CurrencyDisplay value={selected.total_tagihan} size="sm" />
-              </div>
-              <div>
-                <p className="text-xs text-gray-500">Sudah Dibayar</p>
-                <CurrencyDisplay value={ws.totalDibayar} size="sm" className="text-green-700" />
-              </div>
-              <div>
-                <p className="text-xs text-gray-500">{editingId ? 'Sisa (setelah edit)' : 'Sisa'}</p>
-                <CurrencyDisplay
-                  value={Math.max(0, sisaUntukInput - (form.watch('nominal_bayar') || 0))}
-                  size="sm"
-                  className="text-red-600"
-                />
-              </div>
-              <div>
-                <p className="text-xs text-gray-500">Status</p>
-                <StatusBadge type="bayar" value={ws.statusBayar} />
-              </div>
-            </div>
-          )}
-
-          {lockedBySuperman && (
-            <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-              Tagihan ini sudah punya nomor Superman — cash in tidak bisa ditambah/diubah/dihapus.
-            </p>
-          )}
-
-          {selected?.no_invoice && (
-            <p className="text-xs text-gray-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
-              No. invoice (opsional / dari apps lain): <strong className="font-mono">{selected.no_invoice}</strong>
-              {selected.invoice_tgl ? ` · ${formatTanggal(selected.invoice_tgl)}` : ''}
-            </p>
-          )}
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <Label>Tanggal Bayar</Label>
-              <Input type="date" {...form.register('tgl_bayar')} className="mt-1" disabled={lockedBySuperman} />
-            </div>
-            <div>
-              <Label>Nominal Cash In (Rp)</Label>
-              <CurrencyInput
-                value={form.watch('nominal_bayar')}
-                onChange={v => form.setValue('nominal_bayar', v)}
-                className="mt-1"
-                disabled={lockedBySuperman}
-              />
-              {editingId && sisaUntukInput > 0 && (
-                <p className="text-[11px] text-gray-500 mt-1">
-                  Maks. dapat diisi: {formatRupiah(sisaUntukInput)}
-                </p>
-              )}
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <input type="checkbox" id="pph" {...form.register('is_pph_disetor')} disabled={lockedBySuperman} />
-            <Label htmlFor="pph" className="font-normal">PPh sudah disetor</Label>
-          </div>
-
-          <div>
-            <Label>Link Bukti Transfer (opsional)</Label>
-            <Input {...form.register('bukti_url')} className="mt-1" placeholder="https://..." disabled={lockedBySuperman} />
-          </div>
-          <div>
-            <Label>Keterangan (opsional)</Label>
-            <Textarea {...form.register('keterangan')} className="mt-1" rows={2} disabled={lockedBySuperman} />
-          </div>
-        </div>
-
-        <div className="flex flex-wrap gap-2">
-          <Button type="submit" className="bg-[#1E8449]" disabled={!canSave}>
-            <Save size={14} />
-            {saving
-              ? 'Menyimpan...'
-              : editingId
-                ? 'Simpan Perubahan'
-                : 'Simpan Cash In'}
-          </Button>
-          {editingId && (
-            <Button type="button" variant="outline" onClick={cancelEdit}>
-              Batal
-            </Button>
-          )}
-          {lastSaved && selected && !editingId && (
-            <Button type="button" variant="outline" onClick={() => setKuitansiTarget(lastSaved)}>
-              <FileText size={14} /> Buat Kuitansi
-            </Button>
-          )}
-        </div>
-      </form>
-
-      {selected && riwayat.length > 0 && (
-        <div className="bg-white border rounded-xl p-5 shadow-sm">
-          <h2 className="text-sm font-semibold mb-3">Riwayat Cash In</h2>
-          <div className="space-y-2 text-sm">
-            {riwayat.map(p => {
-              const isEditing = editingId === p.id
-              return (
-                <div
-                  key={p.id}
-                  className={`flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 pb-2 ${
-                    isEditing ? 'bg-amber-50/80 -mx-2 px-2 rounded-md' : ''
-                  }`}
-                >
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 min-w-0">
-                    <span className="text-gray-500 tabular-nums">{formatTanggal(p.tgl_bayar)}</span>
-                    <span className="font-medium text-green-700 tabular-nums">{formatRupiah(p.nominal_bayar)}</span>
-                    {p.no_pembayaran && (
-                      <span className="font-mono text-[10px] text-gray-400">{p.no_pembayaran}</span>
-                    )}
-                    {p.keterangan && (
-                      <span className="text-xs text-gray-400 truncate max-w-[200px]" title={p.keterangan}>
-                        {p.keterangan}
+                {selectedTahap && (
+                  <p className="text-[11px] text-gray-500 flex items-center gap-1.5">
+                    <CalendarDays size={12} className="text-gray-400" />
+                    JT {formatTanggal(selectedTahap.jatuhTempo)}
+                    {selectedTahap.monika ? ` · ${selectedTahap.monika}` : ''}
+                    {selectedTahap.status === 'lunas' && selectedTahap.dibayar > selectedTahap.total && (
+                      <span className="text-amber-700 font-medium">
+                        · lebih {formatRupiah(selectedTahap.dibayar - selectedTahap.total)}
                       </span>
                     )}
-                    {isEditing && (
-                      <span className="text-[10px] font-semibold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">
-                        Sedang diedit
-                      </span>
-                    )}
+                  </p>
+                )}
+              </div>
+
+              {selected && ws && (
+                <div className="grid grid-cols-2 gap-2 rounded-xl border border-gray-100 bg-slate-50/80 p-3">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wide text-gray-400">Tagihan</p>
+                    <CurrencyDisplay value={selected.total_tagihan} size="sm" className="font-semibold text-gray-800" />
                   </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <Button type="button" variant="ghost" size="sm" onClick={() => setKuitansiTarget(p)}>
-                      <FileText size={13} /> Kuitansi
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="text-blue-700 hover:text-blue-800 hover:bg-blue-50"
-                      disabled={lockedBySuperman}
-                      onClick={() => openEdit(p)}
-                      title={lockedBySuperman ? 'Terkunci Superman' : 'Edit cash in'}
-                    >
-                      <Pencil size={13} /> Edit
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                      disabled={lockedBySuperman}
-                      onClick={() => setDeleteTarget(p)}
-                      title={lockedBySuperman ? 'Terkunci Superman' : 'Hapus cash in'}
-                    >
-                      <Trash2 size={13} />
-                    </Button>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wide text-gray-400">Dibayar</p>
+                    <CurrencyDisplay value={ws.totalDibayar} size="sm" className="font-semibold text-emerald-700" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wide text-gray-400">
+                      {editingId ? 'Sisa sisa input' : 'Sisa'}
+                    </p>
+                    <CurrencyDisplay value={previewSisa} size="sm" className="font-semibold text-red-600" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wide text-gray-400 mb-0.5">Status</p>
+                    <StatusBadge type="bayar" value={ws.statusBayar} />
                   </div>
                 </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
+              )}
 
-      {selected && (
-        <details className="bg-white border rounded-xl p-4 shadow-sm group">
-          <summary className="cursor-pointer text-sm font-medium text-gray-700 list-none flex items-center justify-between">
-            <span>Otomasi Superman (opsional)</span>
-            <span className="text-[11px] text-gray-400 font-normal">tidak wajib untuk catat cash in</span>
-          </summary>
-          <div className="mt-4 space-y-3 border-t pt-4">
-            {supermanStatus && (
-              <div className={`text-xs rounded-lg border px-3 py-2 ${
-                supermanReady ? 'bg-green-50 border-green-200 text-green-800' : 'bg-amber-50 border-amber-200 text-amber-800'
-              }`}>
-                {!supermanStatus.configured && (
-                  <p>Superman belum dikonfigurasi di service API.</p>
+              {lockedBySuperman && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                  Tagihan sudah punya nomor Superman — cash in terkunci.
+                </div>
+              )}
+
+              {selected?.no_invoice && (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-gray-600">
+                  Invoice: <span className="font-mono font-medium text-gray-800">{selected.no_invoice}</span>
+                  {selected.invoice_tgl ? ` · ${formatTanggal(selected.invoice_tgl)}` : ''}
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-1 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-gray-600">Tanggal Bayar</Label>
+                  <Input type="date" {...form.register('tgl_bayar')} disabled={lockedBySuperman} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-gray-600">Nominal Cash In (Rp)</Label>
+                  <CurrencyInput
+                    value={nominalWatch}
+                    onChange={v => form.setValue('nominal_bayar', v)}
+                    disabled={lockedBySuperman}
+                  />
+                  {editingId && sisaUntukInput > 0 && (
+                    <p className="text-[11px] text-gray-400">Maks. {formatRupiah(sisaUntukInput)}</p>
+                  )}
+                </div>
+              </div>
+
+              <label className={cn(
+                'flex items-center gap-2.5 rounded-lg border px-3 py-2.5 cursor-pointer transition-colors',
+                form.watch('is_pph_disetor')
+                  ? 'border-emerald-200 bg-emerald-50/60'
+                  : 'border-gray-100 bg-white hover:bg-gray-50',
+                lockedBySuperman && 'opacity-60 pointer-events-none',
+              )}>
+                <input
+                  type="checkbox"
+                  id="pph"
+                  className="rounded border-gray-300"
+                  {...form.register('is_pph_disetor')}
+                  disabled={lockedBySuperman}
+                />
+                <span className="text-sm text-gray-700">PPh sudah disetor</span>
+              </label>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs text-gray-600">Link bukti transfer <span className="text-gray-400 font-normal">(opsional)</span></Label>
+                <Input {...form.register('bukti_url')} placeholder="https://..." disabled={lockedBySuperman} />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-gray-600">Keterangan <span className="text-gray-400 font-normal">(opsional)</span></Label>
+                <Textarea {...form.register('keterangan')} rows={2} disabled={lockedBySuperman} placeholder="Catatan pembayaran..." />
+              </div>
+
+              <div className="flex flex-wrap gap-2 pt-1 border-t border-gray-100">
+                <Button type="submit" className="bg-[#1E8449] hover:bg-[#196F3D] flex-1 sm:flex-none" disabled={!canSave}>
+                  <Save size={14} />
+                  {saving ? 'Menyimpan...' : editingId ? 'Simpan Perubahan' : 'Simpan Cash In'}
+                </Button>
+                {lastSaved && selected && !editingId && (
+                  <Button type="button" variant="outline" onClick={() => setKuitansiTarget(lastSaved)}>
+                    <FileText size={14} /> Kuitansi
+                  </Button>
                 )}
-                {supermanStatus.configured && !supermanStatus.playwright_ready && (
-                  <p>Playwright belum siap: {supermanStatus.playwright_error ?? 'periksa deploy API'}</p>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Superman — collapsible, secondary */}
+          {selected && (
+            <details className="group rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+              <summary className="cursor-pointer list-none flex items-center justify-between gap-2 px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50">
+                <span className="inline-flex items-center gap-2">
+                  <Zap size={14} className="text-[#1B4F72]" />
+                  Otomasi Superman
+                  <span className="text-[10px] font-normal text-gray-400">opsional</span>
+                </span>
+                <ChevronDown size={14} className="text-gray-400 transition-transform group-open:rotate-180" />
+              </summary>
+              <div className="px-4 pb-4 space-y-3 border-t pt-3">
+                {supermanStatus && (
+                  <div className={cn(
+                    'text-xs rounded-lg border px-3 py-2',
+                    supermanReady
+                      ? 'bg-green-50 border-green-200 text-green-800'
+                      : 'bg-amber-50 border-amber-200 text-amber-800',
+                  )}>
+                    {!supermanStatus.configured && <p>Superman belum dikonfigurasi di API.</p>}
+                    {supermanStatus.configured && !supermanStatus.playwright_ready && (
+                      <p>Playwright belum siap: {supermanStatus.playwright_error ?? 'periksa deploy API'}</p>
+                    )}
+                    {supermanStatus.configured && supermanStatus.playwright_ready && !supermanStatus.session_valid && (
+                      <p>Session kedaluwarsa — verifikasi captcha saat diminta.</p>
+                    )}
+                    {supermanReady && <p>Session Superman valid.</p>}
+                  </div>
                 )}
-                {supermanStatus.configured && supermanStatus.playwright_ready && !supermanStatus.session_valid && (
-                  <p>Session Superman kedaluwarsa — verifikasi captcha saat diminta.</p>
+                {selected.superman && (
+                  <p className="text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg p-2">
+                    Superman: {selected.superman}
+                  </p>
                 )}
-                {supermanReady && <p>Session Superman valid.</p>}
+                <SupermanDocChecklist
+                  kompensasiId={selected.id}
+                  refreshKey={docRefresh}
+                  onReadyChange={setDocsReady}
+                />
+                {!selected.superman && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="border-[#1B4F72] text-[#1B4F72]"
+                    disabled={!canAutoSuperman}
+                    onClick={() => selected && startSuperman(selected.id)}
+                  >
+                    <Zap size={14} /> Kirim ke Superman
+                  </Button>
+                )}
+              </div>
+            </details>
+          )}
+        </form>
+
+        {/* ── Daftar ─────────────────────────────────────────────────────── */}
+        <Card className="xl:col-span-3 shadow-sm border-gray-200/80 overflow-hidden">
+          <CardHeader className="py-3.5 px-5 border-b bg-white">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-600 shrink-0">
+                  <ListChecks size={15} />
+                </span>
+                <div>
+                  <CardTitle className="text-sm font-semibold text-gray-900">Daftar Cash In</CardTitle>
+                  <p className="text-[11px] text-gray-500">
+                    Klik Edit untuk mengubah — termasuk tagihan lunas
+                  </p>
+                </div>
+              </div>
+              <span className="text-[11px] font-medium text-gray-500 bg-gray-100 rounded-full px-2.5 py-1 tabular-nums">
+                {filteredCashInRows.length}
+                {listQuery ? ` / ${allCashInRows.length}` : ''} transaksi
+              </span>
+            </div>
+            <div className="relative mt-3">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <Input
+                value={listQuery}
+                onChange={e => setListQuery(e.target.value)}
+                placeholder="Cari Dapenbun, Pelayanan 13, R800032-0027..."
+                className="pl-9 h-9 bg-slate-50/80 border-gray-200"
+              />
+              {listQuery && (
+                <button
+                  type="button"
+                  onClick={() => setListQuery('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 rounded text-gray-400 hover:text-gray-600"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+          </CardHeader>
+
+          <CardContent className="p-0">
+            {allCashInRows.length === 0 ? (
+              <div className="py-14 text-center px-4">
+                <Wallet className="mx-auto text-gray-300 mb-2" size={28} />
+                <p className="text-sm text-gray-500">Belum ada cash in tercatat</p>
+                <p className="text-xs text-gray-400 mt-1">Gunakan formulir di kiri untuk menambah</p>
+              </div>
+            ) : filteredCashInRows.length === 0 ? (
+              <div className="py-12 text-center px-4">
+                <Search className="mx-auto text-gray-300 mb-2" size={24} />
+                <p className="text-sm text-gray-500">Tidak ada hasil untuk “{listQuery}”</p>
+              </div>
+            ) : (
+              <div className="overflow-auto max-h-[min(70vh,640px)]">
+                <table className="w-full text-sm min-w-[560px]">
+                  <thead>
+                    <tr className="border-b bg-slate-50 text-gray-500 text-[11px] uppercase tracking-wide sticky top-0 z-10">
+                      <th className="text-left px-4 py-2.5 font-medium">Tanggal</th>
+                      <th className="text-left px-3 py-2.5 font-medium">Aset / Mitra</th>
+                      <th className="text-left px-3 py-2.5 font-medium">Tahap</th>
+                      <th className="text-right px-3 py-2.5 font-medium">Nominal</th>
+                      <th className="text-center px-3 py-2.5 font-medium w-[100px]">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {filteredCashInRows.map((r, idx) => {
+                      const isEditing = editingId === String(r.payment.id)
+                      const isSelectedTahap = selectedId && String(r.kompensasi.id) === String(selectedId)
+                      return (
+                        <tr
+                          key={r.payment.id}
+                          className={cn(
+                            'transition-colors',
+                            isEditing && 'bg-amber-50',
+                            !isEditing && isSelectedTahap && 'bg-emerald-50/40',
+                            !isEditing && !isSelectedTahap && (idx % 2 === 1 ? 'bg-slate-50/40' : 'bg-white'),
+                            !isEditing && 'hover:bg-blue-50/40',
+                          )}
+                        >
+                          <td className="px-4 py-2.5 whitespace-nowrap text-gray-600 tabular-nums text-[13px]">
+                            {formatTanggal(r.payment.tgl_bayar)}
+                          </td>
+                          <td className="px-3 py-2.5 min-w-[160px] max-w-[240px]">
+                            <p className="font-medium text-gray-800 text-[13px] truncate" title={r.aset}>
+                              {r.aset}
+                            </p>
+                            <p className="text-[11px] text-gray-500 truncate">
+                              {r.mitra}
+                              {r.monika ? (
+                                <span className="ml-1 font-mono text-[10px] text-[#1B4F72] bg-blue-50 px-1 rounded">
+                                  {r.monika}
+                                </span>
+                              ) : null}
+                            </p>
+                          </td>
+                          <td className="px-3 py-2.5 text-[13px] text-gray-600">
+                            <span className="line-clamp-2">{r.periode}</span>
+                            {isEditing && (
+                              <span className="mt-0.5 inline-block text-[10px] font-semibold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">
+                                Sedang diedit
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2.5 text-right font-semibold text-emerald-700 tabular-nums whitespace-nowrap text-[13px]">
+                            {formatRupiah(r.payment.nominal_bayar)}
+                          </td>
+                          <td className="px-3 py-2.5">
+                            <div className="flex items-center justify-center gap-1">
+                              <button
+                                type="button"
+                                disabled={r.locked}
+                                title={r.locked ? 'Terkunci Superman' : 'Edit'}
+                                onClick={() => openEdit(r.payment)}
+                                className={cn(
+                                  'h-7 w-7 inline-flex items-center justify-center rounded-md border transition-colors',
+                                  r.locked
+                                    ? 'opacity-40 cursor-not-allowed border-gray-100 text-gray-300'
+                                    : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100',
+                                )}
+                              >
+                                <Pencil size={13} strokeWidth={2} />
+                              </button>
+                              <button
+                                type="button"
+                                disabled={r.locked}
+                                title={r.locked ? 'Terkunci Superman' : 'Hapus'}
+                                onClick={() => setDeleteTarget(r.payment)}
+                                className={cn(
+                                  'h-7 w-7 inline-flex items-center justify-center rounded-md border transition-colors',
+                                  r.locked
+                                    ? 'opacity-40 cursor-not-allowed border-gray-100 text-gray-300'
+                                    : 'border-red-200 bg-red-50 text-red-600 hover:bg-red-100',
+                                )}
+                              >
+                                <Trash2 size={13} strokeWidth={2} />
+                              </button>
+                              <button
+                                type="button"
+                                title="Kuitansi"
+                                onClick={() => {
+                                  setSelectedKsId(String(r.kompensasi.ks_id))
+                                  form.setValue('kompensasi_id', String(r.kompensasi.id))
+                                  setKuitansiTarget(r.payment)
+                                }}
+                                className="h-7 w-7 inline-flex items-center justify-center rounded-md border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors"
+                              >
+                                <FileText size={13} strokeWidth={2} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t-2 border-gray-200 bg-slate-50 font-semibold text-[13px]">
+                      <td colSpan={3} className="px-4 py-2.5 text-gray-600">
+                        Total{listQuery ? ' (filter)' : ''}
+                      </td>
+                      <td className="px-3 py-2.5 text-right text-emerald-800 tabular-nums">
+                        {formatRupiah(filteredCashInRows.reduce((s, r) => s + r.payment.nominal_bayar, 0))}
+                      </td>
+                      <td />
+                    </tr>
+                  </tfoot>
+                </table>
               </div>
             )}
-            {selected.superman && (
-              <p className="text-xs text-green-700 bg-green-50 border border-green-200 rounded p-2">
-                Superman: {selected.superman}
-              </p>
-            )}
-            <SupermanDocChecklist
-              kompensasiId={selected.id}
-              refreshKey={docRefresh}
-              onReadyChange={setDocsReady}
-            />
-            {!selected.superman && (
-              <Button
-                type="button"
-                variant="outline"
-                className="border-[#1B4F72] text-[#1B4F72]"
-                disabled={!canAutoSuperman}
-                title={
-                  !supermanReady
-                    ? 'Superman belum siap'
-                    : !docsReady
-                      ? 'Lengkapi dokumen pendukung dulu'
-                      : !isLunas
-                        ? 'Pembayaran harus lunas dulu'
-                        : 'Jalankan otomasi Superman'
-                }
-                onClick={() => selected && startSuperman(selected.id)}
-              >
-                <Zap size={14} /> Kirim ke Superman
-              </Button>
-            )}
-          </div>
-        </details>
-      )}
+          </CardContent>
+        </Card>
+      </div>
 
       <SupermanCaptchaDialog
         open={captchaOpen}
@@ -831,7 +888,7 @@ export function InputPembayaran() {
           {deleteTarget && (
             <p className="text-sm text-gray-600">
               Hapus pembayaran {formatTanggal(deleteTarget.tgl_bayar)} sebesar{' '}
-              <strong className="text-green-700">{formatRupiah(deleteTarget.nominal_bayar)}</strong>?
+              <strong className="text-emerald-700">{formatRupiah(deleteTarget.nominal_bayar)}</strong>?
               Data akan dihapus permanen.
             </p>
           )}
