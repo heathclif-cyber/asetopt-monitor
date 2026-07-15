@@ -54,6 +54,77 @@
   }
 }
 
+/* ============ RKAP proker wide table ============ */
+.rkap-proker-scroll {
+  scrollbar-gutter: stable;
+}
+.rkap-proker-table .rkap-th {
+  padding: 0.5rem 0.4rem;
+  font-weight: 600;
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+.rkap-proker-table .rkap-th-dark {
+  background: #1B4F72;
+  color: #fff;
+}
+.rkap-proker-table .rkap-th-dark-alt {
+  background: #153d59;
+  color: #fff;
+}
+.rkap-proker-table .rkap-th-sub {
+  top: 2.15rem;
+  z-index: 25;
+  background: #245a80;
+  color: #dbeafe;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 0.25rem 0.35rem;
+}
+.rkap-proker-table .rkap-th-sub-alt {
+  top: 2.15rem;
+  z-index: 25;
+  background: #1a4a6b;
+  color: #dbeafe;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 0.25rem 0.35rem;
+}
+.rkap-proker-table .rkap-td {
+  padding: 0.45rem 0.4rem;
+  vertical-align: middle;
+  border-bottom: 1px solid #f1f5f9;
+}
+.rkap-proker-table .rkap-td-foot {
+  padding: 0.5rem 0.4rem;
+  border-top: 1px solid #cbd5e1;
+  white-space: nowrap;
+}
+.rkap-proker-table .rkap-sticky-col {
+  position: sticky;
+  z-index: 15;
+}
+.rkap-proker-table thead .rkap-sticky-col {
+  z-index: 40;
+}
+.rkap-proker-table tfoot .rkap-sticky-col {
+  z-index: 20;
+}
+.rkap-proker-table .rkap-sticky-0 {
+  left: 0;
+  min-width: 2.5rem;
+}
+.rkap-proker-table .rkap-sticky-1 {
+  left: 2.5rem;
+  min-width: 7.5rem;
+}
+.rkap-proker-table .rkap-sticky-2 {
+  left: 10rem;
+  min-width: 12.5rem;
+}
+
 /* ============ Katalog Print Styles (A4 export) ============ */
 @media print {
   /* Hide everything except the factsheet */

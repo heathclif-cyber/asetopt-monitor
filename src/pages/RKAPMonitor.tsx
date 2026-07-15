@@ -1102,164 +1102,193 @@ export function RKAPMonitor() {
         </CardContent>
       </Card>
 
-      {/* Tabel per obyek */}
+      {/* Tabel per obyek — sticky left cols + header alignment fixed */}
       <Card className="overflow-hidden shadow-sm border-gray-200/80">
-        <CardHeader className="border-b bg-gray-50/80 py-3 px-5">
-          <div className="flex flex-wrap items-center justify-between gap-2">
+        <CardHeader className="border-b bg-white py-3.5 px-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <CardTitle className="text-sm font-semibold text-gray-800">
-                Target per Proker · ID Monika · {tahunAktif}
+              <CardTitle className="text-sm font-semibold text-gray-900">
+                Target per Proker · {tahunAktif}
               </CardTitle>
-              <p className="text-[11px] text-gray-500 mt-0.5">
-                Satuan juta Rp · T = target · R = realisasi · klik nama proker untuk breakdown
+              <p className="text-[11px] text-gray-500 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span>Nilai dalam <strong className="font-medium text-gray-700">juta Rupiah</strong></span>
+                <span className="inline-flex items-center gap-1"><span className="text-gray-400 font-semibold">T</span> Target</span>
+                <span className="inline-flex items-center gap-1"><span className="text-emerald-600 font-semibold">R</span> Realisasi</span>
+                <span className="text-gray-400">· Scroll horizontal — kolom ID Monika & nama tetap terlihat</span>
               </p>
             </div>
             <div className="flex items-center gap-2">
               {nonaktifKodes.size > 0 && (
                 <span className="text-xs text-red-600 font-medium bg-red-50 border border-red-100 rounded-full px-2.5 py-1">
-                  {nonaktifKodes.size} dinonaktifkan
+                  {nonaktifKodes.size} nonaktif
                   <button
                     type="button"
                     onClick={() => setNonaktifKodes(new Set())}
-                    className="ml-2 text-blue-600 hover:underline text-[11px]"
+                    className="ml-1.5 text-blue-600 hover:underline"
                   >
-                    Aktifkan semua
+                    Reset
                   </button>
                 </span>
               )}
-              <span className="text-[11px] text-gray-400">{displayRows.length} baris</span>
+              <span className="text-[11px] text-gray-500 bg-gray-100 rounded-full px-2.5 py-1 tabular-nums">
+                {displayRows.length} proker
+              </span>
             </div>
           </div>
         </CardHeader>
         <CardContent className="p-0">
-          <div className="overflow-auto max-h-[70vh]">
-            <table className="text-xs w-full border-collapse" style={{ minWidth: 1400 }}>
+          <div className="rkap-proker-scroll overflow-auto max-h-[min(70vh,640px)]">
+            <table className="rkap-proker-table text-[12px] w-max min-w-full border-separate border-spacing-0">
               <thead>
                 <tr>
-                  <th className="px-2 py-2.5 text-left font-semibold text-gray-500 w-7 bg-[#1B4F72] text-white sticky top-0 z-20" rowSpan={2}>No</th>
-                  <th className="px-2 py-2.5 text-left font-semibold bg-[#1B4F72] text-white sticky top-0 z-20 min-w-[110px]" rowSpan={2}>ID Monika</th>
-                  <th className="px-2 py-2.5 text-left font-semibold bg-[#1B4F72] text-white sticky top-0 z-20 min-w-[160px]" rowSpan={2}>Obyek Kerjasama</th>
-                  <th className="px-2 py-2.5 bg-[#1B4F72] text-white sticky top-0 z-20 w-8" rowSpan={2} title="Nonaktifkan agar tidak carry-over">⚡</th>
+                  <th className="rkap-sticky-col rkap-sticky-0 rkap-th rkap-th-dark w-10 text-center" rowSpan={2}>No</th>
+                  <th className="rkap-sticky-col rkap-sticky-1 rkap-th rkap-th-dark min-w-[118px] text-left" rowSpan={2}>ID Monika</th>
+                  <th className="rkap-sticky-col rkap-sticky-2 rkap-th rkap-th-dark min-w-[200px] text-left shadow-[2px_0_6px_-2px_rgba(0,0,0,0.12)]" rowSpan={2}>Obyek Kerjasama</th>
                   {BULAN_LABELS.map(b => (
-                    <th key={b} colSpan={2} className="px-2 py-1.5 text-center font-semibold bg-[#1B4F72] text-white sticky top-0 z-20 border-l border-white/15">
+                    <th key={b} colSpan={2} className="rkap-th rkap-th-dark text-center border-l border-white/10 min-w-[88px]">
                       {b}
                     </th>
                   ))}
-                  <th colSpan={2} className="px-2 py-1.5 text-center font-semibold bg-[#153d59] text-white sticky top-0 z-20 border-l border-white/15">
+                  <th colSpan={2} className="rkap-th rkap-th-dark-alt text-center border-l border-white/10 min-w-[100px]">
                     Total
                   </th>
-                  <th className="px-2 py-1.5 bg-[#1B4F72] text-white sticky top-0 z-20 w-14" rowSpan={2} />
+                  <th className="rkap-th rkap-th-dark w-[88px] text-center" rowSpan={2}>Aksi</th>
                 </tr>
                 <tr>
                   {BULAN_LABELS.map(b => (
-                    <Fragment key={`${b}-hdr`}>
-                      <th className="px-2 py-1 text-right text-[10px] font-medium text-blue-100 bg-[#245a80] sticky top-[34px] z-10 border-l border-white/10 w-14">T</th>
-                      <th className="px-2 py-1 text-right text-[10px] font-medium text-emerald-200 bg-[#245a80] sticky top-[34px] z-10 w-14">R</th>
+                    <Fragment key={`${b}-sub`}>
+                      <th className="rkap-th rkap-th-sub text-right w-11 border-l border-white/10">T</th>
+                      <th className="rkap-th rkap-th-sub text-right w-11 text-emerald-200">R</th>
                     </Fragment>
                   ))}
-                  <th className="px-2 py-1 text-right text-[10px] font-medium text-blue-100 bg-[#1a4a6b] sticky top-[34px] z-10 border-l border-white/10 w-16">T</th>
-                  <th className="px-2 py-1 text-right text-[10px] font-medium text-emerald-200 bg-[#1a4a6b] sticky top-[34px] z-10 w-16">R</th>
+                  <th className="rkap-th rkap-th-sub-alt text-right w-12 border-l border-white/10">T</th>
+                  <th className="rkap-th rkap-th-sub-alt text-right w-12 text-emerald-200">R</th>
                 </tr>
               </thead>
               <tbody>
-                {displayRows.map(row => {
+                {displayRows.map((row, rowIdx) => {
                   const realPerBulan: number[] = activePerNama[row.kode ?? ''] ?? activePerNama[row.nama] ?? Array(12).fill(0)
                   const totalReal = realPerBulan.reduce((s, v) => s + v, 0)
                   const totalTgt = row.total ?? 0
                   const pctTotal = totalTgt > 0 ? (totalReal / totalTgt) * 100 : null
                   const rowKode = row.kode || row.nama
+                  const inactive = !!(row.kode && nonaktifKodes.has(row.kode))
+                  const zebra = rowIdx % 2 === 1
+                  const stickyBg = inactive ? 'bg-gray-100' : zebra ? 'bg-slate-50' : 'bg-white'
                   return (
-                    <tr key={row.id} className={cn(
-                      'border-b border-gray-100 hover:bg-blue-50/40 transition-colors',
-                      (displayRows.indexOf(row) % 2 === 0) && 'bg-white',
-                      (displayRows.indexOf(row) % 2 === 1) && 'bg-gray-50/30',
-                      row.kode && nonaktifKodes.has(row.kode) && 'opacity-40 bg-gray-100'
-                    )}>
-                      <td className="px-2 py-1.5 text-gray-400 text-center">{row.no}</td>
-                      <td className="px-2 py-1.5 whitespace-nowrap">
+                    <tr
+                      key={row.id}
+                      className={cn(
+                        'group transition-colors',
+                        inactive ? 'opacity-55' : 'hover:bg-blue-50/50',
+                        zebra ? 'bg-slate-50/80' : 'bg-white',
+                      )}
+                    >
+                      <td className={cn('rkap-sticky-col rkap-sticky-0 rkap-td text-center text-gray-400 tabular-nums', stickyBg)}>
+                        {row.no}
+                      </td>
+                      <td className={cn('rkap-sticky-col rkap-sticky-1 rkap-td whitespace-nowrap', stickyBg)}>
                         {row.kode?.trim() ? (
-                          <span className="font-mono text-[11px] font-semibold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded">
+                          <span className="font-mono text-[11px] font-semibold text-[#1B4F72] tracking-tight">
                             {row.kode}
                           </span>
                         ) : (
-                          <span className="text-[11px] font-medium text-red-600 bg-red-50 px-1.5 py-0.5 rounded" title="Isi ID Monika lewat Edit">
+                          <span className="text-[10px] font-medium text-red-600 bg-red-50 border border-red-100 px-1.5 py-0.5 rounded">
                             Belum diisi
                           </span>
                         )}
                       </td>
-                      <td className="px-2 py-1.5 text-gray-700 font-medium max-w-[180px] truncate">
+                      <td className={cn(
+                        'rkap-sticky-col rkap-sticky-2 rkap-td max-w-[220px] shadow-[2px_0_6px_-2px_rgba(0,0,0,0.06)]',
+                        stickyBg,
+                      )}>
                         <button
+                          type="button"
                           onClick={() => { setBreakdownKode(rowKode); setBreakdownNama(row.nama) }}
-                          className="text-left hover:text-blue-700 transition-colors cursor-pointer max-w-full"
-                          title={row.nama}
+                          className="text-left w-full min-w-0 group/name"
+                          title={`${row.nama} — klik breakdown`}
                         >
-                          <span className="truncate block">{row.nama}</span>
+                          <span className="block truncate font-medium text-gray-800 group-hover/name:text-[#1B4F72]">
+                            {row.nama}
+                          </span>
+                          {pctTotal != null && (
+                            <span className={cn(
+                              'inline-flex mt-0.5 text-[10px] font-semibold tabular-nums',
+                              pctTotal >= 100 ? 'text-green-600' : pctTotal >= 75 ? 'text-amber-600' : 'text-red-500',
+                            )}>
+                              {pctTotal.toFixed(1)}%
+                            </span>
+                          )}
                         </button>
-                        {pctTotal != null && (
-                          <div className={cn('text-[9px] font-semibold mt-0.5',
-                            pctTotal >= 100 ? 'text-green-600' : pctTotal >= 75 ? 'text-yellow-600' : 'text-red-500'
-                          )}>
-                            {pctTotal.toFixed(1)}% tercapai
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-2 py-1.5 text-center">
-                        {row.kode && nonaktifKodes.has(row.kode) && (
-                          <span className="text-[10px] text-red-400" title="Dinonaktifkan">⊘</span>
-                        )}
                       </td>
                       {BULAN_COLS.map((col, i) => {
                         const tgt = row[col] ?? 0
                         const real = realPerBulan[i] ?? 0
                         const hit = tgt > 0 && real >= tgt
+                        const isNow = tahunAktif === CURRENT_YEAR && i === CURRENT_MONTH
                         return (
                           <Fragment key={`${row.id}-${col}`}>
-                            <td className={cn('px-2 py-1.5 text-right text-[11px] border-l border-gray-50 tabular-nums',
-                              tgt > 0 ? 'text-gray-600' : 'text-gray-300'
+                            <td className={cn(
+                              'rkap-td text-right tabular-nums border-l border-gray-100/80',
+                              isNow && 'bg-blue-50/40',
+                              tgt > 0 ? 'text-gray-600' : 'text-gray-300',
                             )}>
-                              {tgt > 0 ? (tgt / 1_000_000).toFixed(2) : '—'}
+                              {tgt > 0 ? (tgt / 1_000_000).toFixed(1) : '·'}
                             </td>
-                            <td className={cn('px-2 py-1.5 text-right text-[11px] tabular-nums',
+                            <td className={cn(
+                              'rkap-td text-right tabular-nums',
+                              isNow && 'bg-blue-50/40',
                               real > 0
-                                ? (hit ? 'text-green-700 font-semibold' : 'text-green-600')
-                                : 'text-gray-300'
+                                ? (hit ? 'text-green-700 font-semibold' : 'text-emerald-600')
+                                : 'text-gray-300',
                             )}>
-                              {real > 0 ? (real / 1_000_000).toFixed(2) : '—'}
+                              {real > 0 ? (real / 1_000_000).toFixed(1) : '·'}
                             </td>
                           </Fragment>
                         )
                       })}
-                      {/* Total kolom */}
-                      <td className="px-2 py-1.5 text-right font-semibold text-[#1B4F72] border-l border-gray-200 text-[11px] tabular-nums">
-                        {totalTgt > 0 ? (totalTgt / 1_000_000).toFixed(2) : '—'}
+                      <td className="rkap-td text-right font-semibold text-[#1B4F72] border-l border-gray-200 tabular-nums bg-slate-50/50">
+                        {totalTgt > 0 ? (totalTgt / 1_000_000).toFixed(1) : '·'}
                       </td>
-                      <td className={cn('px-2 py-1.5 text-right font-semibold text-[11px] tabular-nums',
-                        totalReal > 0 ? 'text-green-700' : 'text-gray-300'
+                      <td className={cn(
+                        'rkap-td text-right font-semibold tabular-nums bg-slate-50/50',
+                        totalReal > 0 ? 'text-green-700' : 'text-gray-300',
                       )}>
-                        {totalReal > 0 ? (totalReal / 1_000_000).toFixed(2) : '—'}
+                        {totalReal > 0 ? (totalReal / 1_000_000).toFixed(1) : '·'}
                       </td>
-                      <td className="px-2 py-1.5">
-                        <div className="flex gap-1 items-center">
+                      <td className="rkap-td">
+                        <div className="flex items-center justify-center gap-0.5 opacity-70 group-hover:opacity-100 transition-opacity">
                           {row.kode && (
                             <button
+                              type="button"
                               onClick={() => toggleNonaktif(row.kode!)}
                               className={cn(
-                                'p-1 rounded text-xs transition-colors',
+                                'h-7 w-7 inline-flex items-center justify-center rounded-md text-xs transition-colors',
                                 nonaktifKodes.has(row.kode)
-                                  ? 'bg-red-100 text-red-500 hover:bg-red-200'
-                                  : 'text-gray-300 hover:text-orange-500 hover:bg-orange-50'
+                                  ? 'bg-red-100 text-red-600 hover:bg-red-200'
+                                  : 'text-gray-400 hover:bg-orange-50 hover:text-orange-600',
                               )}
-                              title={nonaktifKodes.has(row.kode) ? 'Aktifkan kembali' : 'Nonaktifkan (prognosa 0, tidak carry-over)'}
+                              title={nonaktifKodes.has(row.kode) ? 'Aktifkan kembali' : 'Nonaktifkan (tidak carry-over)'}
                             >
                               {nonaktifKodes.has(row.kode) ? '⊘' : '○'}
                             </button>
                           )}
-                          <button onClick={() => openEdit(row)} className="p-1 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-700" title="Edit">
-                            <Pencil size={12} />
+                          <button
+                            type="button"
+                            onClick={() => openEdit(row)}
+                            className="h-7 w-7 inline-flex items-center justify-center rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+                            title="Edit"
+                          >
+                            <Pencil size={13} />
                           </button>
                           {!isSeedRow(row.id) && (
-                            <button onClick={() => setDeleteId(row.id)} className="p-1 rounded hover:bg-red-100 text-gray-400 hover:text-red-500" title="Hapus">
-                              <Trash2 size={12} />
+                            <button
+                              type="button"
+                              onClick={() => setDeleteId(row.id)}
+                              className="h-7 w-7 inline-flex items-center justify-center rounded-md text-gray-400 hover:bg-red-50 hover:text-red-600"
+                              title="Hapus"
+                            >
+                              <Trash2 size={13} />
                             </button>
                           )}
                         </div>
@@ -1268,58 +1297,71 @@ export function RKAPMonitor() {
                   )
                 })}
               </tbody>
-              <tfoot className="sticky bottom-0 z-10">
-                {/* Total Target */}
-                <tr className="border-t-2 border-[#1B4F72]/30 bg-[#eaf0f6] font-bold text-xs">
-                  <td /><td /><td /><td className="px-2 py-2 text-[#1B4F72]">Total Target</td>
+              <tfoot>
+                <tr className="bg-[#e8f0f6] font-semibold">
+                  <td className="rkap-sticky-col rkap-sticky-0 rkap-td-foot bg-[#e8f0f6]" />
+                  <td className="rkap-sticky-col rkap-sticky-1 rkap-td-foot bg-[#e8f0f6]" />
+                  <td className="rkap-sticky-col rkap-sticky-2 rkap-td-foot text-[#1B4F72] bg-[#e8f0f6] shadow-[2px_0_6px_-2px_rgba(0,0,0,0.08)]">
+                    Total Target / Realisasi
+                  </td>
                   {BULAN_COLS.map((col, i) => {
                     const tgt = displayRows.reduce((s, r) => s + (r[col] ?? 0), 0)
                     const real = activeRealisasiPerBulan[i] ?? 0
                     return (
                       <Fragment key={`${col}-ft`}>
-                        <td className={cn('px-2 py-2 text-right text-[11px] border-l border-gray-100 tabular-nums', tgt > 0 ? 'text-[#1B4F72]' : 'text-gray-300')}>
-                          {tgt > 0 ? (tgt / 1_000_000).toFixed(2) : '—'}
+                        <td className={cn('rkap-td-foot text-right border-l border-[#1B4F72]/10 tabular-nums', tgt > 0 ? 'text-[#1B4F72]' : 'text-gray-400')}>
+                          {tgt > 0 ? (tgt / 1_000_000).toFixed(1) : '·'}
                         </td>
-                        <td className={cn('px-2 py-2 text-right text-[11px] tabular-nums', real > 0 ? 'text-green-700' : 'text-gray-300')}>
-                          {real > 0 ? (real / 1_000_000).toFixed(2) : '—'}
+                        <td className={cn('rkap-td-foot text-right tabular-nums', real > 0 ? 'text-green-700' : 'text-gray-400')}>
+                          {real > 0 ? (real / 1_000_000).toFixed(1) : '·'}
                         </td>
                       </Fragment>
                     )
                   })}
-                  <td className="px-2 py-2 text-right text-[#1B4F72] border-l border-gray-200 text-[11px] tabular-nums">{(totalTarget / 1_000_000).toFixed(2)}</td>
-                  <td className="px-2 py-2 text-right text-green-700 text-[11px] tabular-nums">{(activeRealisasiPerBulan.reduce((s, v) => s + v, 0) / 1_000_000).toFixed(2)}</td>
-                  <td />
+                  <td className="rkap-td-foot text-right text-[#1B4F72] border-l border-[#1B4F72]/15 tabular-nums">
+                    {(totalTarget / 1_000_000).toFixed(1)}
+                  </td>
+                  <td className="rkap-td-foot text-right text-green-700 tabular-nums">
+                    {(activeRealisasiPerBulan.reduce((s, v) => s + v, 0) / 1_000_000).toFixed(1)}
+                  </td>
+                  <td className="rkap-td-foot" />
                 </tr>
-                {/* Achievement per bulan */}
-                <tr className="bg-[#f8fafc] text-[10px] italic border-b border-gray-200 shadow-[inset_0_1px_0_#e2e8f0]">
-                  <td /><td /><td /><td className="px-2 py-1.5 text-gray-400">Achievement</td>
+                <tr className="bg-[#f8fafc] text-[11px]">
+                  <td className="rkap-sticky-col rkap-sticky-0 rkap-td-foot bg-[#f8fafc]" />
+                  <td className="rkap-sticky-col rkap-sticky-1 rkap-td-foot bg-[#f8fafc]" />
+                  <td className="rkap-sticky-col rkap-sticky-2 rkap-td-foot text-gray-500 bg-[#f8fafc] shadow-[2px_0_6px_-2px_rgba(0,0,0,0.06)]">
+                    Achievement
+                  </td>
                   {BULAN_COLS.map((col, i) => {
                     const tgt = displayRows.reduce((s, r) => s + (r[col] ?? 0), 0)
                     const real = activeRealisasiPerBulan[i] ?? 0
                     const pct = tgt > 0 ? (real / tgt) * 100 : null
-                    const cls = pct == null ? 'text-gray-300' : pct >= 100 ? 'text-green-700' : pct >= 75 ? 'text-yellow-600' : 'text-red-600'
                     return (
                       <Fragment key={`${col}-fa`}>
-                        <td className="border-l border-gray-100" />
-                        <td className={cn('px-2 py-1.5 text-right font-semibold', cls)}>
-                          {pct != null ? `${pct.toFixed(0)}%` : '—'}
+                        <td className="rkap-td-foot border-l border-gray-100" />
+                        <td className={cn(
+                          'rkap-td-foot text-right font-semibold tabular-nums',
+                          pct == null ? 'text-gray-300' : pct >= 100 ? 'text-green-700' : pct >= 75 ? 'text-amber-600' : 'text-red-600',
+                        )}>
+                          {pct != null ? `${pct.toFixed(0)}%` : '·'}
                         </td>
                       </Fragment>
                     )
                   })}
-                  <td className="border-l border-gray-200" />
+                  <td className="rkap-td-foot border-l border-gray-100" />
                   {(() => {
-                    const totalReal = cashIn.reduce((s, v) => s + v, 0)
+                    const totalReal = activeRealisasiPerBulan.reduce((s, v) => s + v, 0)
                     const pct = totalTarget > 0 ? (totalReal / totalTarget) * 100 : null
                     return (
-                      <td className={cn('px-2 py-1.5 text-right font-bold',
-                        pct == null ? 'text-gray-300' : pct >= 100 ? 'text-green-700' : pct >= 75 ? 'text-yellow-600' : 'text-red-600'
+                      <td className={cn(
+                        'rkap-td-foot text-right font-bold tabular-nums',
+                        pct == null ? 'text-gray-300' : pct >= 100 ? 'text-green-700' : pct >= 75 ? 'text-amber-600' : 'text-red-600',
                       )}>
-                        {pct != null ? `${pct.toFixed(1)}%` : '—'}
+                        {pct != null ? `${pct.toFixed(1)}%` : '·'}
                       </td>
                     )
                   })()}
-                  <td />
+                  <td className="rkap-td-foot" />
                 </tr>
               </tfoot>
             </table>
