@@ -207,9 +207,10 @@ export function DataAset() {
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label>Kode Aset</Label>
-                <Input {...register('kode_aset')} className="mt-1" />
+                <Label>ID Monika (Kode Aset) <span className="text-red-500">*</span></Label>
+                <Input {...register('kode_aset')} className="mt-1 font-mono" placeholder="R800xxx-xxxx" />
                 {errors.kode_aset && <p className="text-xs text-red-500 mt-1">{errors.kode_aset.message}</p>}
+                <p className="text-[11px] text-gray-400 mt-1">Kunci unik proker di seluruh sistem — jangan diganti sembarangan.</p>
               </div>
               <div>
                 <Label>Status</Label>

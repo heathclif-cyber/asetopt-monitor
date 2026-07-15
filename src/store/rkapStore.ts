@@ -100,6 +100,12 @@ export const useRKAPStore = create<RKAPStore>((set, get) => ({
 
   upsertRow: async (data) => {
     const payload = data as any
+    const monika = String(payload.kode ?? '').trim()
+    if (!monika) {
+      console.error('[upsertRow] ID Monika (kode) wajib diisi')
+      throw new Error('ID Monika wajib diisi — pilih dari master Data Aset')
+    }
+    payload.kode = monika
     if (payload.id) {
       const { id, ...rest } = payload
       const { error } = await supabase

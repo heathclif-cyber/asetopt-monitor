@@ -188,7 +188,8 @@ function generatePeriode(params: {
 
 const genSchema = z.object({
   ks_id: z.string().min(1),
-  rkap_kode: z.string().optional(),
+  /** ID Monika — wajib agar realisasi tidak dobel by nama */
+  rkap_kode: z.string().trim().min(1, 'ID Monika wajib dipilih'),
   nominal: z.coerce.number().min(1),
   interval: z.enum(['bulanan', 'triwulan', 'semesteran', 'tahunan', 'campuran']),
   campuran_interval_awal: z.enum(['bulanan', 'triwulan', 'semesteran']).default('bulanan'),
@@ -208,7 +209,7 @@ type GenForm = z.infer<typeof genSchema>
 
 const kompSchema = z.object({
   ks_id: z.string().min(1),
-  rkap_kode: z.string().optional(),
+  rkap_kode: z.string().trim().min(1, 'ID Monika wajib dipilih'),
   periode_label: z.string().optional(),
   nominal: z.coerce.number().min(0),
   ppn_persen: z.coerce.number().min(0).default(11),
@@ -226,7 +227,7 @@ type KompForm = z.infer<typeof kompSchema>
 
 const cashInSchema = z.object({
   ks_id: z.string().min(1),
-  rkap_kode: z.string().optional(),
+  rkap_kode: z.string().trim().min(1, 'ID Monika wajib dipilih'),
   jenis: z.enum(['denda', 'lainnya']),
   tgl_terima: z.string().min(1),
   nominal: z.coerce.number().min(1),
@@ -359,12 +360,14 @@ export function Kompensasi() {
 
   const programSelectOptions = useMemo(
     () =>
-      programOptions.map(item => ({
-        value: item.kode,
-        label: item.inRkap ? `${item.kode} — ${item.nama}` : `${item.kode} — ${item.nama} (di luar RKAP)`,
-        searchText: `${item.kode} ${item.nama}`,
-        description: item.inRkap ? 'Master RKAP' : 'Di luar master RKAP (dari Data Aset)',
-      })),
+      programOptions
+        .filter(item => item.kode.trim()) // hanya opsi ber-ID Monika
+        .map(item => ({
+          value: item.kode,
+          label: `${item.kode} — ${item.nama}`,
+          searchText: `${item.kode} ${item.nama}`,
+          description: item.inRkap ? 'ID Monika · terdaftar RKAP' : 'ID Monika · master Data Aset',
+        })),
     [programOptions],
   )
 
@@ -921,24 +924,25 @@ export function Kompensasi() {
                 </div>
               </div>
 
-              {/* Program / Proker (RKAP + di luar RKAP) */}
+              {/* ID Monika */}
               <div>
-                <Label>Program / Proker</Label>
+                <Label>ID Monika <span className="text-red-500">*</span></Label>
                 <Controller control={genForm.control} name="rkap_kode" render={({ field }) => (
                   <div className="mt-1">
                     <SearchableSelect
                       value={field.value ?? ''}
-                      onValueChange={v => field.onChange(v || undefined)}
+                      onValueChange={v => field.onChange(v)}
                       options={programSelectOptions}
-                      placeholder="Cari & pilih program..."
-                      searchPlaceholder="Ketik kode atau nama proker..."
-                      allowClear
-                      clearLabel="— Tanpa program —"
+                      placeholder="Cari & pilih ID Monika..."
+                      searchPlaceholder="Ketik ID Monika atau nama aset..."
                     />
                   </div>
                 )} />
+                {genForm.formState.errors.rkap_kode && (
+                  <p className="text-xs text-red-500 mt-1">{genForm.formState.errors.rkap_kode.message}</p>
+                )}
                 <p className="text-[11px] text-gray-400 mt-1">
-                  Ketik untuk mencari. Proker di luar RKAP tetap bisa dipilih. Target bulanan: tambah di RKAP Monitor.
+                  Wajib. Hanya dari master Data Aset / RKAP — tidak boleh nama bebas.
                 </p>
               </div>
 
@@ -1165,22 +1169,23 @@ export function Kompensasi() {
               </div>
             </div>
             <div>
-              <Label>Program / Proker</Label>
+              <Label>ID Monika <span className="text-red-500">*</span></Label>
               <Controller control={kompForm.control} name="rkap_kode" render={({ field }) => (
                 <div className="mt-1">
                   <SearchableSelect
                     value={field.value ?? ''}
-                    onValueChange={v => field.onChange(v || undefined)}
+                    onValueChange={v => field.onChange(v)}
                     options={programSelectOptions}
-                    placeholder="Cari & pilih program..."
-                    searchPlaceholder="Ketik kode atau nama proker..."
-                    allowClear
-                    clearLabel="— Tanpa program —"
+                    placeholder="Cari & pilih ID Monika..."
+                    searchPlaceholder="Ketik ID Monika atau nama aset..."
                   />
                 </div>
               )} />
+              {kompForm.formState.errors.rkap_kode && (
+                <p className="text-xs text-red-500 mt-1">{kompForm.formState.errors.rkap_kode.message}</p>
+              )}
               <p className="text-[11px] text-gray-400 mt-1">
-                Otomatis terisi dari kode aset KS. Ketik untuk mencari proker (termasuk di luar RKAP).
+                Otomatis dari ID Monika aset KS. Wajib ada — tidak boleh tanpa ID Monika.
               </p>
             </div>
             <div>
@@ -1346,20 +1351,21 @@ export function Kompensasi() {
               </p>
             </div>
             <div>
-              <Label>Program / Proker</Label>
+              <Label>ID Monika <span className="text-red-500">*</span></Label>
               <Controller control={cashInForm.control} name="rkap_kode" render={({ field }) => (
                 <div className="mt-1">
                   <SearchableSelect
                     value={field.value ?? ''}
-                    onValueChange={v => field.onChange(v || undefined)}
+                    onValueChange={v => field.onChange(v)}
                     options={programSelectOptions}
-                    placeholder="Cari & pilih program..."
-                    searchPlaceholder="Ketik kode atau nama proker..."
-                    allowClear
-                    clearLabel="— Tanpa program —"
+                    placeholder="Cari & pilih ID Monika..."
+                    searchPlaceholder="Ketik ID Monika atau nama aset..."
                   />
                 </div>
               )} />
+              {cashInForm.formState.errors.rkap_kode && (
+                <p className="text-xs text-red-500 mt-1">{cashInForm.formState.errors.rkap_kode.message}</p>
+              )}
             </div>
             <div>
               <Label>Jenis Pemasukan</Label>

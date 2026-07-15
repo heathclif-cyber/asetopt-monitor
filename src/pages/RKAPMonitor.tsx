@@ -4,7 +4,9 @@ import { useKompensasiStore } from '@/store/kompensasiStore'
 import { useCashInStore } from '@/store/cashInStore'
 import { usePendapatanStore } from '@/store/pendapatanStore'
 import { useRKAPStore, rowToRKAPItem, BULAN_COLS, RKAPTargetRow } from '@/store/rkapStore'
+import { useAsetStore } from '@/store/asetStore'
 import { BULAN_LABELS } from '@/data/rkap2026'
+import { SearchableSelect } from '@/components/common/SearchableSelect'
 import { hitungRKAP, getCashInPerBulanByYear, getPendapatanPerBulanByYear, getPendapatanPerKode, MonthSummary } from '@/utils/rkapUtils'
 import { RKAPItem } from '@/data/rkap2026'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -398,7 +400,8 @@ function parseRKAPCsv(text: string, tahun: number): Array<Omit<RKAPTargetRow, 'i
 const bulanField = z.coerce.number().min(0).default(0)
 const rowSchema = z.object({
   no: z.coerce.number().min(1, 'Wajib diisi'),
-  kode: z.string().min(1, 'ID Monika wajib diisi'),
+  /** ID Monika = kode aset master — tidak boleh kosong / free-text semena-mena */
+  kode: z.string().trim().min(1, 'ID Monika wajib dipilih dari master aset'),
   basis: z.enum(['cash_in', 'pendapatan']).default('cash_in'),
   nama: z.string().min(1, 'Wajib diisi'),
   jan: bulanField, feb: bulanField, mar: bulanField, apr: bulanField,
@@ -423,6 +426,7 @@ export function RKAPMonitor() {
   const { allCashIn, fetchAllCashIn } = useCashInStore()
   const { daftarPDDM, allPengakuan, fetchAll: fetchPendapatan } = usePendapatanStore()
   const { rows, tahunAktif, isLoading, fetchRKAP, upsertRow, deleteRow, bulkImport, setTahunAktif } = useRKAPStore()
+  const { daftarAset, fetchAset } = useAsetStore()
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<RKAPTargetRow | null>(null)
@@ -466,7 +470,36 @@ export function RKAPMonitor() {
   useEffect(() => { fetchAllKompensasi() }, [])
   useEffect(() => { fetchAllCashIn() }, [])
   useEffect(() => { fetchPendapatan() }, [])
+  useEffect(() => { fetchAset() }, [])
   useEffect(() => { fetchRKAP(tahunAktif) }, [tahunAktif])
+
+  const monikaOptions = useMemo(
+    () =>
+      daftarAset
+        .filter(a => a.kode_aset?.trim())
+        .map(a => ({
+          value: a.kode_aset.trim(),
+          label: `${a.kode_aset} — ${a.nama_aset}`,
+          searchText: `${a.kode_aset} ${a.nama_aset} ${a.alamat ?? ''}`,
+          description: a.alamat ?? undefined,
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label, 'id')),
+    [daftarAset],
+  )
+
+  const asetByMonika = useMemo(() => {
+    const m = new Map<string, string>()
+    daftarAset.forEach(a => {
+      const k = a.kode_aset?.trim()
+      if (k) m.set(k, a.nama_aset)
+    })
+    return m
+  }, [daftarAset])
+
+  const rkapMissingMonika = useMemo(
+    () => rows.filter(r => !r.kode?.trim()),
+    [rows],
+  )
 
   // ── Computed data ──────────────────────────────────────────────────────────
   const rkapItems = useMemo(() => rows.map(rowToRKAPItem), [rows])
@@ -610,14 +643,28 @@ export function RKAPMonitor() {
   const isSeedRow = (id: string) => id.startsWith('seed-')
 
   const onSubmit = async (values: RowForm) => {
+    const monikaId = values.kode.trim()
+    if (!monikaId) {
+      alert('ID Monika wajib diisi. Pilih dari master Data Aset.')
+      return
+    }
+    if (!asetByMonika.has(monikaId)) {
+      alert(
+        `ID Monika "${monikaId}" tidak ada di master Data Aset.\n`
+        + 'Daftarkan aset dulu (Master → Data Aset) lalu pilih ID Monika-nya di sini.',
+      )
+      return
+    }
     const toRp = (v: number) => v * 1_000
     const bulanVals = BULAN_COLS.map(col => toRp(values[col as keyof RowForm] as number))
     const total = bulanVals.reduce((a, b) => a + b, 0)
     const hasRealId = editTarget && !isSeedRow(editTarget.id)
+    // Nama boleh diedit, tapi default dari master aset; ID Monika tidak boleh kosong
+    const nama = values.nama.trim() || asetByMonika.get(monikaId) || monikaId
     await upsertRow({
       ...(hasRealId ? { id: editTarget!.id } : {}),
       tahun: tahunAktif,
-      no: values.no, kode: values.kode || null, basis: values.basis, nama: values.nama, total,
+      no: values.no, kode: monikaId, basis: values.basis, nama, total,
       jan: toRp(values.jan), feb: toRp(values.feb), mar: toRp(values.mar), apr: toRp(values.apr),
       mei: toRp(values.mei), jun: toRp(values.jun), jul: toRp(values.jul), agu: toRp(values.agu),
       sep: toRp(values.sep), okt: toRp(values.okt), nov: toRp(values.nov), des: toRp(values.des),
@@ -673,6 +720,17 @@ export function RKAPMonitor() {
           </button>
         </div>
       </div>
+
+      {rkapMissingMonika.length > 0 && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          <p className="font-semibold">Ada {rkapMissingMonika.length} baris RKAP tanpa ID Monika</p>
+          <p className="text-xs mt-1 text-red-700">
+            Proker harus terikat ID Monika dari master Data Aset (bukan nama bebas). Edit baris berikut dan pilih ID Monika:
+            {' '}
+            {rkapMissingMonika.map(r => r.nama).join('; ')}
+          </p>
+        </div>
+      )}
 
       {/* Action buttons */}
       <div className="flex flex-wrap gap-2">
@@ -1225,8 +1283,23 @@ export function RKAPMonitor() {
               </div>
               <div className="col-span-2">
                 <Label>ID Monika <span className="text-red-400">*</span></Label>
-                <Input {...register('kode')} className="mt-1 font-mono text-sm" placeholder="R800xxx-xxxx" />
+                <div className="mt-1">
+                  <SearchableSelect
+                    value={watch('kode') ?? ''}
+                    onValueChange={v => {
+                      setValue('kode', v, { shouldValidate: true })
+                      const namaAset = asetByMonika.get(v)
+                      if (namaAset) setValue('nama', namaAset, { shouldValidate: true })
+                    }}
+                    options={monikaOptions}
+                    placeholder="Cari & pilih ID Monika dari master aset..."
+                    searchPlaceholder="Ketik ID Monika atau nama aset..."
+                  />
+                </div>
                 {errors.kode && <p className="text-xs text-red-500 mt-1">{errors.kode.message}</p>}
+                <p className="text-[11px] text-gray-400 mt-1">
+                  Wajib dari master Data Aset. Tidak boleh isi nama proker tanpa ID Monika.
+                </p>
               </div>
               <div>
                 <Label>Basis</Label>
@@ -1241,7 +1314,7 @@ export function RKAPMonitor() {
             </div>
             <div>
               <Label>Nama Obyek Kerjasama</Label>
-              <Input {...register('nama')} className="mt-1" />
+              <Input {...register('nama')} className="mt-1" placeholder="Otomatis dari master aset (bisa disesuaikan)" />
               {errors.nama && <p className="text-xs text-red-500 mt-1">{errors.nama.message}</p>}
             </div>
 

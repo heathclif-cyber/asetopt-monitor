@@ -819,15 +819,21 @@ function ProgramView({
           <div>
             <p className="text-sm font-semibold text-gray-800">Optimalisasi Aset — Per Proker</p>
             <p className="text-[11px] text-gray-500">
-              Format LM: No · Kategori · Program Aset · RKAP · Pendapatan · Cash In · Capaian % · Proses Mitra · Monitoring.
-              {' '}Pendapatan = Σ nominal NKM (JT) · Cash In = Σ pembayaran (tgl bayar).
+              Kunci proker = <strong>ID Monika</strong> (bukan nama bebas). Format LM: No · Kategori · Program · RKAP · Pendapatan · Cash In · Capaian % · Mitra · Monitoring.
             </p>
           </div>
-          {rows.some(r => r.isOrphan) && (
-            <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100">
-              Ada proker di luar master RKAP
-            </span>
-          )}
+          <div className="flex flex-wrap gap-1.5">
+            {rows.some(r => r.missingMonikaId) && (
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-100">
+                Ada baris RKAP tanpa ID Monika
+              </span>
+            )}
+            {rows.some(r => r.isOrphan) && (
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-100">
+                Realisasi ID Monika belum di RKAP
+              </span>
+            )}
+          </div>
         </div>
         <div className="overflow-auto max-h-[70vh]">
           <table className="w-full text-xs">
@@ -835,7 +841,7 @@ function ProgramView({
               <tr className="bg-[#1B4F72] text-white shadow-[0_1px_0_#e5e7eb]">
                 <ProgramSortTh label="No." col="no" sortKey={programSort} sortDir={programSortDir} onSort={onSort} />
                 <ProgramSortTh label="Kategori" col="kategori" sortKey={programSort} sortDir={programSortDir} onSort={onSort} />
-                <th className="text-left px-3 py-2.5 font-semibold min-w-[180px]">Program Aset</th>
+                <th className="text-left px-3 py-2.5 font-semibold min-w-[200px]">Program Aset / ID Monika</th>
                 <ProgramSortTh label="RKAP (Rp)" col="rkap" sortKey={programSort} sortDir={programSortDir} onSort={onSort} align="right" />
                 <ProgramSortTh label="Pendapatan (Rp)" col="pendapatan" sortKey={programSort} sortDir={programSortDir} onSort={onSort} align="right" />
                 <ProgramSortTh label="Realisasi Cash In (Rp)" col="cashIn" sortKey={programSort} sortDir={programSortDir} onSort={onSort} align="right" />
@@ -857,8 +863,9 @@ function ProgramView({
                   key={row.key}
                   className={cn(
                     'hover:bg-gray-50 align-top',
-                    row.isOrphan && 'bg-amber-50/40',
-                    row.pendapatan === 0 && row.cashIn === 0 && row.rkap === 0 && 'opacity-70',
+                    row.missingMonikaId && 'bg-red-50/70',
+                    row.isOrphan && !row.missingMonikaId && 'bg-amber-50/40',
+                    row.pendapatan === 0 && row.cashIn === 0 && row.rkap === 0 && !row.missingMonikaId && 'opacity-70',
                   )}
                 >
                   <td className="px-3 py-2.5 text-gray-400">{row.no}</td>
@@ -869,9 +876,16 @@ function ProgramView({
                   </td>
                   <td className="px-3 py-2.5">
                     <p className="font-medium text-gray-800">{row.programAset}</p>
-                    {row.kode && <p className="text-[10px] text-gray-400 mt-0.5">{row.kode}</p>}
-                    {row.isOrphan && (
-                      <p className="text-[10px] text-amber-600 mt-0.5">Di luar master RKAP</p>
+                    {row.kode ? (
+                      <p className="text-[10px] font-mono text-[#1B4F72] mt-0.5">ID Monika: {row.kode}</p>
+                    ) : (
+                      <p className="text-[10px] text-red-600 font-medium mt-0.5">Tanpa ID Monika</p>
+                    )}
+                    {row.missingMonikaId && (
+                      <p className="text-[10px] text-red-600 mt-0.5">Perbaiki di RKAP — wajib pilih ID Monika dari master aset</p>
+                    )}
+                    {row.isOrphan && !row.missingMonikaId && (
+                      <p className="text-[10px] text-amber-600 mt-0.5">ID Monika belum ada di RKAP tahun ini</p>
                     )}
                   </td>
                   <td className="px-3 py-2.5 text-right tabular-nums">
