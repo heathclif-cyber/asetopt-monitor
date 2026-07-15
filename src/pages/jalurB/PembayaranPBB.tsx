@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { SearchableSelect } from '@/components/common/SearchableSelect'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { CurrencyInput } from '@/components/common/CurrencyInput'
 import { CurrencyDisplay } from '@/components/common/CurrencyDisplay'
@@ -774,28 +775,38 @@ export function PembayaranPBB() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="col-span-2">
                   <Label>Aset</Label>
-                  <Select defaultValue={editTarget?.aset_id} onValueChange={v => setValue('aset_id', v)}>
-                    <SelectTrigger className="mt-1"><SelectValue placeholder="Pilih aset..." /></SelectTrigger>
-                    <SelectContent>
-                      {daftarAset.map(a => (
-                        <SelectItem key={a.id} value={a.id}>{a.kode_aset} — {a.nama_aset}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="mt-1">
+                    <SearchableSelect
+                      value={watch('aset_id') || editTarget?.aset_id || ''}
+                      onValueChange={v => setValue('aset_id', v, { shouldValidate: true })}
+                      options={daftarAset.map(a => ({
+                        value: a.id,
+                        label: `${a.kode_aset} — ${a.nama_aset}`,
+                        searchText: `${a.kode_aset} ${a.nama_aset}`,
+                      }))}
+                      placeholder="Cari & pilih aset..."
+                      searchPlaceholder="Ketik kode atau nama aset..."
+                    />
+                  </div>
                 </div>
                 <div className="col-span-2">
                   <Label>Program RKAP</Label>
                   <Controller control={control} name="rkap_kode" render={({ field }) => (
-                    <Select value={field.value ?? ''} onValueChange={v => field.onChange(v || undefined)}>
-                      <SelectTrigger className="mt-1"><SelectValue placeholder="— Pilih program RKAP —" /></SelectTrigger>
-                      <SelectContent>
-                        {rkapRows.filter(r => r.kode).map(item => (
-                          <SelectItem key={item.kode} value={item.kode!}>
-                            <span className="font-mono text-xs text-gray-500 mr-2">{item.kode}</span>{item.nama}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <div className="mt-1">
+                      <SearchableSelect
+                        value={field.value ?? ''}
+                        onValueChange={v => field.onChange(v || undefined)}
+                        options={rkapRows.filter(r => r.kode).map(item => ({
+                          value: item.kode!,
+                          label: `${item.kode} — ${item.nama}`,
+                          searchText: `${item.kode} ${item.nama}`,
+                        }))}
+                        placeholder="Cari & pilih program..."
+                        searchPlaceholder="Ketik kode atau nama proker..."
+                        allowClear
+                        clearLabel="— Tanpa program —"
+                      />
+                    </div>
                   )} />
                 </div>
                 <div>

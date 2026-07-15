@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { SearchableSelect } from '@/components/common/SearchableSelect'
 import { CurrencyInput } from '@/components/common/CurrencyInput'
 import { CurrencyDisplay } from '@/components/common/CurrencyDisplay'
 import { StatusBadge } from '@/components/common/StatusBadge'
@@ -274,16 +275,19 @@ export function InputPembayaran() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <Label>No. Kontrak / Perjanjian</Label>
-              <Select value={selectedKsId} onValueChange={handleKsChange}>
-                <SelectTrigger className="mt-1"><SelectValue placeholder="Pilih no. kontrak..." /></SelectTrigger>
-                <SelectContent>
-                  {ksOptions.map(o => (
-                    <SelectItem key={o.id} value={o.id}>
-                      {o.noKontrak} — {o.mitra}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="mt-1">
+                <SearchableSelect
+                  value={selectedKsId}
+                  onValueChange={handleKsChange}
+                  options={ksOptions.map(o => ({
+                    value: o.id,
+                    label: `${o.noKontrak} — ${o.mitra}`,
+                    searchText: `${o.noKontrak} ${o.mitra}`,
+                  }))}
+                  placeholder="Cari no. kontrak / mitra..."
+                  searchPlaceholder="Ketik nomor kontrak atau mitra..."
+                />
+              </div>
               {ks && (
                 <p className="text-[11px] text-gray-500 mt-1">
                   Mitra: {ks.nama_mitra} · Aset: {ks.aset?.nama_aset ?? '-'}
@@ -294,20 +298,21 @@ export function InputPembayaran() {
 
             <div>
               <Label>Tahap Pembayaran</Label>
-              <Select
-                value={selectedId}
-                disabled={!selectedKsId}
-                onValueChange={v => form.setValue('kompensasi_id', v)}
-              >
-                <SelectTrigger className="mt-1"><SelectValue placeholder="Pilih tahap..." /></SelectTrigger>
-                <SelectContent>
-                  {tahapOptions.map(o => (
-                    <SelectItem key={o.id} value={o.id}>
-                      {o.periode} — {formatRupiah(o.sisa)} sisa
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="mt-1">
+                <SearchableSelect
+                  value={selectedId}
+                  disabled={!selectedKsId}
+                  onValueChange={v => form.setValue('kompensasi_id', v)}
+                  options={tahapOptions.map(o => ({
+                    value: o.id,
+                    label: `${o.periode} — ${formatRupiah(o.sisa)} sisa`,
+                    searchText: `${o.periode}`,
+                    description: `Tagihan ${formatRupiah(o.total)} · JT ${formatTanggal(o.jatuhTempo)}`,
+                  }))}
+                  placeholder="Cari & pilih tahap..."
+                  searchPlaceholder="Ketik label periode..."
+                />
+              </div>
               {selectedTahap && (
                 <p className="text-[11px] text-gray-500 mt-1">
                   Total tagihan {formatRupiah(selectedTahap.total)} · Jatuh tempo {formatTanggal(selectedTahap.jatuhTempo)}

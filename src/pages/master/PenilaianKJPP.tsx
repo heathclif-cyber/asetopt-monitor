@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { SearchableSelect } from '@/components/common/SearchableSelect'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
 import { CurrencyInput } from '@/components/common/CurrencyInput'
@@ -49,7 +50,7 @@ export function PenilaianKJPP() {
   const [editTarget, setEditTarget] = useState<PKType | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; asetId: string } | null>(null)
 
-  const { register, handleSubmit, reset, setValue, control, formState: { errors } } = useForm<KJPPForm>({
+  const { register, handleSubmit, reset, setValue, watch, control, formState: { errors } } = useForm<KJPPForm>({
     resolver: zodResolver(kjppSchema),
     defaultValues: { nilai_bangunan: 0 },
   })
@@ -162,12 +163,19 @@ export function PenilaianKJPP() {
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div>
               <Label>Aset</Label>
-              <Select defaultValue={editTarget?.aset_id} onValueChange={v => setValue('aset_id', v)}>
-                <SelectTrigger className="mt-1"><SelectValue placeholder="Pilih aset..." /></SelectTrigger>
-                <SelectContent>
-                  {daftarAset.map(a => <SelectItem key={a.id} value={a.id}>{a.kode_aset} — {a.nama_aset}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <div className="mt-1">
+                <SearchableSelect
+                  value={watch('aset_id') || editTarget?.aset_id || ''}
+                  onValueChange={v => setValue('aset_id', v, { shouldValidate: true })}
+                  options={daftarAset.map(a => ({
+                    value: a.id,
+                    label: `${a.kode_aset} — ${a.nama_aset}`,
+                    searchText: `${a.kode_aset} ${a.nama_aset}`,
+                  }))}
+                  placeholder="Cari & pilih aset..."
+                  searchPlaceholder="Ketik kode atau nama aset..."
+                />
+              </div>
               {errors.aset_id && <p className="text-xs text-red-500 mt-1">Pilih aset terlebih dahulu</p>}
             </div>
             <div className="grid grid-cols-2 gap-4">

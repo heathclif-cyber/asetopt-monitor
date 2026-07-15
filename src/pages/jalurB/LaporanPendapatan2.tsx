@@ -6,6 +6,7 @@ import { usePendapatanStore } from '@/store/pendapatanStore'
 import { useRKAPStore } from '@/store/rkapStore'
 import { useAsetStore } from '@/store/asetStore'
 import { CurrencyDisplay } from '@/components/common/CurrencyDisplay'
+import { SearchableSelect } from '@/components/common/SearchableSelect'
 import { formatTanggal, formatRupiah, cn } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
 import { ChevronUp, ChevronDown, ChevronsUpDown, Filter, LayoutList, Table2 } from 'lucide-react'
@@ -478,14 +479,20 @@ export default function LaporanPendapatan() {
           <>
             <div className="flex items-center gap-1.5">
               <label className="text-xs text-gray-500 whitespace-nowrap">Mitra</label>
-              <select
-                value={filterMitra}
-                onChange={e => setFilterMitra(e.target.value)}
-                className="text-xs border rounded-md px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-[#1B4F72] max-w-[180px]"
-              >
-                <option value="all">Semua Mitra</option>
-                {mitraList.map(([id, nama]) => <option key={id} value={id}>{nama}</option>)}
-              </select>
+              <SearchableSelect
+                className="h-8 text-xs min-w-[180px] max-w-[240px]"
+                value={filterMitra === 'all' ? '' : filterMitra}
+                onValueChange={v => setFilterMitra(v || 'all')}
+                options={mitraList.map(([id, nama]) => ({
+                  value: id,
+                  label: nama,
+                  searchText: nama,
+                }))}
+                placeholder="Semua Mitra"
+                searchPlaceholder="Cari mitra..."
+                allowClear
+                clearLabel="Semua Mitra"
+              />
             </div>
 
             <div className="flex items-center gap-1.5">

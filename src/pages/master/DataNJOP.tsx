@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { SearchableSelect } from '@/components/common/SearchableSelect'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { CurrencyInput } from '@/components/common/CurrencyInput'
 import { CurrencyDisplay } from '@/components/common/CurrencyDisplay'
@@ -114,17 +115,20 @@ export function DataNJOP() {
 
       <div className="flex items-center gap-3">
         <Label className="shrink-0">Filter Aset:</Label>
-        <Select value={filterAsetId} onValueChange={setFilterAsetId}>
-          <SelectTrigger className="max-w-xs">
-            <SelectValue placeholder="Semua Aset" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="semua">Semua Aset</SelectItem>
-            {rkapAset.map(a => (
-              <SelectItem key={a.id} value={a.id}>{a.kode_aset} — {a.nama_aset}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <SearchableSelect
+          className="max-w-xs"
+          value={filterAsetId === 'semua' ? '' : filterAsetId}
+          onValueChange={v => setFilterAsetId(v || 'semua')}
+          options={rkapAset.map(a => ({
+            value: a.id,
+            label: `${a.kode_aset} — ${a.nama_aset}`,
+            searchText: `${a.kode_aset} ${a.nama_aset}`,
+          }))}
+          placeholder="Semua Aset"
+          searchPlaceholder="Cari kode / nama aset..."
+          allowClear
+          clearLabel="Semua Aset"
+        />
       </div>
 
       <div className="bg-white rounded-xl border overflow-hidden">
@@ -187,12 +191,19 @@ export function DataNJOP() {
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div>
               <Label>Aset</Label>
-              <Select defaultValue={editTarget?.aset_id} onValueChange={v => setValue('aset_id', v)}>
-                <SelectTrigger className="mt-1"><SelectValue placeholder="Pilih aset..." /></SelectTrigger>
-                <SelectContent>
-                  {rkapAset.map(a => <SelectItem key={a.id} value={a.id}>{a.kode_aset} — {a.nama_aset}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <div className="mt-1">
+                <SearchableSelect
+                  value={watch('aset_id') || editTarget?.aset_id || ''}
+                  onValueChange={v => setValue('aset_id', v, { shouldValidate: true })}
+                  options={rkapAset.map(a => ({
+                    value: a.id,
+                    label: `${a.kode_aset} — ${a.nama_aset}`,
+                    searchText: `${a.kode_aset} ${a.nama_aset}`,
+                  }))}
+                  placeholder="Cari & pilih aset..."
+                  searchPlaceholder="Ketik kode atau nama aset..."
+                />
+              </div>
               {errors.aset_id && <p className="text-xs text-red-500 mt-1">{errors.aset_id.message}</p>}
             </div>
             <div>

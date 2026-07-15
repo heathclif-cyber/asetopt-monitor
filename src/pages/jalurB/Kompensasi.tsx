@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { SearchableSelect } from '@/components/common/SearchableSelect'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { CurrencyInput } from '@/components/common/CurrencyInput'
 import { CurrencyDisplay } from '@/components/common/CurrencyDisplay'
@@ -33,7 +34,7 @@ import type { Aset } from '@/types'
 /** Opsi proker: master RKAP + aset/KS yang belum ada di RKAP (agar bisa di-tag). */
 type ProgramOption = { kode: string; nama: string; inRkap: boolean }
 
-const PROG_NONE = '__none__'
+
 
 // ─── Helpers generate periode ─────────────────────────────────────────────────
 const BULAN = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember']
@@ -339,6 +340,34 @@ export function Kompensasi() {
     return kode || undefined
   }
 
+  const ksOptions = useMemo(
+    () =>
+      daftarKS.map(ks => {
+        const asetNama = (ks.aset as Aset | undefined)?.nama_aset ?? '-'
+        const kode = (ks.aset as Aset | undefined)?.kode_aset ?? ''
+        return {
+          value: ks.id,
+          label: `${asetNama} — ${ks.nama_mitra}`,
+          searchText: `${kode} ${asetNama} ${ks.nama_mitra} ${ks.no_perjanjian ?? ''}`,
+          description: kode
+            ? `${kode} · ${formatTanggal(ks.tgl_mulai)} s.d. ${formatTanggal(ks.tgl_selesai)}`
+            : `${formatTanggal(ks.tgl_mulai)} s.d. ${formatTanggal(ks.tgl_selesai)}`,
+        }
+      }),
+    [daftarKS],
+  )
+
+  const programSelectOptions = useMemo(
+    () =>
+      programOptions.map(item => ({
+        value: item.kode,
+        label: item.inRkap ? `${item.kode} — ${item.nama}` : `${item.kode} — ${item.nama} (di luar RKAP)`,
+        searchText: `${item.kode} ${item.nama}`,
+        description: item.inRkap ? 'Master RKAP' : 'Di luar master RKAP (dari Data Aset)',
+      })),
+    [programOptions],
+  )
+
   const availableBulan = useMemo(() => {
     const months = new Set(allKompensasi.map(k => k.tgl_jatuh_tempo.slice(0, 7)))
     return Array.from(months).sort()
@@ -525,19 +554,17 @@ export function Kompensasi() {
         {/* Filter KS */}
         <div className="flex items-center gap-2">
           <Label className="shrink-0 text-xs text-gray-500">KS:</Label>
-          <Select value={filterKS} onValueChange={setFilterKS}>
-            <SelectTrigger className="w-56 h-8 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="semua">Semua Kerja Sama</SelectItem>
-              {daftarKS.map(ks => (
-                <SelectItem key={ks.id} value={ks.id}>
-                  {(ks.aset as any)?.nama_aset ?? '-'} — {ks.nama_mitra}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <SearchableSelect
+            className="w-64 h-8 text-xs"
+            value={filterKS === 'semua' ? '' : filterKS}
+            onValueChange={v => setFilterKS(v || 'semua')}
+            options={ksOptions}
+            placeholder="Semua Kerja Sama"
+            searchPlaceholder="Cari mitra / aset / kode..."
+            allowClear
+            clearLabel="Semua Kerja Sama"
+            emptyValue=""
+          />
         </div>
 
         {/* Filter Bulan */}
@@ -879,50 +906,39 @@ export function Kompensasi() {
               {/* KS */}
               <div>
                 <Label>Kerja Sama</Label>
-                <Select
-                  onValueChange={v => {
-                    genForm.setValue('ks_id', v)
-                    const kode = resolveKodeFromKs(v)
-                    if (kode) genForm.setValue('rkap_kode', kode)
-                  }}
-                >
-                  <SelectTrigger className="mt-1"><SelectValue placeholder="Pilih KS..." /></SelectTrigger>
-                  <SelectContent>
-                    {daftarKS.map(ks => (
-                      <SelectItem key={ks.id} value={ks.id}>
-                        {(ks.aset as any)?.nama_aset ?? '-'} — {ks.nama_mitra}
-                        <span className="text-gray-400 ml-1 text-xs">({formatTanggal(ks.tgl_mulai)} s.d. {formatTanggal(ks.tgl_selesai)})</span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="mt-1">
+                  <SearchableSelect
+                    value={genForm.watch('ks_id') ?? ''}
+                    onValueChange={v => {
+                      genForm.setValue('ks_id', v, { shouldValidate: true })
+                      const kode = resolveKodeFromKs(v)
+                      if (kode) genForm.setValue('rkap_kode', kode)
+                    }}
+                    options={ksOptions}
+                    placeholder="Cari & pilih kerja sama..."
+                    searchPlaceholder="Ketik mitra, aset, atau kode..."
+                  />
+                </div>
               </div>
 
               {/* Program / Proker (RKAP + di luar RKAP) */}
               <div>
                 <Label>Program / Proker</Label>
                 <Controller control={genForm.control} name="rkap_kode" render={({ field }) => (
-                  <Select
-                    value={field.value ? field.value : PROG_NONE}
-                    onValueChange={v => field.onChange(v === PROG_NONE ? undefined : v)}
-                  >
-                    <SelectTrigger className="mt-1"><SelectValue placeholder="— Pilih program —" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={PROG_NONE}>— Tanpa program —</SelectItem>
-                      {programOptions.map(item => (
-                        <SelectItem key={item.kode} value={item.kode}>
-                          <span className="font-mono text-xs text-gray-500 mr-2">{item.kode}</span>
-                          {item.nama}
-                          {!item.inRkap && (
-                            <span className="ml-1.5 text-[10px] text-amber-700 bg-amber-50 px-1 rounded">di luar RKAP</span>
-                          )}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="mt-1">
+                    <SearchableSelect
+                      value={field.value ?? ''}
+                      onValueChange={v => field.onChange(v || undefined)}
+                      options={programSelectOptions}
+                      placeholder="Cari & pilih program..."
+                      searchPlaceholder="Ketik kode atau nama proker..."
+                      allowClear
+                      clearLabel="— Tanpa program —"
+                    />
+                  </div>
                 )} />
                 <p className="text-[11px] text-gray-400 mt-1">
-                  Proker di luar master RKAP tetap bisa dipilih (dari Data Aset). Untuk target rencana bulanan, tambahkan juga di menu RKAP Monitor.
+                  Ketik untuk mencari. Proker di luar RKAP tetap bisa dipilih. Target bulanan: tambah di RKAP Monitor.
                 </p>
               </div>
 
@@ -1131,47 +1147,40 @@ export function Kompensasi() {
           <form onSubmit={kompForm.handleSubmit(onSubmit)} className="space-y-4 max-h-[75vh] overflow-y-auto pr-2">
             <div>
               <Label>Kerja Sama</Label>
-              <Select
-                value={kompForm.watch('ks_id') ?? ''}
-                onValueChange={v => {
-                  kompForm.setValue('ks_id', v, { shouldValidate: true })
-                  if (!editTarget) {
-                    const kode = resolveKodeFromKs(v)
-                    if (kode) kompForm.setValue('rkap_kode', kode)
-                  }
-                }}
-                disabled={!!editTarget}
-              >
-                <SelectTrigger className="mt-1"><SelectValue placeholder="Pilih KS..." /></SelectTrigger>
-                <SelectContent>
-                  {daftarKS.map(ks => <SelectItem key={ks.id} value={ks.id}>{(ks.aset as any)?.nama_aset ?? '-'} — {ks.nama_mitra}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <div className="mt-1">
+                <SearchableSelect
+                  value={kompForm.watch('ks_id') ?? ''}
+                  onValueChange={v => {
+                    kompForm.setValue('ks_id', v, { shouldValidate: true })
+                    if (!editTarget) {
+                      const kode = resolveKodeFromKs(v)
+                      if (kode) kompForm.setValue('rkap_kode', kode)
+                    }
+                  }}
+                  options={ksOptions}
+                  placeholder="Cari & pilih kerja sama..."
+                  searchPlaceholder="Ketik mitra, aset, atau kode..."
+                  disabled={!!editTarget}
+                />
+              </div>
             </div>
             <div>
               <Label>Program / Proker</Label>
               <Controller control={kompForm.control} name="rkap_kode" render={({ field }) => (
-                <Select
-                  value={field.value ? field.value : PROG_NONE}
-                  onValueChange={v => field.onChange(v === PROG_NONE ? undefined : v)}
-                >
-                  <SelectTrigger className="mt-1"><SelectValue placeholder="— Pilih program —" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={PROG_NONE}>— Tanpa program —</SelectItem>
-                    {programOptions.map(item => (
-                      <SelectItem key={item.kode} value={item.kode}>
-                        <span className="font-mono text-xs text-gray-500 mr-2">{item.kode}</span>
-                        {item.nama}
-                        {!item.inRkap && (
-                          <span className="ml-1.5 text-[10px] text-amber-700 bg-amber-50 px-1 rounded">di luar RKAP</span>
-                        )}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="mt-1">
+                  <SearchableSelect
+                    value={field.value ?? ''}
+                    onValueChange={v => field.onChange(v || undefined)}
+                    options={programSelectOptions}
+                    placeholder="Cari & pilih program..."
+                    searchPlaceholder="Ketik kode atau nama proker..."
+                    allowClear
+                    clearLabel="— Tanpa program —"
+                  />
+                </div>
               )} />
               <p className="text-[11px] text-gray-400 mt-1">
-                Otomatis terisi dari kode aset KS. Proker di luar RKAP tetap bisa di-tag (label kuning).
+                Otomatis terisi dari kode aset KS. Ketik untuk mencari proker (termasuk di luar RKAP).
               </p>
             </div>
             <div>
@@ -1339,24 +1348,17 @@ export function Kompensasi() {
             <div>
               <Label>Program / Proker</Label>
               <Controller control={cashInForm.control} name="rkap_kode" render={({ field }) => (
-                <Select
-                  value={field.value ? field.value : PROG_NONE}
-                  onValueChange={v => field.onChange(v === PROG_NONE ? undefined : v)}
-                >
-                  <SelectTrigger className="mt-1"><SelectValue placeholder="— Pilih program —" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={PROG_NONE}>— Tanpa program —</SelectItem>
-                    {programOptions.map(item => (
-                      <SelectItem key={item.kode} value={item.kode}>
-                        <span className="font-mono text-xs text-gray-500 mr-2">{item.kode}</span>
-                        {item.nama}
-                        {!item.inRkap && (
-                          <span className="ml-1.5 text-[10px] text-amber-700 bg-amber-50 px-1 rounded">di luar RKAP</span>
-                        )}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="mt-1">
+                  <SearchableSelect
+                    value={field.value ?? ''}
+                    onValueChange={v => field.onChange(v || undefined)}
+                    options={programSelectOptions}
+                    placeholder="Cari & pilih program..."
+                    searchPlaceholder="Ketik kode atau nama proker..."
+                    allowClear
+                    clearLabel="— Tanpa program —"
+                  />
+                </div>
               )} />
             </div>
             <div>

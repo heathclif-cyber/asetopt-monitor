@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { SearchableSelect } from '@/components/common/SearchableSelect'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Plus, Trash2, Upload, Loader2, CheckCircle2 } from 'lucide-react'
@@ -291,23 +292,22 @@ export default function KatalogForm({ existingKatalog, onSuccess, onCancel }: Pr
             <CardContent className="space-y-4">
               <div>
                 <Label>Aset *</Label>
-                <Select
+                <SearchableSelect
                   value={selectedAsetId}
                   onValueChange={(v) => {
                     setValue('aset_id', v)
                     const a = daftarAset.find(x => x.id === v)
                     if (a) setValue('ref_dokumen', `KAT/${a.kode_aset}/V/${new Date().getFullYear()}-001`)
                   }}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Pilih aset..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {daftarAset.map(a => (
-                      <SelectItem key={a.id} value={a.id}>{a.kode_aset} — {a.nama_aset}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  options={daftarAset.map(a => ({
+                    value: a.id,
+                    label: `${a.kode_aset} — ${a.nama_aset}`,
+                    searchText: `${a.kode_aset} ${a.nama_aset} ${a.alamat ?? ''}`,
+                    description: a.alamat ?? undefined,
+                  }))}
+                  placeholder="Cari & pilih aset..."
+                  searchPlaceholder="Ketik kode atau nama aset..."
+                />
                 {errors.aset_id && <p className="text-red-500 text-xs mt-1">{errors.aset_id.message}</p>}
               </div>
               {selectedAset && (

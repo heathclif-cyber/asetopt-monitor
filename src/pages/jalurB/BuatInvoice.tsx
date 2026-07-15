@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { SearchableSelect } from '@/components/common/SearchableSelect'
 import { CurrencyDisplay } from '@/components/common/CurrencyDisplay'
 import { StatusBadge } from '@/components/common/StatusBadge'
 import { DocumentUpload } from '@/components/common/DocumentUpload'
@@ -194,16 +195,20 @@ export function BuatInvoice() {
             <div className="space-y-3">
               <div>
                 <Label className="text-xs text-gray-600">No. Kontrak</Label>
-                <Select value={selectedKsId} onValueChange={handleKsChange}>
-                  <SelectTrigger className="mt-1 h-9"><SelectValue placeholder="Pilih kontrak..." /></SelectTrigger>
-                  <SelectContent>
-                    {ksOptions.map(o => (
-                      <SelectItem key={o.id} value={o.id}>
-                        <span className="truncate">{o.noKontrak}</span>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="mt-1">
+                  <SearchableSelect
+                    className="h-9"
+                    value={selectedKsId}
+                    onValueChange={handleKsChange}
+                    options={ksOptions.map(o => ({
+                      value: o.id,
+                      label: o.noKontrak,
+                      searchText: `${o.noKontrak}`,
+                    }))}
+                    placeholder="Cari no. kontrak..."
+                    searchPlaceholder="Ketik nomor kontrak..."
+                  />
+                </div>
                 {ks && (
                   <p className="text-[11px] text-gray-500 mt-1.5 leading-snug">
                     {ks.nama_mitra} · {ks.aset?.nama_aset ?? '-'}
@@ -213,17 +218,21 @@ export function BuatInvoice() {
 
               <div>
                 <Label className="text-xs text-gray-600">Tahap Pembayaran</Label>
-                <Select value={selectedId} disabled={!selectedKsId} onValueChange={setSelectedId}>
-                  <SelectTrigger className="mt-1 h-9"><SelectValue placeholder="Pilih tahap..." /></SelectTrigger>
-                  <SelectContent>
-                    {tahapOptions.map(o => (
-                      <SelectItem key={o.id} value={o.id}>
-                        {o.periode} — {formatRupiah(o.total)}
-                        {!o.hasInvoice ? ' · baru' : ''}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="mt-1">
+                  <SearchableSelect
+                    className="h-9"
+                    value={selectedId}
+                    disabled={!selectedKsId}
+                    onValueChange={setSelectedId}
+                    options={tahapOptions.map(o => ({
+                      value: o.id,
+                      label: `${o.periode} — ${formatRupiah(o.total)}${!o.hasInvoice ? ' · baru' : ''}`,
+                      searchText: o.periode,
+                    }))}
+                    placeholder="Cari & pilih tahap..."
+                    searchPlaceholder="Ketik label periode..."
+                  />
+                </div>
               </div>
             </div>
           </Section>
