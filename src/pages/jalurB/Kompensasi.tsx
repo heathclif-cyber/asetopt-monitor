@@ -25,8 +25,15 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { buatPesanWA } from '@/utils/notifikasiUtils'
 import { useRKAPStore } from '@/store/rkapStore'
+import { useAsetStore } from '@/store/asetStore'
 import { usePendapatanStore } from '@/store/pendapatanStore'
 import { hitungProgressPersen } from '@/utils/akrualUtils'
+import type { Aset } from '@/types'
+
+/** Opsi proker: master RKAP + aset/KS yang belum ada di RKAP (agar bisa di-tag). */
+type ProgramOption = { kode: string; nama: string; inRkap: boolean }
+
+const PROG_NONE = '__none__'
 
 // ─── Helpers generate periode ─────────────────────────────────────────────────
 const BULAN = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember']
@@ -233,6 +240,7 @@ export function Kompensasi() {
   const { dataPBB, fetchAllPBB } = usePBBStore()
   const { allCashIn, fetchAllCashIn, addCashIn, deleteCashIn } = useCashInStore()
   const { rows: rkapRows, fetchRKAP } = useRKAPStore()
+  const { daftarAset, fetchAset } = useAsetStore()
   const { daftarPDDM, fetchAll: fetchPDDM } = usePendapatanStore()
 
   const [kompDialog, setKompDialog] = useState(false)
@@ -292,7 +300,44 @@ export function Kompensasi() {
   const watchGraceBulan = genForm.watch('grace_bulan')
   const watchCampTahun  = genForm.watch('campuran_tahun_peralihan')
 
-  useEffect(() => { fetchAllKompensasi(); fetchKS(); fetchAllPBB(); fetchAllCashIn(); fetchRKAP(new Date().getFullYear()); fetchPDDM() }, [])
+  useEffect(() => {
+    fetchAllKompensasi()
+    fetchKS()
+    fetchAset()
+    fetchAllPBB()
+    fetchAllCashIn()
+    fetchRKAP(new Date().getFullYear())
+    fetchPDDM()
+  }, [])
+
+  /** Proker dari RKAP + aset master + aset di KS (termasuk di luar RKAP). */
+  const programOptions = useMemo(() => {
+    const map = new Map<string, ProgramOption>()
+    rkapRows.forEach(r => {
+      const kode = r.kode?.trim()
+      if (!kode) return
+      map.set(kode, { kode, nama: r.nama, inRkap: true })
+    })
+    const addAset = (a: Aset | null | undefined) => {
+      if (!a) return
+      const kode = a.kode_aset?.trim()
+      if (!kode) return
+      if (!map.has(kode)) map.set(kode, { kode, nama: a.nama_aset, inRkap: false })
+    }
+    daftarAset.forEach(addAset)
+    daftarKS.forEach(ks => addAset(ks.aset as Aset | undefined))
+    return Array.from(map.values()).sort((a, b) => {
+      if (a.inRkap !== b.inRkap) return a.inRkap ? -1 : 1
+      return a.nama.localeCompare(b.nama, 'id')
+    })
+  }, [rkapRows, daftarAset, daftarKS])
+
+  const resolveKodeFromKs = (ksId: string | undefined | null): string | undefined => {
+    if (!ksId) return undefined
+    const ks = daftarKS.find(x => x.id === ksId)
+    const kode = (ks?.aset as Aset | undefined)?.kode_aset?.trim()
+    return kode || undefined
+  }
 
   const availableBulan = useMemo(() => {
     const months = new Set(allKompensasi.map(k => k.tgl_jatuh_tempo.slice(0, 7)))
@@ -396,7 +441,11 @@ export function Kompensasi() {
 
   const openCashIn = (ksId: string) => {
     setCashInKsId(ksId)
-    cashInForm.reset({ ks_id: ksId, jenis: 'denda' })
+    cashInForm.reset({
+      ks_id: ksId,
+      jenis: 'denda',
+      rkap_kode: resolveKodeFromKs(ksId) ?? '',
+    })
     setCashInDialog(true)
   }
 
@@ -830,7 +879,13 @@ export function Kompensasi() {
               {/* KS */}
               <div>
                 <Label>Kerja Sama</Label>
-                <Select onValueChange={v => genForm.setValue('ks_id', v)}>
+                <Select
+                  onValueChange={v => {
+                    genForm.setValue('ks_id', v)
+                    const kode = resolveKodeFromKs(v)
+                    if (kode) genForm.setValue('rkap_kode', kode)
+                  }}
+                >
                   <SelectTrigger className="mt-1"><SelectValue placeholder="Pilih KS..." /></SelectTrigger>
                   <SelectContent>
                     {daftarKS.map(ks => (
@@ -843,22 +898,32 @@ export function Kompensasi() {
                 </Select>
               </div>
 
-              {/* Program RKAP */}
+              {/* Program / Proker (RKAP + di luar RKAP) */}
               <div>
-                <Label>Program RKAP</Label>
+                <Label>Program / Proker</Label>
                 <Controller control={genForm.control} name="rkap_kode" render={({ field }) => (
-                  <Select value={field.value ?? ''} onValueChange={v => field.onChange(v || undefined)}>
-                    <SelectTrigger className="mt-1"><SelectValue placeholder="— Pilih program RKAP —" /></SelectTrigger>
+                  <Select
+                    value={field.value ? field.value : PROG_NONE}
+                    onValueChange={v => field.onChange(v === PROG_NONE ? undefined : v)}
+                  >
+                    <SelectTrigger className="mt-1"><SelectValue placeholder="— Pilih program —" /></SelectTrigger>
                     <SelectContent>
-                      {rkapRows.filter(r => r.kode).map(item => (
-                        <SelectItem key={item.kode} value={item.kode!}>
+                      <SelectItem value={PROG_NONE}>— Tanpa program —</SelectItem>
+                      {programOptions.map(item => (
+                        <SelectItem key={item.kode} value={item.kode}>
                           <span className="font-mono text-xs text-gray-500 mr-2">{item.kode}</span>
                           {item.nama}
+                          {!item.inRkap && (
+                            <span className="ml-1.5 text-[10px] text-amber-700 bg-amber-50 px-1 rounded">di luar RKAP</span>
+                          )}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 )} />
+                <p className="text-[11px] text-gray-400 mt-1">
+                  Proker di luar master RKAP tetap bisa dipilih (dari Data Aset). Untuk target rencana bulanan, tambahkan juga di menu RKAP Monitor.
+                </p>
               </div>
 
               {/* Pola pembayaran */}
@@ -1068,7 +1133,13 @@ export function Kompensasi() {
               <Label>Kerja Sama</Label>
               <Select
                 value={kompForm.watch('ks_id') ?? ''}
-                onValueChange={v => kompForm.setValue('ks_id', v, { shouldValidate: true })}
+                onValueChange={v => {
+                  kompForm.setValue('ks_id', v, { shouldValidate: true })
+                  if (!editTarget) {
+                    const kode = resolveKodeFromKs(v)
+                    if (kode) kompForm.setValue('rkap_kode', kode)
+                  }
+                }}
                 disabled={!!editTarget}
               >
                 <SelectTrigger className="mt-1"><SelectValue placeholder="Pilih KS..." /></SelectTrigger>
@@ -1078,20 +1149,30 @@ export function Kompensasi() {
               </Select>
             </div>
             <div>
-              <Label>Program RKAP</Label>
+              <Label>Program / Proker</Label>
               <Controller control={kompForm.control} name="rkap_kode" render={({ field }) => (
-                <Select value={field.value ?? ''} onValueChange={v => field.onChange(v || undefined)}>
-                  <SelectTrigger className="mt-1"><SelectValue placeholder="— Pilih program RKAP —" /></SelectTrigger>
+                <Select
+                  value={field.value ? field.value : PROG_NONE}
+                  onValueChange={v => field.onChange(v === PROG_NONE ? undefined : v)}
+                >
+                  <SelectTrigger className="mt-1"><SelectValue placeholder="— Pilih program —" /></SelectTrigger>
                   <SelectContent>
-                    {rkapRows.filter(r => r.kode).map(item => (
-                      <SelectItem key={item.kode} value={item.kode!}>
+                    <SelectItem value={PROG_NONE}>— Tanpa program —</SelectItem>
+                    {programOptions.map(item => (
+                      <SelectItem key={item.kode} value={item.kode}>
                         <span className="font-mono text-xs text-gray-500 mr-2">{item.kode}</span>
                         {item.nama}
+                        {!item.inRkap && (
+                          <span className="ml-1.5 text-[10px] text-amber-700 bg-amber-50 px-1 rounded">di luar RKAP</span>
+                        )}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               )} />
+              <p className="text-[11px] text-gray-400 mt-1">
+                Otomatis terisi dari kode aset KS. Proker di luar RKAP tetap bisa di-tag (label kuning).
+              </p>
             </div>
             <div>
               <Label>Label Periode</Label>
@@ -1256,15 +1337,22 @@ export function Kompensasi() {
               </p>
             </div>
             <div>
-              <Label>Program RKAP</Label>
+              <Label>Program / Proker</Label>
               <Controller control={cashInForm.control} name="rkap_kode" render={({ field }) => (
-                <Select value={field.value ?? ''} onValueChange={v => field.onChange(v || undefined)}>
-                  <SelectTrigger className="mt-1"><SelectValue placeholder="— Pilih program RKAP —" /></SelectTrigger>
+                <Select
+                  value={field.value ? field.value : PROG_NONE}
+                  onValueChange={v => field.onChange(v === PROG_NONE ? undefined : v)}
+                >
+                  <SelectTrigger className="mt-1"><SelectValue placeholder="— Pilih program —" /></SelectTrigger>
                   <SelectContent>
-                    {rkapRows.filter(r => r.kode).map(item => (
-                      <SelectItem key={item.kode} value={item.kode!}>
+                    <SelectItem value={PROG_NONE}>— Tanpa program —</SelectItem>
+                    {programOptions.map(item => (
+                      <SelectItem key={item.kode} value={item.kode}>
                         <span className="font-mono text-xs text-gray-500 mr-2">{item.kode}</span>
                         {item.nama}
+                        {!item.inRkap && (
+                          <span className="ml-1.5 text-[10px] text-amber-700 bg-amber-50 px-1 rounded">di luar RKAP</span>
+                        )}
                       </SelectItem>
                     ))}
                   </SelectContent>
