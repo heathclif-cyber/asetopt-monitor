@@ -93,35 +93,99 @@ function statusLabelAset(status: string | undefined): string {
   }
 }
 
+/** Normalisasi nama proker untuk fuzzy match (hindari dobel Warung / Cafe). */
+function normalizeProgramName(s: string): string {
+  return (s || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\bjeneponto\b/g, ' ')
+    .replace(/\b(lahan|eks|pabrik|kapas|bangunan|aset|jl\.?|jalan)\b/g, ' ')
+    .replace(/[()[\]\-_/.,&+]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/** Distinctive tokens for name matching. */
+function nameTokens(s: string): string[] {
+  return normalizeProgramName(s).split(' ').filter(t => t.length > 2)
+}
+
+/**
+ * Cocokkan nama proker mirip, mis.:
+ * "Lahan Eks Pabrik Kapas (Warung)" ≈ "Lahan Eks Pabrik Kapas Jeneponto - Warung Makan"
+ */
+export function programNamesMatch(a: string, b: string): boolean {
+  const na = normalizeProgramName(a)
+  const nb = normalizeProgramName(b)
+  if (!na || !nb) return false
+  if (na === nb) return true
+  if (na.includes(nb) || nb.includes(na)) return true
+
+  const ta = nameTokens(a)
+  const tb = nameTokens(b)
+  if (ta.length === 0 || tb.length === 0) return false
+
+  const setB = new Set(tb)
+  const overlap = ta.filter(t => setB.has(t)).length
+  const minSize = Math.min(ta.length, tb.length)
+  // Cukup 1 token khas jika salah satu nama pendek (warung, cafe)
+  if (minSize === 1) return overlap >= 1
+  return overlap >= Math.min(2, minSize)
+}
+
+function rkapRowKey(r: RKAPTargetRow): string {
+  return r.kode?.trim() || `rkap-no:${r.no}`
+}
+
+type ResolveResult = { key: string; kode: string; namaHint: string; isOrphan: boolean }
+
 /**
  * Resolve program key for a kompensasi:
- * 1) rkap_kode if it matches an RKAP program
- * 2) aset.kode_aset if it matches an RKAP program
- * 3) orphan by aset id / name
+ * 1) aset.kode_aset di master RKAP
+ * 2) rkap_kode di master RKAP
+ * 3) fuzzy nama aset / rkap_kode vs baris RKAP (termasuk RKAP tanpa kode)
+ * 4) orphan by aset
  */
 function resolveProgramKey(
   k: Kompensasi,
   ks: KerjaSama | undefined,
   rkapByKode: Map<string, RKAPTargetRow>,
-): { key: string; kode: string; namaHint: string; isOrphan: boolean } {
+  rkapRows: RKAPTargetRow[],
+): ResolveResult {
   const aset = ks?.aset as Aset | undefined
   const asetKode = aset?.kode_aset?.trim() || ''
   const rkapKode = k.rkap_kode?.trim() || ''
+  const asetNama = aset?.nama_aset || ''
 
-  // Prefer asset code when it is a known RKAP program (hindari salah taut rkap_kode)
   if (asetKode && rkapByKode.has(asetKode)) {
-    return { key: asetKode, kode: asetKode, namaHint: rkapByKode.get(asetKode)!.nama, isOrphan: false }
+    const row = rkapByKode.get(asetKode)!
+    return { key: rkapRowKey(row), kode: asetKode, namaHint: row.nama, isOrphan: false }
   }
-  // Remapping sadar (contoh Meilani → Gedung Timur) saat aset tidak punya baris RKAP sendiri
   if (rkapKode && rkapByKode.has(rkapKode)) {
-    return { key: rkapKode, kode: rkapKode, namaHint: rkapByKode.get(rkapKode)!.nama, isOrphan: false }
+    const row = rkapByKode.get(rkapKode)!
+    return { key: rkapRowKey(row), kode: rkapKode, namaHint: row.nama, isOrphan: false }
   }
-  // Orphan: aset / KS tanpa baris RKAP
+
+  // Fuzzy: cocokkan ke baris RKAP (berguna saat RKAP tanpa kode, mis. Warung)
+  const nameCandidates = [asetNama, rkapKode].filter(Boolean)
+  for (const name of nameCandidates) {
+    const hit = rkapRows.find(r => programNamesMatch(r.nama, name))
+    if (hit) {
+      return {
+        key: rkapRowKey(hit),
+        kode: hit.kode?.trim() || asetKode || rkapKode,
+        namaHint: hit.nama,
+        isOrphan: false,
+      }
+    }
+  }
+
   if (aset?.id) {
     return {
       key: `aset:${aset.id}`,
       kode: asetKode,
-      namaHint: aset.nama_aset || 'Aset tanpa program RKAP',
+      namaHint: asetNama || 'Aset tanpa program RKAP',
       isOrphan: true,
     }
   }
@@ -134,6 +198,30 @@ function resolveProgramKey(
     }
   }
   return { key: `komp:${k.id}`, kode: rkapKode, namaHint: k.periode_label || 'Tanpa program', isOrphan: true }
+}
+
+type Acc = {
+  pendapatan: number
+  cashIn: number
+  nTagihan: number
+  nLunas: number
+  mitra: Map<string, string>
+  asetIds: Set<string>
+  kode: string
+  namaHint: string
+  isOrphan: boolean
+}
+
+function mergeAcc(target: Acc, source: Acc) {
+  target.pendapatan += source.pendapatan
+  target.cashIn += source.cashIn
+  target.nTagihan += source.nTagihan
+  target.nLunas += source.nLunas
+  source.mitra.forEach((v, k) => target.mitra.set(k, v))
+  source.asetIds.forEach(id => target.asetIds.add(id))
+  if (!target.kode && source.kode) target.kode = source.kode
+  if (source.namaHint && (!target.namaHint || target.isOrphan)) target.namaHint = source.namaHint
+  target.isOrphan = target.isOrphan && source.isOrphan
 }
 
 export function buildProgramLaporanRows(opts: {
@@ -155,19 +243,6 @@ export function buildProgramLaporanRows(opts: {
   })
 
   const ksMap = new Map(daftarKS.map(k => [k.id, k]))
-
-  type Acc = {
-    pendapatan: number
-    cashIn: number
-    nTagihan: number
-    nLunas: number
-    mitra: Map<string, string> // ksId -> nama + status
-    asetIds: Set<string>
-    kode: string
-    namaHint: string
-    isOrphan: boolean
-  }
-
   const acc = new Map<string, Acc>()
 
   const ensure = (key: string, init: Partial<Acc> & { kode: string; namaHint: string; isOrphan: boolean }) => {
@@ -189,13 +264,12 @@ export function buildProgramLaporanRows(opts: {
     return a
   }
 
-  // Seed semua baris RKAP (supaya program pipeline tetap tampil)
+  // Seed semua baris RKAP
   rkapRows.forEach(r => {
-    const kode = r.kode?.trim() || `rkap-no:${r.no}`
-    ensure(kode, {
+    ensure(rkapRowKey(r), {
       kode: r.kode?.trim() || '',
       namaHint: r.nama,
-      isOrphan: !r.kode?.trim(),
+      isOrphan: false,
     })
   })
 
@@ -211,16 +285,17 @@ export function buildProgramLaporanRows(opts: {
     return true
   }
 
-  // Pendapatan: nominal tagihan JT di tahun/cakupan
-  // Cash In: pembayaran by tgl_bayar di tahun/cakupan (bisa dari tagihan tahun lain)
   allKompensasi.forEach(k => {
     const ks = ksMap.get(k.ks_id) ?? k.kerja_sama
-    const resolved = resolveProgramKey(k, ks, rkapByKode)
+    const resolved = resolveProgramKey(k, ks, rkapByKode, rkapRows)
     const a = ensure(resolved.key, {
       kode: resolved.kode,
       namaHint: resolved.namaHint,
       isOrphan: resolved.isOrphan,
     })
+    // Jika resolve ke RKAP, pastikan tidak ter-flag orphan
+    if (!resolved.isOrphan) a.isOrphan = false
+    if (resolved.kode && !a.kode) a.kode = resolved.kode
 
     if (ks) {
       a.mitra.set(ks.id, `${ks.nama_mitra} (${statusLabelKS(ks.status)})`)
@@ -229,13 +304,11 @@ export function buildProgramLaporanRows(opts: {
       if (aset?.id) a.asetIds.add(aset.id)
     }
 
-    // Cash in by payment date
     ;(k.pembayaran ?? []).forEach(p => {
       if (!inCashInWindow(p.tgl_bayar)) return
       a.cashIn += p.nominal_bayar || 0
     })
 
-    // Pendapatan + status tagihan by JT
     if (!k.tgl_jatuh_tempo || !inPendapatanWindow(k.tgl_jatuh_tempo)) return
 
     const nominal = k.nominal ?? 0
@@ -248,11 +321,38 @@ export function buildProgramLaporanRows(opts: {
     else if (tagihan === 0 && dibayarAll > 0) a.nLunas += 1
   })
 
-  // Aset → kode untuk status pipeline
+  // Merge sisa orphan ke baris RKAP yang namanya mirip (jika ada data yang sempat ter-key orphan)
+  const rkapKeys = new Set(rkapRows.map(rkapRowKey))
+  for (const [key, orphanAcc] of Array.from(acc.entries())) {
+    if (!orphanAcc.isOrphan || rkapKeys.has(key)) continue
+    const hit = rkapRows.find(r => programNamesMatch(r.nama, orphanAcc.namaHint))
+    if (!hit) continue
+    const targetKey = rkapRowKey(hit)
+    const target = ensure(targetKey, {
+      kode: hit.kode?.trim() || orphanAcc.kode,
+      namaHint: hit.nama,
+      isOrphan: false,
+    })
+    mergeAcc(target, orphanAcc)
+    target.isOrphan = false
+    if (orphanAcc.kode && !target.kode) target.kode = orphanAcc.kode
+    acc.delete(key)
+  }
+
   const asetByKode = new Map(daftarAset.filter(a => a.kode_aset).map(a => [a.kode_aset, a]))
   const asetById = new Map(daftarAset.map(a => [a.id, a]))
 
-  // KS per aset kode (untuk proses mitra walau belum ada kompensasi di tahun ini)
+  // Lengkapi kode RKAP kosong dari aset yang namanya cocok
+  rkapRows.forEach(r => {
+    const key = rkapRowKey(r)
+    const a = acc.get(key)
+    if (!a) return
+    if (!a.kode) {
+      const matchAset = daftarAset.find(as => programNamesMatch(r.nama, as.nama_aset))
+      if (matchAset?.kode_aset) a.kode = matchAset.kode_aset.trim()
+    }
+  })
+
   const ksByAsetKode = new Map<string, KerjaSama[]>()
   daftarKS.forEach(ks => {
     const kode = (ks.aset as Aset | undefined)?.kode_aset?.trim()
@@ -262,31 +362,44 @@ export function buildProgramLaporanRows(opts: {
     ksByAsetKode.set(kode, list)
   })
 
+  // Juga index KS by fuzzy aset name for rkap without kode
+  const ksByAsetName = daftarKS.map(ks => ({
+    ks,
+    nama: (ks.aset as Aset | undefined)?.nama_aset ?? '',
+  }))
+
   const rows: ProgramLaporanRow[] = []
   const usedKeys = new Set<string>()
 
-  // Urutan: baris RKAP dulu
   rkapRows.forEach((r, idx) => {
-    const key = r.kode?.trim() || `rkap-no:${r.no}`
+    const key = rkapRowKey(r)
     usedKeys.add(key)
     const a = acc.get(key)
     const rkap = r.total ?? 0
     const pendapatan = a?.pendapatan ?? 0
     const cashIn = a?.cashIn ?? 0
     const capaianPct = rkap > 0 ? (cashIn / rkap) * 100 : null
+    const displayKode = a?.kode || r.kode?.trim() || ''
 
     let prosesMitra = ''
     let monitoring = ''
 
     const mitraFromAcc = a ? Array.from(a.mitra.values()) : []
-    const ksList = r.kode ? (ksByAsetKode.get(r.kode.trim()) ?? []) : []
+    let ksList = displayKode ? (ksByAsetKode.get(displayKode) ?? []) : []
+    if (ksList.length === 0) {
+      ksList = ksByAsetName
+        .filter(x => x.nama && programNamesMatch(r.nama, x.nama))
+        .map(x => x.ks)
+    }
 
     if (mitraFromAcc.length > 0) {
       prosesMitra = `Eksisting: ${mitraFromAcc.join('; ')}`
     } else if (ksList.length > 0) {
       prosesMitra = `Eksisting: ${ksList.map(k => `${k.nama_mitra} (${statusLabelKS(k.status)})`).join('; ')}`
     } else {
-      const aset = r.kode ? asetByKode.get(r.kode.trim()) : undefined
+      const aset = displayKode
+        ? asetByKode.get(displayKode)
+        : daftarAset.find(as => programNamesMatch(r.nama, as.nama_aset))
       prosesMitra = statusLabelAset(aset?.status)
     }
 
@@ -309,9 +422,9 @@ export function buildProgramLaporanRows(opts: {
     rows.push({
       no: r.no || idx + 1,
       key,
-      kategori: inferKategori(r.kode?.trim() || '', r.nama),
+      kategori: inferKategori(displayKode, r.nama),
       programAset: r.nama,
-      kode: r.kode?.trim() || '',
+      kode: displayKode,
       rkap,
       pendapatan,
       cashIn,
@@ -325,12 +438,17 @@ export function buildProgramLaporanRows(opts: {
     })
   })
 
-  // Orphan programs (aset dengan realisasi tapi tidak di RKAP)
-  const orphanEntries = Array.from(acc.entries()).filter(([key, a]) => a.isOrphan && !usedKeys.has(key) && (a.pendapatan > 0 || a.cashIn > 0 || a.nTagihan > 0))
-  orphanEntries.sort((a, b) => a[1].namaHint.localeCompare(b[1].namaHint))
+  // Orphan sisa (benar-benar tidak ada di RKAP)
+  const orphanEntries = Array.from(acc.entries()).filter(
+    ([key, a]) => a.isOrphan && !usedKeys.has(key) && (a.pendapatan > 0 || a.cashIn > 0 || a.nTagihan > 0),
+  )
+  orphanEntries.sort((x, y) => x[1].namaHint.localeCompare(y[1].namaHint, 'id'))
 
   let orphanNo = rows.length + 1
   orphanEntries.forEach(([key, a]) => {
+    // Safety: skip if still matches an RKAP name (should already be merged)
+    if (rkapRows.some(r => programNamesMatch(r.nama, a.namaHint))) return
+
     usedKeys.add(key)
     const mitraFromAcc = Array.from(a.mitra.values())
     let monitoring = '-'
