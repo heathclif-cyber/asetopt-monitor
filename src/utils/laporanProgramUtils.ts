@@ -185,23 +185,35 @@ export function buildProgramLaporanRows(opts: {
     ensure(kode, r.nama || aset?.nama_aset || kode)
   })
 
-  const inCashInWindow = (tglBayar: string) => {
-    if (!tglBayar || yearOf(tglBayar) !== tahun) return false
-    if (horizon === 'ytd' && dateKey(tglBayar) > asOfKey) return false
-    return true
-  }
-
-  const inPendapatanWindow = (tglJt: string) => {
+  /**
+   * Tagihan masuk window tahun (sama filter Detail Tagihan: by tgl_jatuh_tempo).
+   * YTD = JT tahun ini dan JT ≤ hari ini.
+   */
+  const inTagihanWindow = (tglJt: string) => {
     if (!tglJt || yearOf(tglJt) !== tahun) return false
     if (horizon === 'ytd' && dateKey(tglJt) > asOfKey) return false
     return true
   }
 
-  // Realisasi hanya menempel ke ID Monika
+  /**
+   * Cash In diselaraskan dengan Detail Tagihan:
+   * = total pembayaran pada tagihan yang JT-nya di window tahun,
+   *   bukan "semua uang yang masuk di tahun X terlepas dari tahun JT".
+   * YTD: hanya hitung pembayaran dengan tgl_bayar ≤ hari ini.
+   */
+  const paymentCountsForCashIn = (tglBayar: string) => {
+    if (!tglBayar) return false
+    if (horizon === 'ytd' && dateKey(tglBayar) > asOfKey) return false
+    return true
+  }
+
+  // Realisasi hanya menempel ke ID Monika; cash in = bayar pada tagihan JT window
   allKompensasi.forEach(k => {
     const ks = ksMap.get(k.ks_id) ?? k.kerja_sama
     const monikaId = resolveMonikaId(k, ks)
-    if (!monikaId) return // tanpa ID Monika: tidak ditampilkan sebagai proker (hindari redundansi nama)
+    if (!monikaId) return // tanpa ID Monika: tidak dihitung di Per Proker
+
+    if (!k.tgl_jatuh_tempo || !inTagihanWindow(k.tgl_jatuh_tempo)) return
 
     const aset = asetByKode.get(monikaId)
     const rkap = rkapByMonika.get(monikaId)
@@ -212,16 +224,17 @@ export function buildProgramLaporanRows(opts: {
       a.mitra.set(ks.id, `${ks.nama_mitra} (${statusLabelKS(ks.status)})`)
     }
 
-    ;(k.pembayaran ?? []).forEach(p => {
-      if (!inCashInWindow(p.tgl_bayar)) return
-      a.cashIn += p.nominal_bayar || 0
+    const pembayaran = k.pembayaran ?? []
+    let dibayarWindow = 0
+    pembayaran.forEach(p => {
+      if (!paymentCountsForCashIn(p.tgl_bayar)) return
+      dibayarWindow += p.nominal_bayar || 0
     })
-
-    if (!k.tgl_jatuh_tempo || !inPendapatanWindow(k.tgl_jatuh_tempo)) return
+    a.cashIn += dibayarWindow
 
     const nominal = k.nominal ?? 0
     const tagihan = Math.max(0, (k.total_tagihan ?? 0) - (k.pengurang ?? 0))
-    const dibayarAll = (k.pembayaran ?? []).reduce((s, p) => s + (p.nominal_bayar || 0), 0)
+    const dibayarAll = pembayaran.reduce((s, p) => s + (p.nominal_bayar || 0), 0)
 
     a.pendapatan += nominal
     a.nTagihan += 1

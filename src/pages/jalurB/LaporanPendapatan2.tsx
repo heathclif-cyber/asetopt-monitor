@@ -96,7 +96,8 @@ export default function LaporanPendapatan() {
   const { daftarAset, fetchAset } = useAsetStore()
 
   const [viewMode, setViewMode] = useState<ViewMode>('detail')
-  const [programHorizon, setProgramHorizon] = useState<ProgramHorizon>('ytd')
+  // Default full year — selaras dengan total Cash In di Detail Tagihan (filter tahun JT)
+  const [programHorizon, setProgramHorizon] = useState<ProgramHorizon>('full_year')
   const [programSort, setProgramSort] = useState<'no' | 'rkap' | 'pendapatan' | 'cashIn' | 'capaian' | 'kategori'>('no')
   const [programSortDir, setProgramSortDir] = useState<SortDir>('asc')
   const [filterKategori, setFilterKategori] = useState('all')
@@ -379,8 +380,8 @@ export default function LaporanPendapatan() {
           <h1 className="text-lg font-bold text-gray-800">Laporan Pendapatan — {tahun}</h1>
           <p className="text-xs text-gray-500 mt-1">
             {viewMode === 'detail'
-              ? 'Satu baris = satu tahap kompensasi · Urutkan lewat dropdown / klik header · Akrual = nominal NKM · Cash In = pembayaran'
-              : 'Mode Per Proker = sheet Optimalisasi Aset (LM) · Satu baris = satu program aset · Pendapatan (JT) · Cash In (tgl bayar) · Capaian = Cash In ÷ RKAP'}
+              ? 'Satu baris = satu tahap · filter tahun = tgl jatuh tempo · Cash In = total bayar pada tagihan itu'
+              : 'Satu baris = satu ID Monika · Cash In = total bayar pada tagihan JT tahun yang sama (selaras Detail) · Capaian = Cash In ÷ RKAP'}
           </p>
         </div>
 
@@ -435,8 +436,8 @@ export default function LaporanPendapatan() {
                 onChange={e => setProgramHorizon(e.target.value as ProgramHorizon)}
                 className="text-xs border rounded-md px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-[#1B4F72]"
               >
-                <option value="ytd">YTD s.d. hari ini (mirip LM)</option>
-                <option value="full_year">Full Year {tahun}</option>
+                <option value="full_year">Full Year {tahun} (sama basis Detail)</option>
+                <option value="ytd">YTD s.d. hari ini (JT & bayar ≤ hari ini)</option>
               </select>
             </div>
             <div className="flex items-center gap-1.5">
@@ -629,6 +630,11 @@ export default function LaporanPendapatan() {
               <p className="text-[11px] text-gray-400">Akrual: {formatRupiah(totalAkrual)}</p>
             </div>
           </div>
+          <p className="text-[11px] text-gray-500 -mt-1">
+            Cash In = jumlah bayar pada tagihan dengan <strong>jatuh tempo tahun {tahun}</strong>
+            {selectedMonths.length < 12 ? ' (terfilter bulan JT)' : ''}.
+            Tagihan tanpa ID Monika tetap masuk di sini, tapi tidak di Per Proker.
+          </p>
 
           {/* ── Detail table ─────────────────────────────────────────────── */}
           <div className="bg-white rounded-xl border overflow-hidden">
@@ -813,6 +819,10 @@ function ProgramView({
           </p>
         </div>
       </div>
+      <p className="text-[11px] text-gray-500 -mt-1">
+        Cash In = bayar pada tagihan <strong>JT tahun {tahun}</strong> (sama basis Detail Tagihan), digabung per ID Monika.
+        Tagihan tanpa ID Monika tidak dihitung di sini.
+      </p>
 
       <div className="bg-white rounded-xl border overflow-hidden">
         <div className="px-4 py-2.5 border-b bg-gray-50 flex flex-wrap items-center justify-between gap-2">
