@@ -5,7 +5,8 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import {
   Save, FileText, Zap, Pencil, Trash2, X, Search,
-  Wallet, Banknote, ListChecks, ChevronDown, Building2, CalendarDays,
+  Banknote, ListChecks, ChevronDown, Building2, CalendarDays,
+  PlusCircle, LayoutList,
 } from 'lucide-react'
 import { useKompensasiStore } from '@/store/kompensasiStore'
 import { useKerjaSamaStore } from '@/store/kerjaSamaStore'
@@ -37,11 +38,16 @@ const schema = z.object({
 })
 
 type FormData = z.infer<typeof schema>
+type ViewMode = 'input' | 'daftar'
 
 export function InputPembayaran() {
-  const [params] = useSearchParams()
+  const [params, setSearchParams] = useSearchParams()
   const { allKompensasi, fetchAllKompensasi, getKompensasiWithStatus } = useKompensasiStore()
   const { daftarKS, fetchKS } = useKerjaSamaStore()
+
+  const initialView: ViewMode = params.get('tab') === 'daftar' ? 'daftar' : 'input'
+  const [viewMode, setViewMode] = useState<ViewMode>(initialView)
+
   const [selectedKsId, setSelectedKsId] = useState('')
   const [riwayat, setRiwayat] = useState<Pembayaran[]>([])
   const [docRefresh, setDocRefresh] = useState(0)
@@ -58,6 +64,7 @@ export function InputPembayaran() {
   const [deleting, setDeleting] = useState(false)
   const [riwayatTick, setRiwayatTick] = useState(0)
   const [listQuery, setListQuery] = useState('')
+  const [filterTahun, setFilterTahun] = useState<string>('semua')
 
   const form = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -85,6 +92,14 @@ export function InputPembayaran() {
   const ws = selected ? getKompensasiWithStatus(selected, riwayat) : null
   const lockedBySuperman = !!(selected?.superman && String(selected.superman).trim())
 
+  const switchView = (mode: ViewMode) => {
+    setViewMode(mode)
+    const next = new URLSearchParams(params)
+    if (mode === 'daftar') next.set('tab', 'daftar')
+    else next.delete('tab')
+    setSearchParams(next, { replace: true })
+  }
+
   useEffect(() => {
     fetchAllKompensasi()
     fetchKS()
@@ -98,6 +113,7 @@ export function InputPembayaran() {
     if (k) {
       setSelectedKsId(String(k.ks_id))
       form.setValue('kompensasi_id', String(kid))
+      if (params.get('tab') !== 'daftar') setViewMode('input')
     }
   }, [allKompensasi, params])
 
@@ -196,6 +212,7 @@ export function InputPembayaran() {
       monika: string
       periode: string
       locked: boolean
+      year: number
     }
     const rows: Row[] = []
     allKompensasi.forEach(k => {
@@ -207,18 +224,30 @@ export function InputPembayaran() {
       const periode = k.periode_label ?? formatTanggal(k.tgl_jatuh_tempo)
       const locked = !!(k.superman && String(k.superman).trim())
       ;((k.pembayaran ?? []) as Pembayaran[]).forEach(p => {
-        rows.push({ payment: p, kompensasi: k, mitra, aset, monika, periode, locked })
+        const year = Number(String(p.tgl_bayar).slice(0, 4)) || 0
+        rows.push({ payment: p, kompensasi: k, mitra, aset, monika, periode, locked, year })
       })
     })
     rows.sort((a, b) => String(b.payment.tgl_bayar).localeCompare(String(a.payment.tgl_bayar)))
     return rows
   }, [allKompensasi, daftarKS])
 
+  const tahunList = useMemo(() => {
+    const years = new Set(allCashInRows.map(r => r.year).filter(y => y > 0))
+    years.add(new Date().getFullYear())
+    return Array.from(years).sort((a, b) => b - a)
+  }, [allCashInRows])
+
   const filteredCashInRows = useMemo(() => {
+    let rows = allCashInRows
+    if (filterTahun !== 'semua') {
+      const y = Number(filterTahun)
+      rows = rows.filter(r => r.year === y)
+    }
     const q = listQuery.trim().toLowerCase()
-    if (!q) return allCashInRows
+    if (!q) return rows
     const tokens = q.split(/\s+/).filter(Boolean)
-    return allCashInRows.filter(r => {
+    return rows.filter(r => {
       const hay = [
         r.mitra, r.aset, r.monika, r.periode,
         r.payment.tgl_bayar, String(r.payment.nominal_bayar),
@@ -226,11 +255,15 @@ export function InputPembayaran() {
       ].join(' ').toLowerCase()
       return tokens.every(t => hay.includes(t))
     })
-  }, [allCashInRows, listQuery])
+  }, [allCashInRows, listQuery, filterTahun])
 
   const totalCashInAll = useMemo(
     () => allCashInRows.reduce((s, r) => s + (r.payment.nominal_bayar || 0), 0),
     [allCashInRows],
+  )
+  const totalCashInFiltered = useMemo(
+    () => filteredCashInRows.reduce((s, r) => s + (r.payment.nominal_bayar || 0), 0),
+    [filteredCashInRows],
   )
 
   const handleKsChange = (ksId: string) => {
@@ -293,7 +326,12 @@ export function InputPembayaran() {
     form.setValue('is_pph_disetor', p.is_pph_disetor ?? false)
     form.setValue('keterangan', p.keterangan ?? '')
     form.setValue('bukti_url', p.bukti_url ?? '')
-    document.getElementById('form-cash-in')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    switchView('input')
+  }
+
+  const startNewInput = () => {
+    cancelEdit()
+    switchView('input')
   }
 
   const onSubmit = async (data: FormData) => {
@@ -314,6 +352,9 @@ export function InputPembayaran() {
         })
         setLastSaved(saved)
         setEditingId(null)
+        await fetchAllKompensasi()
+        setRiwayatTick(t => t + 1)
+        switchView('daftar')
       } else {
         const saved = await api.post<Pembayaran>('/api/pembayaran', {
           kompensasi_id: data.kompensasi_id,
@@ -324,13 +365,13 @@ export function InputPembayaran() {
           bukti_url: data.bukti_url || null,
         })
         setLastSaved(saved)
+        await fetchAllKompensasi()
+        setRiwayatTick(t => t + 1)
+        form.setValue('keterangan', '')
+        form.setValue('bukti_url', '')
+        form.setValue('tgl_bayar', new Date().toISOString().split('T')[0])
+        form.setValue('is_pph_disetor', false)
       }
-      await fetchAllKompensasi()
-      setRiwayatTick(t => t + 1)
-      form.setValue('keterangan', '')
-      form.setValue('bukti_url', '')
-      form.setValue('tgl_bayar', new Date().toISOString().split('T')[0])
-      form.setValue('is_pph_disetor', false)
     } catch (e: any) {
       alert(e.message ?? (editingId ? 'Gagal mengubah pembayaran' : 'Gagal menyimpan pembayaran'))
     } finally {
@@ -395,244 +436,284 @@ export function InputPembayaran() {
   const previewSisa = Math.max(0, sisaUntukInput - (nominalWatch || 0))
 
   return (
-    <div className="space-y-5 max-w-6xl pb-8">
-      {/* Header */}
-      <div className="rounded-2xl bg-gradient-to-br from-[#0E6655] via-[#117A65] to-[#1E8449] px-5 py-5 sm:px-6 text-white shadow-md">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
-            <div className="inline-flex items-center gap-2 rounded-full bg-white/15 px-2.5 py-0.5 text-[11px] font-medium text-emerald-50 mb-2">
-              <Wallet size={12} /> Jalur B · Realisasi
-            </div>
-            <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Input Pembayaran (Cash In)</h1>
-            <p className="mt-1 text-sm text-emerald-50/90 max-w-xl">
-              Catat atau edit pembayaran mitra. Invoice tidak wajib. Cari nama aset / mitra / Monika di daftar untuk mengubah data lama.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <div className="rounded-xl bg-white/15 backdrop-blur px-3.5 py-2.5 min-w-[120px]">
-              <p className="text-[10px] uppercase tracking-wide text-emerald-100/80">Total tercatat</p>
-              <p className="text-sm font-bold tabular-nums mt-0.5">{formatRupiah(totalCashInAll)}</p>
-            </div>
-            <div className="rounded-xl bg-white/15 backdrop-blur px-3.5 py-2.5 min-w-[88px]">
-              <p className="text-[10px] uppercase tracking-wide text-emerald-100/80">Transaksi</p>
-              <p className="text-sm font-bold tabular-nums mt-0.5">{allCashInRows.length}</p>
-            </div>
-            <div className="rounded-xl bg-white/15 backdrop-blur px-3.5 py-2.5 min-w-[88px]">
-              <p className="text-[10px] uppercase tracking-wide text-emerald-100/80">Mitra KS</p>
-              <p className="text-sm font-bold tabular-nums mt-0.5">{ksOptions.length}</p>
-            </div>
-          </div>
+    <div className="space-y-4 max-w-6xl pb-8">
+      {/* Page header + view switch (pola Laporan Pendapatan) */}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-lg font-bold text-gray-800">Cash In (Pembayaran)</h1>
+          <p className="text-xs text-gray-500 mt-1">
+            {viewMode === 'input'
+              ? (editingId
+                ? 'Mode edit — ubah data pembayaran yang sudah tercatat, lalu simpan'
+                : 'Satu form = satu pembayaran · pilih mitra & tahap tagihan · invoice tidak wajib')
+              : 'Satu baris = satu transaksi cash in · cari aset/mitra/Monika · edit atau hapus dari daftar'}
+          </p>
+        </div>
+
+        <div className="inline-flex rounded-lg border bg-white p-0.5 shadow-sm">
+          <button
+            type="button"
+            onClick={() => switchView('input')}
+            className={cn(
+              'inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors',
+              viewMode === 'input' ? 'bg-[#117A65] text-white' : 'text-gray-600 hover:bg-gray-50',
+            )}
+          >
+            <PlusCircle size={14} />
+            Input Cash In
+          </button>
+          <button
+            type="button"
+            onClick={() => switchView('daftar')}
+            className={cn(
+              'inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors',
+              viewMode === 'daftar' ? 'bg-[#117A65] text-white' : 'text-gray-600 hover:bg-gray-50',
+            )}
+          >
+            <LayoutList size={14} />
+            Daftar Cash In
+          </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-5 gap-5 items-start">
-        {/* ── Form ───────────────────────────────────────────────────────── */}
-        <form
-          id="form-cash-in"
-          onSubmit={form.handleSubmit(onSubmit)}
-          className="xl:col-span-2 space-y-4 xl:sticky xl:top-20"
-        >
-          <Card className={cn(
-            'shadow-sm overflow-hidden border-gray-200/80',
-            editingId && 'ring-2 ring-amber-300/80 border-amber-200',
-          )}>
-            <CardHeader className={cn(
-              'py-3.5 px-5 border-b',
-              editingId ? 'bg-amber-50/80 border-amber-100' : 'bg-white',
+      {/* Ringkasan ringkas */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <div className="rounded-xl border bg-white px-4 py-3 shadow-sm">
+          <p className="text-[10px] uppercase tracking-wide text-gray-400 font-medium">Total Cash In</p>
+          <p className="text-sm font-bold text-emerald-700 tabular-nums mt-0.5">{formatRupiah(totalCashInAll)}</p>
+        </div>
+        <div className="rounded-xl border bg-white px-4 py-3 shadow-sm">
+          <p className="text-[10px] uppercase tracking-wide text-gray-400 font-medium">Jumlah Transaksi</p>
+          <p className="text-sm font-bold text-gray-900 tabular-nums mt-0.5">{allCashInRows.length}</p>
+        </div>
+        <div className="rounded-xl border bg-white px-4 py-3 shadow-sm col-span-2 sm:col-span-1">
+          <p className="text-[10px] uppercase tracking-wide text-gray-400 font-medium">Mitra / KS</p>
+          <p className="text-sm font-bold text-gray-900 tabular-nums mt-0.5">{ksOptions.length}</p>
+        </div>
+      </div>
+
+      {/* ════════════════════ INPUT ════════════════════ */}
+      {viewMode === 'input' && (
+        <div className="max-w-2xl space-y-4">
+          <form id="form-cash-in" onSubmit={form.handleSubmit(onSubmit)}>
+            <Card className={cn(
+              'shadow-sm overflow-hidden border-gray-200/80',
+              editingId && 'ring-2 ring-amber-300/70 border-amber-200',
             )}>
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className={cn(
-                    'flex h-8 w-8 items-center justify-center rounded-lg shrink-0',
-                    editingId ? 'bg-amber-100 text-amber-700' : 'bg-emerald-50 text-emerald-700',
-                  )}>
-                    {editingId ? <Pencil size={15} /> : <Banknote size={15} />}
-                  </span>
-                  <div className="min-w-0">
-                    <CardTitle className="text-sm font-semibold text-gray-900">
-                      {editingId ? 'Edit Cash In' : 'Tambah Cash In'}
-                    </CardTitle>
-                    <p className="text-[11px] text-gray-500 truncate">
-                      {editingId
-                        ? 'Ubah data lalu simpan perubahan'
-                        : 'Pilih mitra & tahap, isi nominal'}
-                    </p>
-                  </div>
-                </div>
-                {editingId && (
-                  <Button type="button" variant="ghost" size="sm" className="h-8 text-amber-800 shrink-0" onClick={cancelEdit}>
-                    <X size={14} /> Batal
-                  </Button>
-                )}
-              </div>
-            </CardHeader>
-
-            <CardContent className="p-5 space-y-4">
-              <div className="space-y-1.5">
-                <Label className="text-xs text-gray-600">Aset / Mitra</Label>
-                <SearchableSelect
-                  value={selectedKsId}
-                  onValueChange={handleKsChange}
-                  disabled={!!editingId}
-                  options={ksOptions.map(o => ({
-                    value: o.id,
-                    label: `${o.aset} — ${o.mitra}`,
-                    searchText: [o.aset, o.mitra, o.noKontrak, ...o.monika].join(' '),
-                    description: [
-                      o.noKontrak,
-                      o.monika.length ? `Monika ${o.monika.join(', ')}` : null,
-                      o.open > 0 ? `${o.open} terbuka` : null,
-                      o.lunas > 0 ? `${o.lunas} lunas` : null,
-                    ].filter(Boolean).join(' · '),
-                  }))}
-                  placeholder="Cari aset, mitra, Monika..."
-                  searchPlaceholder="cth: Dapenbun, Pelayanan 13..."
-                />
-                {ks && (
-                  <p className="text-[11px] text-gray-500 flex items-start gap-1.5 pt-0.5">
-                    <Building2 size={12} className="mt-0.5 shrink-0 text-gray-400" />
-                    <span>
-                      {ks.nama_mitra}
-                      {ks.aset?.kode_aset ? ` · ${ks.aset.kode_aset}` : ''}
-                      {ks.no_perjanjian ? ` · ${ks.no_perjanjian}` : ''}
+              <CardHeader className={cn(
+                'py-3.5 px-5 border-b',
+                editingId ? 'bg-amber-50/90 border-amber-100' : 'bg-white',
+              )}>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className={cn(
+                      'flex h-9 w-9 items-center justify-center rounded-lg shrink-0',
+                      editingId ? 'bg-amber-100 text-amber-700' : 'bg-emerald-50 text-emerald-700',
+                    )}>
+                      {editingId ? <Pencil size={16} /> : <Banknote size={16} />}
                     </span>
-                  </p>
-                )}
-              </div>
-
-              <div className="space-y-1.5">
-                <Label className="text-xs text-gray-600">Tahap Tagihan</Label>
-                <SearchableSelect
-                  value={selectedId}
-                  disabled={!selectedKsId || !!editingId}
-                  onValueChange={v => {
-                    if (editingId) cancelEdit()
-                    form.setValue('kompensasi_id', v)
-                  }}
-                  options={tahapOptions.map(o => ({
-                    value: o.id,
-                    label: o.status === 'lunas'
-                      ? `${o.periode} — Lunas`
-                      : `${o.periode} — sisa ${formatRupiah(o.sisa)}`,
-                    searchText: `${o.periode} ${o.monika} ${o.status}`,
-                    description: [
-                      formatRupiah(o.total),
-                      `JT ${formatTanggal(o.jatuhTempo)}`,
-                      o.monika || null,
-                    ].filter(Boolean).join(' · '),
-                  }))}
-                  placeholder={selectedKsId ? 'Pilih tahap...' : 'Pilih mitra dulu'}
-                  searchPlaceholder="Periode / Monika..."
-                />
-                {selectedTahap && (
-                  <p className="text-[11px] text-gray-500 flex items-center gap-1.5">
-                    <CalendarDays size={12} className="text-gray-400" />
-                    JT {formatTanggal(selectedTahap.jatuhTempo)}
-                    {selectedTahap.monika ? ` · ${selectedTahap.monika}` : ''}
-                    {selectedTahap.status === 'lunas' && selectedTahap.dibayar > selectedTahap.total && (
-                      <span className="text-amber-700 font-medium">
-                        · lebih {formatRupiah(selectedTahap.dibayar - selectedTahap.total)}
-                      </span>
+                    <div>
+                      <CardTitle className="text-sm font-semibold text-gray-900">
+                        {editingId ? 'Edit Cash In' : 'Form Input Cash In'}
+                      </CardTitle>
+                      <p className="text-[11px] text-gray-500">
+                        {editingId ? 'Ubah nominal, tanggal, atau keterangan' : 'Lengkapi data lalu simpan'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {editingId && (
+                      <Button type="button" variant="ghost" size="sm" className="h-8 text-amber-800" onClick={cancelEdit}>
+                        <X size={14} /> Batal edit
+                      </Button>
                     )}
-                  </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-8 text-xs"
+                      onClick={() => switchView('daftar')}
+                    >
+                      <ListChecks size={13} /> Lihat daftar
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+
+              <CardContent className="p-5 space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label className="text-xs text-gray-600">Aset / Mitra</Label>
+                    <SearchableSelect
+                      value={selectedKsId}
+                      onValueChange={handleKsChange}
+                      disabled={!!editingId}
+                      options={ksOptions.map(o => ({
+                        value: o.id,
+                        label: `${o.aset} — ${o.mitra}`,
+                        searchText: [o.aset, o.mitra, o.noKontrak, ...o.monika].join(' '),
+                        description: [
+                          o.noKontrak,
+                          o.monika.length ? `Monika ${o.monika.join(', ')}` : null,
+                          o.open > 0 ? `${o.open} terbuka` : null,
+                          o.lunas > 0 ? `${o.lunas} lunas` : null,
+                        ].filter(Boolean).join(' · '),
+                      }))}
+                      placeholder="Cari aset, mitra, Monika..."
+                      searchPlaceholder="cth: Dapenbun, Pelayanan 13..."
+                    />
+                    {ks && (
+                      <p className="text-[11px] text-gray-500 flex items-start gap-1.5 pt-0.5">
+                        <Building2 size={12} className="mt-0.5 shrink-0 text-gray-400" />
+                        <span>
+                          {ks.nama_mitra}
+                          {ks.aset?.kode_aset ? ` · ${ks.aset.kode_aset}` : ''}
+                          {ks.no_perjanjian ? ` · ${ks.no_perjanjian}` : ''}
+                        </span>
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <Label className="text-xs text-gray-600">Tahap Tagihan</Label>
+                    <SearchableSelect
+                      value={selectedId}
+                      disabled={!selectedKsId || !!editingId}
+                      onValueChange={v => {
+                        if (editingId) cancelEdit()
+                        form.setValue('kompensasi_id', v)
+                      }}
+                      options={tahapOptions.map(o => ({
+                        value: o.id,
+                        label: o.status === 'lunas'
+                          ? `${o.periode} — Lunas`
+                          : `${o.periode} — sisa ${formatRupiah(o.sisa)}`,
+                        searchText: `${o.periode} ${o.monika} ${o.status}`,
+                        description: [
+                          formatRupiah(o.total),
+                          `JT ${formatTanggal(o.jatuhTempo)}`,
+                          o.monika || null,
+                        ].filter(Boolean).join(' · '),
+                      }))}
+                      placeholder={selectedKsId ? 'Pilih tahap...' : 'Pilih mitra dulu'}
+                      searchPlaceholder="Periode / Monika..."
+                    />
+                    {selectedTahap && (
+                      <p className="text-[11px] text-gray-500 flex items-center gap-1.5 flex-wrap">
+                        <CalendarDays size={12} className="text-gray-400" />
+                        JT {formatTanggal(selectedTahap.jatuhTempo)}
+                        {selectedTahap.monika ? ` · ${selectedTahap.monika}` : ''}
+                        {selectedTahap.status === 'lunas' && selectedTahap.dibayar > selectedTahap.total && (
+                          <span className="text-amber-700 font-medium">
+                            · lebih {formatRupiah(selectedTahap.dibayar - selectedTahap.total)}
+                          </span>
+                        )}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {selected && ws && (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 rounded-xl border border-gray-100 bg-slate-50/80 p-3">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wide text-gray-400">Tagihan</p>
+                      <CurrencyDisplay value={selected.total_tagihan} size="sm" className="font-semibold text-gray-800" />
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wide text-gray-400">Dibayar</p>
+                      <CurrencyDisplay value={ws.totalDibayar} size="sm" className="font-semibold text-emerald-700" />
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wide text-gray-400">Sisa</p>
+                      <CurrencyDisplay value={previewSisa} size="sm" className="font-semibold text-red-600" />
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wide text-gray-400 mb-0.5">Status</p>
+                      <StatusBadge type="bayar" value={ws.statusBayar} />
+                    </div>
+                  </div>
                 )}
-              </div>
 
-              {selected && ws && (
-                <div className="grid grid-cols-2 gap-2 rounded-xl border border-gray-100 bg-slate-50/80 p-3">
-                  <div>
-                    <p className="text-[10px] uppercase tracking-wide text-gray-400">Tagihan</p>
-                    <CurrencyDisplay value={selected.total_tagihan} size="sm" className="font-semibold text-gray-800" />
+                {lockedBySuperman && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                    Tagihan sudah punya nomor Superman — cash in terkunci.
                   </div>
-                  <div>
-                    <p className="text-[10px] uppercase tracking-wide text-gray-400">Dibayar</p>
-                    <CurrencyDisplay value={ws.totalDibayar} size="sm" className="font-semibold text-emerald-700" />
+                )}
+
+                {selected?.no_invoice && (
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-gray-600">
+                    Invoice: <span className="font-mono font-medium text-gray-800">{selected.no_invoice}</span>
+                    {selected.invoice_tgl ? ` · ${formatTanggal(selected.invoice_tgl)}` : ''}
                   </div>
-                  <div>
-                    <p className="text-[10px] uppercase tracking-wide text-gray-400">
-                      {editingId ? 'Sisa sisa input' : 'Sisa'}
-                    </p>
-                    <CurrencyDisplay value={previewSisa} size="sm" className="font-semibold text-red-600" />
+                )}
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-gray-600">Tanggal Bayar</Label>
+                    <Input type="date" {...form.register('tgl_bayar')} disabled={lockedBySuperman} />
                   </div>
-                  <div>
-                    <p className="text-[10px] uppercase tracking-wide text-gray-400 mb-0.5">Status</p>
-                    <StatusBadge type="bayar" value={ws.statusBayar} />
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-gray-600">Nominal Cash In (Rp)</Label>
+                    <CurrencyInput
+                      value={nominalWatch}
+                      onChange={v => form.setValue('nominal_bayar', v)}
+                      disabled={lockedBySuperman}
+                    />
+                    {editingId && sisaUntukInput > 0 && (
+                      <p className="text-[11px] text-gray-400">Maks. {formatRupiah(sisaUntukInput)}</p>
+                    )}
                   </div>
                 </div>
-              )}
 
-              {lockedBySuperman && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                  Tagihan sudah punya nomor Superman — cash in terkunci.
-                </div>
-              )}
-
-              {selected?.no_invoice && (
-                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-gray-600">
-                  Invoice: <span className="font-mono font-medium text-gray-800">{selected.no_invoice}</span>
-                  {selected.invoice_tgl ? ` · ${formatTanggal(selected.invoice_tgl)}` : ''}
-                </div>
-              )}
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-1 gap-3">
-                <div className="space-y-1.5">
-                  <Label className="text-xs text-gray-600">Tanggal Bayar</Label>
-                  <Input type="date" {...form.register('tgl_bayar')} disabled={lockedBySuperman} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs text-gray-600">Nominal Cash In (Rp)</Label>
-                  <CurrencyInput
-                    value={nominalWatch}
-                    onChange={v => form.setValue('nominal_bayar', v)}
+                <label className={cn(
+                  'flex items-center gap-2.5 rounded-lg border px-3 py-2.5 cursor-pointer transition-colors',
+                  form.watch('is_pph_disetor')
+                    ? 'border-emerald-200 bg-emerald-50/60'
+                    : 'border-gray-100 bg-white hover:bg-gray-50',
+                  lockedBySuperman && 'opacity-60 pointer-events-none',
+                )}>
+                  <input
+                    type="checkbox"
+                    className="rounded border-gray-300"
+                    {...form.register('is_pph_disetor')}
                     disabled={lockedBySuperman}
                   />
-                  {editingId && sisaUntukInput > 0 && (
-                    <p className="text-[11px] text-gray-400">Maks. {formatRupiah(sisaUntukInput)}</p>
+                  <span className="text-sm text-gray-700">PPh sudah disetor</span>
+                </label>
+
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-gray-600">
+                    Link bukti transfer <span className="text-gray-400 font-normal">(opsional)</span>
+                  </Label>
+                  <Input {...form.register('bukti_url')} placeholder="https://..." disabled={lockedBySuperman} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-gray-600">
+                    Keterangan <span className="text-gray-400 font-normal">(opsional)</span>
+                  </Label>
+                  <Textarea
+                    {...form.register('keterangan')}
+                    rows={2}
+                    disabled={lockedBySuperman}
+                    placeholder="Catatan pembayaran..."
+                  />
+                </div>
+
+                <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-100">
+                  <Button type="submit" className="bg-[#1E8449] hover:bg-[#196F3D]" disabled={!canSave}>
+                    <Save size={14} />
+                    {saving ? 'Menyimpan...' : editingId ? 'Simpan Perubahan' : 'Simpan Cash In'}
+                  </Button>
+                  {lastSaved && selected && !editingId && (
+                    <Button type="button" variant="outline" onClick={() => setKuitansiTarget(lastSaved)}>
+                      <FileText size={14} /> Buat Kuitansi
+                    </Button>
                   )}
                 </div>
-              </div>
+              </CardContent>
+            </Card>
+          </form>
 
-              <label className={cn(
-                'flex items-center gap-2.5 rounded-lg border px-3 py-2.5 cursor-pointer transition-colors',
-                form.watch('is_pph_disetor')
-                  ? 'border-emerald-200 bg-emerald-50/60'
-                  : 'border-gray-100 bg-white hover:bg-gray-50',
-                lockedBySuperman && 'opacity-60 pointer-events-none',
-              )}>
-                <input
-                  type="checkbox"
-                  id="pph"
-                  className="rounded border-gray-300"
-                  {...form.register('is_pph_disetor')}
-                  disabled={lockedBySuperman}
-                />
-                <span className="text-sm text-gray-700">PPh sudah disetor</span>
-              </label>
-
-              <div className="space-y-1.5">
-                <Label className="text-xs text-gray-600">Link bukti transfer <span className="text-gray-400 font-normal">(opsional)</span></Label>
-                <Input {...form.register('bukti_url')} placeholder="https://..." disabled={lockedBySuperman} />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs text-gray-600">Keterangan <span className="text-gray-400 font-normal">(opsional)</span></Label>
-                <Textarea {...form.register('keterangan')} rows={2} disabled={lockedBySuperman} placeholder="Catatan pembayaran..." />
-              </div>
-
-              <div className="flex flex-wrap gap-2 pt-1 border-t border-gray-100">
-                <Button type="submit" className="bg-[#1E8449] hover:bg-[#196F3D] flex-1 sm:flex-none" disabled={!canSave}>
-                  <Save size={14} />
-                  {saving ? 'Menyimpan...' : editingId ? 'Simpan Perubahan' : 'Simpan Cash In'}
-                </Button>
-                {lastSaved && selected && !editingId && (
-                  <Button type="button" variant="outline" onClick={() => setKuitansiTarget(lastSaved)}>
-                    <FileText size={14} /> Kuitansi
-                  </Button>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Superman — collapsible, secondary */}
           {selected && (
             <details className="group rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
               <summary className="cursor-pointer list-none flex items-center justify-between gap-2 px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50">
@@ -685,169 +766,184 @@ export function InputPembayaran() {
               </div>
             </details>
           )}
-        </form>
+        </div>
+      )}
 
-        {/* ── Daftar ─────────────────────────────────────────────────────── */}
-        <Card className="xl:col-span-3 shadow-sm border-gray-200/80 overflow-hidden">
-          <CardHeader className="py-3.5 px-5 border-b bg-white">
+      {/* ════════════════════ DAFTAR ════════════════════ */}
+      {viewMode === 'daftar' && (
+        <Card className="shadow-sm border-gray-200/80 overflow-hidden">
+          <CardHeader className="py-3.5 px-5 border-b bg-white space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-600 shrink-0">
-                  <ListChecks size={15} />
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-100 text-slate-600 shrink-0">
+                  <ListChecks size={16} />
                 </span>
                 <div>
                   <CardTitle className="text-sm font-semibold text-gray-900">Daftar Cash In</CardTitle>
                   <p className="text-[11px] text-gray-500">
-                    Klik Edit untuk mengubah — termasuk tagihan lunas
+                    Termasuk tagihan lunas · klik Edit untuk mengubah di form Input
                   </p>
                 </div>
               </div>
-              <span className="text-[11px] font-medium text-gray-500 bg-gray-100 rounded-full px-2.5 py-1 tabular-nums">
-                {filteredCashInRows.length}
-                {listQuery ? ` / ${allCashInRows.length}` : ''} transaksi
-              </span>
+              <Button
+                type="button"
+                size="sm"
+                className="bg-[#1E8449] hover:bg-[#196F3D] h-8"
+                onClick={startNewInput}
+              >
+                <PlusCircle size={14} /> Input baru
+              </Button>
             </div>
-            <div className="relative mt-3">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-              <Input
-                value={listQuery}
-                onChange={e => setListQuery(e.target.value)}
-                placeholder="Cari Dapenbun, Pelayanan 13, R800032-0027..."
-                className="pl-9 h-9 bg-slate-50/80 border-gray-200"
-              />
-              {listQuery && (
-                <button
-                  type="button"
-                  onClick={() => setListQuery('')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 rounded text-gray-400 hover:text-gray-600"
+
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1.5">
+                <label className="text-xs text-gray-500 whitespace-nowrap">Tahun bayar</label>
+                <select
+                  value={filterTahun}
+                  onChange={e => setFilterTahun(e.target.value)}
+                  className="text-xs border rounded-md px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-[#117A65]"
                 >
-                  <X size={14} />
-                </button>
-              )}
+                  <option value="semua">Semua</option>
+                  {tahunList.map(y => (
+                    <option key={y} value={String(y)}>{y}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="relative flex-1 min-w-[200px]">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <Input
+                  value={listQuery}
+                  onChange={e => setListQuery(e.target.value)}
+                  placeholder="Cari Dapenbun, Pelayanan 13, R800032-0027..."
+                  className="pl-9 h-8 text-sm bg-slate-50/80"
+                />
+                {listQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setListQuery('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 rounded text-gray-400 hover:text-gray-600"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+              <span className="text-[11px] font-medium text-gray-500 bg-gray-100 rounded-full px-2.5 py-1 tabular-nums">
+                {filteredCashInRows.length} transaksi
+              </span>
             </div>
           </CardHeader>
 
           <CardContent className="p-0">
             {allCashInRows.length === 0 ? (
-              <div className="py-14 text-center px-4">
-                <Wallet className="mx-auto text-gray-300 mb-2" size={28} />
+              <div className="py-16 text-center px-4">
+                <Banknote className="mx-auto text-gray-300 mb-2" size={32} />
                 <p className="text-sm text-gray-500">Belum ada cash in tercatat</p>
-                <p className="text-xs text-gray-400 mt-1">Gunakan formulir di kiri untuk menambah</p>
+                <Button type="button" size="sm" className="mt-3 bg-[#1E8449]" onClick={startNewInput}>
+                  <PlusCircle size={14} /> Input Cash In pertama
+                </Button>
               </div>
             ) : filteredCashInRows.length === 0 ? (
               <div className="py-12 text-center px-4">
                 <Search className="mx-auto text-gray-300 mb-2" size={24} />
-                <p className="text-sm text-gray-500">Tidak ada hasil untuk “{listQuery}”</p>
+                <p className="text-sm text-gray-500">Tidak ada hasil untuk filter / pencarian ini</p>
               </div>
             ) : (
-              <div className="overflow-auto max-h-[min(70vh,640px)]">
-                <table className="w-full text-sm min-w-[560px]">
+              <div className="overflow-auto max-h-[min(72vh,680px)]">
+                <table className="w-full text-sm min-w-[640px]">
                   <thead>
                     <tr className="border-b bg-slate-50 text-gray-500 text-[11px] uppercase tracking-wide sticky top-0 z-10">
                       <th className="text-left px-4 py-2.5 font-medium">Tanggal</th>
                       <th className="text-left px-3 py-2.5 font-medium">Aset / Mitra</th>
                       <th className="text-left px-3 py-2.5 font-medium">Tahap</th>
                       <th className="text-right px-3 py-2.5 font-medium">Nominal</th>
-                      <th className="text-center px-3 py-2.5 font-medium w-[100px]">Aksi</th>
+                      <th className="text-center px-3 py-2.5 font-medium w-[108px]">Aksi</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
-                    {filteredCashInRows.map((r, idx) => {
-                      const isEditing = editingId === String(r.payment.id)
-                      const isSelectedTahap = selectedId && String(r.kompensasi.id) === String(selectedId)
-                      return (
-                        <tr
-                          key={r.payment.id}
-                          className={cn(
-                            'transition-colors',
-                            isEditing && 'bg-amber-50',
-                            !isEditing && isSelectedTahap && 'bg-emerald-50/40',
-                            !isEditing && !isSelectedTahap && (idx % 2 === 1 ? 'bg-slate-50/40' : 'bg-white'),
-                            !isEditing && 'hover:bg-blue-50/40',
-                          )}
-                        >
-                          <td className="px-4 py-2.5 whitespace-nowrap text-gray-600 tabular-nums text-[13px]">
-                            {formatTanggal(r.payment.tgl_bayar)}
-                          </td>
-                          <td className="px-3 py-2.5 min-w-[160px] max-w-[240px]">
-                            <p className="font-medium text-gray-800 text-[13px] truncate" title={r.aset}>
-                              {r.aset}
-                            </p>
-                            <p className="text-[11px] text-gray-500 truncate">
-                              {r.mitra}
-                              {r.monika ? (
-                                <span className="ml-1 font-mono text-[10px] text-[#1B4F72] bg-blue-50 px-1 rounded">
-                                  {r.monika}
-                                </span>
-                              ) : null}
-                            </p>
-                          </td>
-                          <td className="px-3 py-2.5 text-[13px] text-gray-600">
-                            <span className="line-clamp-2">{r.periode}</span>
-                            {isEditing && (
-                              <span className="mt-0.5 inline-block text-[10px] font-semibold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded">
-                                Sedang diedit
+                    {filteredCashInRows.map((r, idx) => (
+                      <tr
+                        key={r.payment.id}
+                        className={cn(
+                          'transition-colors hover:bg-blue-50/40',
+                          idx % 2 === 1 ? 'bg-slate-50/40' : 'bg-white',
+                        )}
+                      >
+                        <td className="px-4 py-2.5 whitespace-nowrap text-gray-600 tabular-nums text-[13px]">
+                          {formatTanggal(r.payment.tgl_bayar)}
+                        </td>
+                        <td className="px-3 py-2.5 min-w-[180px] max-w-[280px]">
+                          <p className="font-medium text-gray-800 text-[13px] truncate" title={r.aset}>
+                            {r.aset}
+                          </p>
+                          <p className="text-[11px] text-gray-500 truncate">
+                            {r.mitra}
+                            {r.monika ? (
+                              <span className="ml-1 font-mono text-[10px] text-[#1B4F72] bg-blue-50 px-1 rounded">
+                                {r.monika}
                               </span>
-                            )}
-                          </td>
-                          <td className="px-3 py-2.5 text-right font-semibold text-emerald-700 tabular-nums whitespace-nowrap text-[13px]">
-                            {formatRupiah(r.payment.nominal_bayar)}
-                          </td>
-                          <td className="px-3 py-2.5">
-                            <div className="flex items-center justify-center gap-1">
-                              <button
-                                type="button"
-                                disabled={r.locked}
-                                title={r.locked ? 'Terkunci Superman' : 'Edit'}
-                                onClick={() => openEdit(r.payment)}
-                                className={cn(
-                                  'h-7 w-7 inline-flex items-center justify-center rounded-md border transition-colors',
-                                  r.locked
-                                    ? 'opacity-40 cursor-not-allowed border-gray-100 text-gray-300'
-                                    : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100',
-                                )}
-                              >
-                                <Pencil size={13} strokeWidth={2} />
-                              </button>
-                              <button
-                                type="button"
-                                disabled={r.locked}
-                                title={r.locked ? 'Terkunci Superman' : 'Hapus'}
-                                onClick={() => setDeleteTarget(r.payment)}
-                                className={cn(
-                                  'h-7 w-7 inline-flex items-center justify-center rounded-md border transition-colors',
-                                  r.locked
-                                    ? 'opacity-40 cursor-not-allowed border-gray-100 text-gray-300'
-                                    : 'border-red-200 bg-red-50 text-red-600 hover:bg-red-100',
-                                )}
-                              >
-                                <Trash2 size={13} strokeWidth={2} />
-                              </button>
-                              <button
-                                type="button"
-                                title="Kuitansi"
-                                onClick={() => {
-                                  setSelectedKsId(String(r.kompensasi.ks_id))
-                                  form.setValue('kompensasi_id', String(r.kompensasi.id))
-                                  setKuitansiTarget(r.payment)
-                                }}
-                                className="h-7 w-7 inline-flex items-center justify-center rounded-md border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors"
-                              >
-                                <FileText size={13} strokeWidth={2} />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      )
-                    })}
+                            ) : null}
+                          </p>
+                        </td>
+                        <td className="px-3 py-2.5 text-[13px] text-gray-600">
+                          {r.periode}
+                        </td>
+                        <td className="px-3 py-2.5 text-right font-semibold text-emerald-700 tabular-nums whitespace-nowrap text-[13px]">
+                          {formatRupiah(r.payment.nominal_bayar)}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <div className="flex items-center justify-center gap-1">
+                            <button
+                              type="button"
+                              disabled={r.locked}
+                              title={r.locked ? 'Terkunci Superman' : 'Edit di form Input'}
+                              onClick={() => openEdit(r.payment)}
+                              className={cn(
+                                'h-7 w-7 inline-flex items-center justify-center rounded-md border transition-colors',
+                                r.locked
+                                  ? 'opacity-40 cursor-not-allowed border-gray-100 text-gray-300'
+                                  : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100',
+                              )}
+                            >
+                              <Pencil size={13} strokeWidth={2} />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={r.locked}
+                              title={r.locked ? 'Terkunci Superman' : 'Hapus'}
+                              onClick={() => setDeleteTarget(r.payment)}
+                              className={cn(
+                                'h-7 w-7 inline-flex items-center justify-center rounded-md border transition-colors',
+                                r.locked
+                                  ? 'opacity-40 cursor-not-allowed border-gray-100 text-gray-300'
+                                  : 'border-red-200 bg-red-50 text-red-600 hover:bg-red-100',
+                              )}
+                            >
+                              <Trash2 size={13} strokeWidth={2} />
+                            </button>
+                            <button
+                              type="button"
+                              title="Kuitansi"
+                              onClick={() => {
+                                setSelectedKsId(String(r.kompensasi.ks_id))
+                                form.setValue('kompensasi_id', String(r.kompensasi.id))
+                                setKuitansiTarget(r.payment)
+                              }}
+                              className="h-7 w-7 inline-flex items-center justify-center rounded-md border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors"
+                            >
+                              <FileText size={13} strokeWidth={2} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                   <tfoot>
                     <tr className="border-t-2 border-gray-200 bg-slate-50 font-semibold text-[13px]">
                       <td colSpan={3} className="px-4 py-2.5 text-gray-600">
-                        Total{listQuery ? ' (filter)' : ''}
+                        Total{listQuery || filterTahun !== 'semua' ? ' (filter)' : ''}
                       </td>
                       <td className="px-3 py-2.5 text-right text-emerald-800 tabular-nums">
-                        {formatRupiah(filteredCashInRows.reduce((s, r) => s + r.payment.nominal_bayar, 0))}
+                        {formatRupiah(totalCashInFiltered)}
                       </td>
                       <td />
                     </tr>
@@ -857,7 +953,7 @@ export function InputPembayaran() {
             )}
           </CardContent>
         </Card>
-      </div>
+      )}
 
       <SupermanCaptchaDialog
         open={captchaOpen}
