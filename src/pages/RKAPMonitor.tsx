@@ -36,9 +36,11 @@ function exportRKAPExcel(
   cashInPerNama: Record<string, number[]>, // NEW PARAMETER
   rkapDataPendapatan?: MonthSummary[],
   pendapatanPerNama?: Record<string, number[]>,
-  nonaktifKodes?: Set<string>,
+  nonaktifCashIn?: Set<string>,
+  nonaktifPsak?: Set<string>,
 ) {
-  const nonaktif = nonaktifKodes ?? new Set<string>()
+  const nonaktifCI = nonaktifCashIn ?? new Set<string>()
+  const nonaktifPD = nonaktifPsak ?? new Set<string>()
   const wb = XLSX.utils.book_new()
   const now = new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })
   const fmt = (v: number | null) => v != null && v !== 0 ? v : null
@@ -171,7 +173,7 @@ function exportRKAPExcel(
   XLSX.utils.book_append_sheet(wb, ws2, `Target Per Obyek ${tahun}`)
 
   // ── Sheet 3: Prognosa Per Obyek Cash In ────────────────────────────────────
-  buildPerObyekSheet(cashInPerNama, 'Prognosa Per Obyek Cash In', `Prog Cash In Per Obyek ${tahun}`, nonaktif)
+  buildPerObyekSheet(cashInPerNama, 'Prognosa Per Obyek Cash In', `Prog Cash In Per Obyek ${tahun}`, nonaktifCI)
 
   // ── Sheet 4: Ringkasan Prognosa Pendapatan (PSAK 73) ───────────────────────
   if (rkapDataPendapatan) {
@@ -180,7 +182,7 @@ function exportRKAPExcel(
 
   // ── Sheet 5: Prognosa Per Obyek Pendapatan (PSAK 73) ───────────────────────
   if (pendapatanPerNama) {
-    buildPerObyekSheet(pendapatanPerNama, 'Prognosa Per Obyek Pendapatan (PSAK 73)', `Prog Pendapatan Per Obyek ${tahun}`, nonaktif)
+    buildPerObyekSheet(pendapatanPerNama, 'Prognosa Per Obyek Pendapatan (PSAK 73)', `Prog Pendapatan Per Obyek ${tahun}`, nonaktifPD)
   }
 
   XLSX.writeFile(wb, `RKAP_Prognosa_${tahun}_${new Date().toISOString().slice(0, 10)}.xlsx`)
@@ -450,11 +452,15 @@ export function RKAPMonitor() {
   const [perbandinganData, setPerbandinganData] = useState<Awaited<ReturnType<typeof fetchPerbandinganData>> | null>(null)
   const [perbandinganLoading, setPerbandinganLoading] = useState(false)
 
-  // Nonaktif items (tidak tercapai → tidak carry-over, prognosa 0)
-  const [nonaktifKodes, setNonaktifKodes] = useState<Set<string>>(new Set())
+  // Nonaktif proker — terpisah per mode (Cash In vs PSAK 73)
+  const [nonaktifCashIn, setNonaktifCashIn] = useState<Set<string>>(new Set())
+  const [nonaktifPsak, setNonaktifPsak] = useState<Set<string>>(new Set())
+
+  const nonaktifAktif = prognosaType === 'cash_in' ? nonaktifCashIn : nonaktifPsak
+  const setNonaktifAktif = prognosaType === 'cash_in' ? setNonaktifCashIn : setNonaktifPsak
 
   const toggleNonaktif = (kode: string) => {
-    setNonaktifKodes(prev => {
+    setNonaktifAktif(prev => {
       const next = new Set(prev)
       if (next.has(kode)) next.delete(kode)
       else next.add(kode)
@@ -531,20 +537,24 @@ export function RKAPMonitor() {
     : tahunAktif === CURRENT_YEAR ? CURRENT_MONTH
       : -1
 
-  // Items yang aktif (tidak dinonaktifkan) — digunakan untuk carry-over & prognosa
-  const activeItems = useMemo(
-    () => rkapItems.filter(item => !nonaktifKodes.has(item.kode)),
-    [rkapItems, nonaktifKodes]
+  // Items aktif per mode — nonaktif Cash In ≠ nonaktif PSAK 73
+  const activeItemsCashIn = useMemo(
+    () => rkapItems.filter(item => !nonaktifCashIn.has(item.kode)),
+    [rkapItems, nonaktifCashIn]
+  )
+  const activeItemsPsak = useMemo(
+    () => rkapItems.filter(item => !nonaktifPsak.has(item.kode)),
+    [rkapItems, nonaktifPsak]
   )
 
   const rkapDataCashIn = useMemo(
-    () => hitungRKAP(activeItems, cashIn, efektifBulan),
-    [activeItems, cashIn, efektifBulan]
+    () => hitungRKAP(activeItemsCashIn, cashIn, efektifBulan),
+    [activeItemsCashIn, cashIn, efektifBulan]
   )
 
   const rkapDataPendapatan = useMemo(
-    () => hitungRKAP(activeItems, pendapatanPerBulan, efektifBulan),
-    [activeItems, pendapatanPerBulan, efektifBulan]
+    () => hitungRKAP(activeItemsPsak, pendapatanPerBulan, efektifBulan),
+    [activeItemsPsak, pendapatanPerBulan, efektifBulan]
   )
 
   const rkapData = prognosaType === 'cash_in' ? rkapDataCashIn : rkapDataPendapatan
@@ -772,7 +782,7 @@ export function RKAPMonitor() {
             size="sm"
             variant="outline"
             className="border-white/30 bg-white/10 text-white hover:bg-white/20 hover:text-white"
-            onClick={() => exportRKAPExcel(tahunAktif, rkapDataCashIn, rkapItems, totalTarget, efektifBulan, cashInPerNama, rkapDataPendapatan, pendapatanPerNama, nonaktifKodes)}
+            onClick={() => exportRKAPExcel(tahunAktif, rkapDataCashIn, rkapItems, totalTarget, efektifBulan, cashInPerNama, rkapDataPendapatan, pendapatanPerNama, nonaktifCashIn, nonaktifPsak)}
           >
             <FileDown size={14} /> Export Excel
           </Button>
@@ -788,7 +798,7 @@ export function RKAPMonitor() {
                 tahunAktif, rkapItems, prognosaType,
                 cashInPerNama, pendapatanPerNama,
                 allKompensasi, allCashIn, allPengakuan, daftarPDDM,
-                efektifBulan, nonaktifKodes,
+                efektifBulan, nonaktifAktif,
               )
               setPerbandinganData(data)
               setPerbandinganLoading(false)
@@ -1118,12 +1128,12 @@ export function RKAPMonitor() {
               </p>
             </div>
             <div className="flex items-center gap-2">
-              {nonaktifKodes.size > 0 && (
+              {nonaktifAktif.size > 0 && (
                 <span className="text-xs text-red-600 font-medium bg-red-50 border border-red-100 rounded-full px-2.5 py-1">
-                  {nonaktifKodes.size} nonaktif
+                  {nonaktifAktif.size} nonaktif {prognosaType === 'cash_in' ? 'Cash In' : 'PSAK 73'}
                   <button
                     type="button"
-                    onClick={() => setNonaktifKodes(new Set())}
+                    onClick={() => setNonaktifAktif(new Set())}
                     className="ml-1.5 text-blue-600 hover:underline"
                   >
                     Reset
@@ -1172,7 +1182,7 @@ export function RKAPMonitor() {
                   const totalTgt = row.total ?? 0
                   const pctTotal = totalTgt > 0 ? (totalReal / totalTgt) * 100 : null
                   const rowKode = row.kode || row.nama
-                  const inactive = !!(row.kode && nonaktifKodes.has(row.kode))
+                  const inactive = !!(row.kode && nonaktifAktif.has(row.kode))
                   const zebra = rowIdx % 2 === 1
                   const stickyBg = inactive ? 'bg-gray-100' : zebra ? 'bg-slate-50' : 'bg-white'
                   return (
@@ -1264,13 +1274,17 @@ export function RKAPMonitor() {
                               onClick={() => toggleNonaktif(row.kode!)}
                               className={cn(
                                 'h-7 w-7 inline-flex items-center justify-center rounded-md border transition-colors',
-                                nonaktifKodes.has(row.kode)
+                                nonaktifAktif.has(row.kode)
                                   ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
                                   : 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100',
                               )}
-                              title={nonaktifKodes.has(row.kode) ? 'Aktifkan kembali (ikut carry-over)' : 'Nonaktifkan (prognosa 0, tidak carry-over)'}
+                              title={
+                                nonaktifAktif.has(row.kode)
+                                  ? `Aktifkan kembali di ${prognosaType === 'cash_in' ? 'Cash In' : 'PSAK 73'} (ikut carry-over)`
+                                  : `Nonaktifkan di ${prognosaType === 'cash_in' ? 'Cash In' : 'PSAK 73'} saja (prognosa 0, tidak carry-over)`
+                              }
                             >
-                              {nonaktifKodes.has(row.kode)
+                              {nonaktifAktif.has(row.kode)
                                 ? <CirclePlay size={14} strokeWidth={2} />
                                 : <Ban size={14} strokeWidth={2} />}
                             </button>

@@ -14,6 +14,14 @@ class PembayaranCreate(BaseModel):
     bukti_url: Optional[str] = None
 
 
+class PembayaranUpdate(BaseModel):
+    tgl_bayar: Optional[date] = None
+    nominal_bayar: Optional[float] = Field(default=None, gt=0)
+    is_pph_disetor: Optional[bool] = None
+    keterangan: Optional[str] = None
+    bukti_url: Optional[str] = None
+
+
 class PembayaranOut(BaseModel):
     id: UUID
     kompensasi_id: UUID

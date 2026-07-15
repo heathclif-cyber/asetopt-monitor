@@ -169,6 +169,55 @@ def list_pembayaran(
     return [_pembayaran_out(p) for p in rows]
 
 
+@router.patch("/{pembayaran_id}", response_model=schemas.PembayaranOut)
+def update_pembayaran(
+    pembayaran_id: UUID,
+    body: schemas.PembayaranUpdate,
+    db: Session = Depends(get_db),
+):
+    pay = (
+        db.query(models.Pembayaran)
+        .options(joinedload(models.Pembayaran.kompensasi).joinedload(models.Kompensasi.kerja_sama))
+        .filter(models.Pembayaran.id == pembayaran_id)
+        .first()
+    )
+    if not pay:
+        raise HTTPException(status_code=404, detail="Pembayaran tidak ditemukan")
+
+    kompensasi = pay.kompensasi
+    if not kompensasi:
+        raise HTTPException(status_code=404, detail="Kompensasi tidak ditemukan")
+
+    if _kompensasi_has_superman(kompensasi):
+        raise HTTPException(
+            status_code=400,
+            detail="Kompensasi sudah punya nomor Superman — pembayaran tidak bisa diubah",
+        )
+
+    data = body.model_dump(exclude_unset=True)
+    if not data:
+        raise HTTPException(status_code=400, detail="Tidak ada data yang diubah")
+
+    new_nominal = float(data.get("nominal_bayar", pay.nominal_bayar or 0))
+    _validate_aggregate(db, kompensasi, new_nominal, exclude_id=pay.id)
+    if _will_be_lunas(db, kompensasi, new_nominal, exclude_id=pay.id):
+        _ensure_superman_docs_for_lunas(db, kompensasi)
+
+    for key, value in data.items():
+        setattr(pay, key, value)
+
+    db.commit()
+    db.refresh(pay)
+
+    _maybe_trigger_superman(db, kompensasi)
+    return _pembayaran_out(
+        db.query(models.Pembayaran)
+        .options(joinedload(models.Pembayaran.kompensasi))
+        .filter(models.Pembayaran.id == pay.id)
+        .first()
+    )
+
+
 @router.delete("/{pembayaran_id}")
 def delete_pembayaran(pembayaran_id: UUID, db: Session = Depends(get_db)):
     pay = (
