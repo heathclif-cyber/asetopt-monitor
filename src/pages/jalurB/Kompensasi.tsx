@@ -58,6 +58,8 @@ type Interval = BaseInterval | 'campuran'
 
 type GeneratedPeriode = {
   label: string
+  /** Tanggal cetak tagihan (invoice_tgl) */
+  invoice_tgl: string
   tgl_jatuh_tempo: string
   nominal: number
   ppn_persen: number
@@ -114,9 +116,12 @@ function generatePeriode(params: {
   pphPersen: number
   maksHariBayar: number
   persenDenda: number
+  /** Hari setelah awal periode → tanggal cetak tagihan */
+  offsetCetakTagihan: number
+  /** Hari setelah awal periode → jatuh tempo */
   offsetJatuhTempo: number
-}): (GeneratedPeriode & { ks_id: string; ppn_persen: number; pph_persen: number; maks_hari_bayar: number; persen_denda_per_hari: number })[] {
-  const { tglMulai, tglSelesai, nominal, interval, ppnPersen, offsetJatuhTempo } = params
+}): (GeneratedPeriode & { ks_id: string; ppn_persen: number; pph_persen: number; maks_hari_bayar: number; persen_denda_per_hari: number; invoice_tgl: string })[] {
+  const { tglMulai, tglSelesai, nominal, interval, ppnPersen, offsetJatuhTempo, offsetCetakTagihan } = params
   const end = new Date(tglSelesai)
   const raw: RawPeriode[] = []
 
@@ -176,6 +181,7 @@ function generatePeriode(params: {
     ks_id: params.ksId,
     periode_label: p.label,
     label: p.label,
+    invoice_tgl: toISO(addDays(p.periodeStart, offsetCetakTagihan)),
     tgl_jatuh_tempo: toISO(addDays(p.periodeStart, offsetJatuhTempo)),
     nominal: p.nominal,
     ppn_persen: params.ppnPersen,
@@ -203,6 +209,7 @@ const genSchema = z.object({
   pph_mode: z.enum(['none', 'bukti_potong']).default('none'),
   maks_hari_bayar: z.coerce.number().min(1).default(14),
   persen_denda_per_hari: z.coerce.number().min(0).default(0.1),
+  offset_cetak_tagihan: z.coerce.number().min(0).default(0),
   offset_jatuh_tempo: z.coerce.number().min(0).default(14),
 })
 type GenForm = z.infer<typeof genSchema>
@@ -217,6 +224,8 @@ const kompSchema = z.object({
   pph_mode: z.enum(['none', 'bukti_potong']).default('none'),
   maks_hari_bayar: z.coerce.number().min(1).default(14),
   persen_denda_per_hari: z.coerce.number().min(0).default(0.1),
+  /** Tanggal cetak tagihan (kolom DB: invoice_tgl) */
+  invoice_tgl: z.string().optional().or(z.literal('')),
   tgl_jatuh_tempo: z.string().min(1),
   keterangan: z.string().optional(),
   pengurang: z.coerce.number().min(0).default(0),
@@ -286,7 +295,10 @@ export function Kompensasi() {
     campuran_interval_awal: 'bulanan' as const,
     campuran_tahun_peralihan: 1,
     ada_grace_period: false,
-    ppn_persen: 11, pph_persen: 10, pph_mode: 'none' as const, maks_hari_bayar: 14, persen_denda_per_hari: 0.1, offset_jatuh_tempo: 14,
+    ppn_persen: 11, pph_persen: 10, pph_mode: 'none' as const,
+    maks_hari_bayar: 14, persen_denda_per_hari: 0.1,
+    offset_cetak_tagihan: 0,
+    offset_jatuh_tempo: 14,
   }
   const genForm = useForm<GenForm>({ resolver: zodResolver(genSchema), defaultValues: GEN_DEFAULTS })
 
@@ -394,7 +406,12 @@ export function Kompensasi() {
   const openAdd = () => {
     setEditTarget(null)
     setAdaPengurang(false)
-    kompForm.reset({ ppn_persen: 11, pph_persen: 10, pph_mode: 'none', maks_hari_bayar: 14, persen_denda_per_hari: 0.1, pengurang: 0, keterangan_pengurang: '' })
+    kompForm.reset({
+      ppn_persen: 11, pph_persen: 10, pph_mode: 'none',
+      maks_hari_bayar: 14, persen_denda_per_hari: 0.1,
+      pengurang: 0, keterangan_pengurang: '',
+      invoice_tgl: '', tgl_jatuh_tempo: '',
+    })
     setKompDialog(true)
   }
 
@@ -411,6 +428,7 @@ export function Kompensasi() {
       pph_mode: k.pph_mode ?? 'none',
       maks_hari_bayar: k.maks_hari_bayar,
       persen_denda_per_hari: k.persen_denda_per_hari,
+      invoice_tgl: k.invoice_tgl ?? '',
       tgl_jatuh_tempo: k.tgl_jatuh_tempo,
       keterangan: k.keterangan ?? '',
       pengurang: k.pengurang ?? 0,
@@ -424,6 +442,7 @@ export function Kompensasi() {
     try {
       const payload = {
         ...data,
+        invoice_tgl: data.invoice_tgl?.trim() ? data.invoice_tgl : null,
         pengurang: adaPengurang ? (data.pengurang ?? 0) : 0,
         keterangan_pengurang: adaPengurang ? (data.keterangan_pengurang ?? null) : null,
       }
@@ -514,6 +533,7 @@ export function Kompensasi() {
       pphPersen: data.pph_persen,
       maksHariBayar: data.maks_hari_bayar,
       persenDenda: data.persen_denda_per_hari,
+      offsetCetakTagihan: data.offset_cetak_tagihan,
       offsetJatuhTempo: data.offset_jatuh_tempo,
     })
     setGenPreview(preview)
@@ -526,6 +546,7 @@ export function Kompensasi() {
     await bulkAddKompensasi(genPreview.map(({ label, total_tagihan, ...rest }) => ({
       ...rest,
       rkap_kode: rkapKode,
+      invoice_tgl: rest.invoice_tgl || null,
     })) as any)
 
     setIsSaving(false)
@@ -627,6 +648,7 @@ export function Kompensasi() {
                 <th className="text-right px-4 py-3">Total Tagihan</th>
                 <th className="text-right px-4 py-3 hidden lg:table-cell">Sudah Dibayar</th>
                 <th className="text-right px-4 py-3 hidden lg:table-cell">Sisa</th>
+                <th className="text-left px-4 py-3 hidden lg:table-cell">Cetak Tagihan</th>
                 <th className="text-left px-4 py-3 hidden md:table-cell">Jatuh Tempo</th>
                 <th className="text-center px-4 py-3">Status</th>
                 <th className="text-right px-4 py-3">Aksi</th>
@@ -667,6 +689,9 @@ export function Kompensasi() {
                       </td>
                       <td className="px-4 py-3 text-right hidden lg:table-cell text-red-700">
                         <CurrencyDisplay value={ws.sisaTagihan} size="sm" />
+                      </td>
+                      <td className="px-4 py-3 hidden lg:table-cell text-gray-600 text-xs">
+                        {k.invoice_tgl ? formatTanggal(k.invoice_tgl) : <span className="text-gray-300">—</span>}
                       </td>
                       <td className="px-4 py-3 hidden md:table-cell text-gray-600 text-xs">{formatTanggal(k.tgl_jatuh_tempo)}</td>
                       <td className="px-4 py-3 text-center">
@@ -1083,6 +1108,11 @@ export function Kompensasi() {
                     <Input type="number" {...genForm.register('maks_hari_bayar')} className="mt-1 h-8 text-xs" />
                   </div>
                   <div>
+                    <Label className="text-xs text-gray-500">Cetak Tagihan (hari stlh awal periode)</Label>
+                    <Input type="number" {...genForm.register('offset_cetak_tagihan')} className="mt-1 h-8 text-xs" />
+                    <p className="text-[10px] text-gray-400 mt-0.5">0 = tgl cetak = awal periode</p>
+                  </div>
+                  <div className="col-span-2">
                     <Label className="text-xs text-gray-500">Jatuh Tempo (hari setelah awal periode)</Label>
                     <Input type="number" {...genForm.register('offset_jatuh_tempo')} className="mt-1 h-8 text-xs" />
                   </div>
@@ -1104,6 +1134,7 @@ export function Kompensasi() {
                     <tr className="border-b text-gray-600 text-xs uppercase">
                       <th className="text-left px-3 py-2">No</th>
                       <th className="text-left px-3 py-2">Label Periode</th>
+                      <th className="text-left px-3 py-2">Cetak Tagihan</th>
                       <th className="text-left px-3 py-2">Jatuh Tempo</th>
                       <th className="text-right px-3 py-2">Nominal</th>
                       <th className="text-right px-3 py-2">Total Tagihan</th>
@@ -1114,6 +1145,7 @@ export function Kompensasi() {
                       <tr key={i} className="hover:bg-gray-50">
                         <td className="px-3 py-2 text-gray-400">{i + 1}</td>
                         <td className="px-3 py-2 font-medium">{p.label}</td>
+                        <td className="px-3 py-2 text-gray-600">{formatTanggal(p.invoice_tgl)}</td>
                         <td className="px-3 py-2 text-gray-600">{formatTanggal(p.tgl_jatuh_tempo)}</td>
                         <td className="px-3 py-2 text-right">{formatRupiah(p.nominal)}</td>
                         <td className="px-3 py-2 text-right font-semibold text-[#5B2C6F]">{formatRupiah(p.total_tagihan)}</td>
@@ -1122,7 +1154,7 @@ export function Kompensasi() {
                   </tbody>
                   <tfoot className="bg-gray-50 border-t font-semibold">
                     <tr>
-                      <td colSpan={4} className="px-3 py-2 text-right text-xs text-gray-600">Total seluruh periode:</td>
+                      <td colSpan={5} className="px-3 py-2 text-right text-xs text-gray-600">Total seluruh periode:</td>
                       <td className="px-3 py-2 text-right text-[#5B2C6F]">
                         {formatRupiah(genPreview.reduce((s, p) => s + p.total_tagihan, 0))}
                       </td>
@@ -1273,9 +1305,16 @@ export function Kompensasi() {
                 <Input type="number" step="0.001" {...kompForm.register('persen_denda_per_hari')} className="mt-1" />
               </div>
             </div>
-            <div>
-              <Label>Tanggal Jatuh Tempo</Label>
-              <Input type="date" {...kompForm.register('tgl_jatuh_tempo')} className="mt-1" />
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Tanggal Cetak Tagihan</Label>
+                <Input type="date" {...kompForm.register('invoice_tgl')} className="mt-1" />
+                <p className="text-[10px] text-gray-400 mt-0.5">Opsional · tgl penagihan/cetak invoice</p>
+              </div>
+              <div>
+                <Label>Tanggal Jatuh Tempo <span className="text-red-500">*</span></Label>
+                <Input type="date" {...kompForm.register('tgl_jatuh_tempo')} className="mt-1" />
+              </div>
             </div>
             <div>
               <Label>Keterangan</Label>
