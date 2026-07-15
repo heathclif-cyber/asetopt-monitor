@@ -473,19 +473,31 @@ export function RKAPMonitor() {
   useEffect(() => { fetchAset() }, [])
   useEffect(() => { fetchRKAP(tahunAktif) }, [tahunAktif])
 
-  const monikaOptions = useMemo(
-    () =>
-      daftarAset
-        .filter(a => a.kode_aset?.trim())
-        .map(a => ({
-          value: a.kode_aset.trim(),
-          label: `${a.kode_aset} — ${a.nama_aset}`,
-          searchText: `${a.kode_aset} ${a.nama_aset} ${a.alamat ?? ''}`,
-          description: a.alamat ?? undefined,
-        }))
-        .sort((a, b) => a.label.localeCompare(b.label, 'id')),
-    [daftarAset],
-  )
+  const monikaOptions = useMemo(() => {
+    const map = new Map<string, { value: string; label: string; searchText: string; description?: string }>()
+    daftarAset.forEach(a => {
+      const k = a.kode_aset?.trim()
+      if (!k) return
+      map.set(k, {
+        value: k,
+        label: `${k} — ${a.nama_aset}`,
+        searchText: `${k} ${a.nama_aset} ${a.alamat ?? ''}`,
+        description: a.alamat ?? undefined,
+      })
+    })
+    // Sertakan ID Monika yang sudah ada di RKAP (jika belum di master aset)
+    rows.forEach(r => {
+      const k = r.kode?.trim()
+      if (!k || map.has(k)) return
+      map.set(k, {
+        value: k,
+        label: `${k} — ${r.nama} (dari RKAP)`,
+        searchText: `${k} ${r.nama}`,
+        description: 'Ada di RKAP; daftarkan ke Data Aset jika belum ada',
+      })
+    })
+    return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label, 'id'))
+  }, [daftarAset, rows])
 
   const asetByMonika = useMemo(() => {
     const m = new Map<string, string>()
@@ -1051,7 +1063,17 @@ export function RKAPMonitor() {
                       row.kode && nonaktifKodes.has(row.kode) && 'opacity-40 bg-gray-100'
                     )}>
                       <td className="px-2 py-1.5 text-gray-400 text-center">{row.no}</td>
-                      <td className="px-2 py-1.5 font-mono text-[10px] text-blue-600 whitespace-nowrap">{row.kode || '—'}</td>
+                      <td className="px-2 py-1.5 whitespace-nowrap">
+                        {row.kode?.trim() ? (
+                          <span className="font-mono text-[11px] font-semibold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded">
+                            {row.kode}
+                          </span>
+                        ) : (
+                          <span className="text-[11px] font-medium text-red-600 bg-red-50 px-1.5 py-0.5 rounded" title="Isi ID Monika lewat Edit">
+                            Belum diisi
+                          </span>
+                        )}
+                      </td>
                       <td className="px-2 py-1.5 text-gray-700 font-medium max-w-[180px] truncate">
                         <button
                           onClick={() => { setBreakdownKode(rowKode); setBreakdownNama(row.nama) }}

@@ -53,10 +53,13 @@ export function SearchableSelect({
   const [query, setQuery] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const selected = useMemo(
-    () => options.find(o => o.value === value),
-    [options, value],
-  )
+  const selected = useMemo(() => {
+    if (!value) return undefined
+    const hit = options.find(o => o.value === value)
+    // Tetap tampilkan value tersimpan meski belum ada di options (async load / data lama)
+    if (hit) return hit
+    return { value, label: value, searchText: value }
+  }, [options, value])
 
   const filtered = useMemo(() => {
     const q = normalize(query.trim())

@@ -840,8 +840,9 @@ function ProgramView({
             <thead className="sticky top-0 z-10">
               <tr className="bg-[#1B4F72] text-white shadow-[0_1px_0_#e5e7eb]">
                 <ProgramSortTh label="No." col="no" sortKey={programSort} sortDir={programSortDir} onSort={onSort} />
+                <th className="text-left px-3 py-2.5 font-semibold whitespace-nowrap">ID Monika</th>
                 <ProgramSortTh label="Kategori" col="kategori" sortKey={programSort} sortDir={programSortDir} onSort={onSort} />
-                <th className="text-left px-3 py-2.5 font-semibold min-w-[200px]">Program Aset / ID Monika</th>
+                <th className="text-left px-3 py-2.5 font-semibold min-w-[180px]">Program Aset</th>
                 <ProgramSortTh label="RKAP (Rp)" col="rkap" sortKey={programSort} sortDir={programSortDir} onSort={onSort} align="right" />
                 <ProgramSortTh label="Pendapatan (Rp)" col="pendapatan" sortKey={programSort} sortDir={programSortDir} onSort={onSort} align="right" />
                 <ProgramSortTh label="Realisasi Cash In (Rp)" col="cashIn" sortKey={programSort} sortDir={programSortDir} onSort={onSort} align="right" />
@@ -853,7 +854,7 @@ function ProgramView({
             <tbody className="divide-y">
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-4 py-10 text-center text-gray-400">
+                  <td colSpan={10} className="px-4 py-10 text-center text-gray-400">
                     Belum ada data RKAP / program untuk tahun {tahun}. Isi master RKAP terlebih dahulu.
                   </td>
                 </tr>
@@ -869,6 +870,17 @@ function ProgramView({
                   )}
                 >
                   <td className="px-3 py-2.5 text-gray-400">{row.no}</td>
+                  <td className="px-3 py-2.5 whitespace-nowrap">
+                    {row.kode ? (
+                      <span className="font-mono text-[11px] font-semibold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded">
+                        {row.kode}
+                      </span>
+                    ) : (
+                      <span className="text-[11px] font-medium text-red-600 bg-red-50 px-1.5 py-0.5 rounded">
+                        —
+                      </span>
+                    )}
+                  </td>
                   <td className="px-3 py-2.5">
                     <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-700">
                       {row.kategori}
@@ -876,11 +888,6 @@ function ProgramView({
                   </td>
                   <td className="px-3 py-2.5">
                     <p className="font-medium text-gray-800">{row.programAset}</p>
-                    {row.kode ? (
-                      <p className="text-[10px] font-mono text-[#1B4F72] mt-0.5">ID Monika: {row.kode}</p>
-                    ) : (
-                      <p className="text-[10px] text-red-600 font-medium mt-0.5">Tanpa ID Monika</p>
-                    )}
                     {row.missingMonikaId && (
                       <p className="text-[10px] text-red-600 mt-0.5">Perbaiki di RKAP — wajib pilih ID Monika dari master aset</p>
                     )}
@@ -937,7 +944,7 @@ function ProgramView({
             {rows.length > 0 && (
               <tfoot>
                 <tr className="border-t-2 bg-gray-50 font-semibold text-xs">
-                  <td colSpan={3} className="px-3 py-2.5 text-gray-800">Jumlah</td>
+                  <td colSpan={4} className="px-3 py-2.5 text-gray-800">Jumlah</td>
                   <td className="px-3 py-2.5 text-right">
                     <CurrencyDisplay value={summary.rkap} size="sm" />
                   </td>
