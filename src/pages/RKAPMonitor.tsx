@@ -20,7 +20,7 @@ import { CurrencyDisplay } from '@/components/common/CurrencyDisplay'
 import { formatRupiah } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
-import { Target, TrendingUp, AlertTriangle, CheckCircle, Plus, Pencil, Trash2, Upload, Download, ChevronLeft, ChevronRight, FileDown, X, Search, ChevronsUpDown, Check } from 'lucide-react'
+import { Target, TrendingUp, AlertTriangle, CheckCircle, Plus, Pencil, Trash2, Upload, Download, ChevronLeft, ChevronRight, FileDown, X, Search, ChevronsUpDown, Check, Ban, CirclePlay } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -1152,7 +1152,7 @@ export function RKAPMonitor() {
                   <th colSpan={2} className="rkap-th rkap-th-dark-alt text-center border-l border-white/10 min-w-[100px]">
                     Total
                   </th>
-                  <th className="rkap-th rkap-th-dark w-[88px] text-center" rowSpan={2}>Aksi</th>
+                  <th className="rkap-th rkap-th-dark w-[104px] text-center" rowSpan={2}>Aksi</th>
                 </tr>
                 <tr>
                   {BULAN_LABELS.map(b => (
@@ -1257,38 +1257,40 @@ export function RKAPMonitor() {
                         {totalReal > 0 ? (totalReal / 1_000_000).toFixed(1) : '·'}
                       </td>
                       <td className="rkap-td">
-                        <div className="flex items-center justify-center gap-0.5 opacity-70 group-hover:opacity-100 transition-opacity">
+                        <div className="flex items-center justify-center gap-1">
                           {row.kode && (
                             <button
                               type="button"
                               onClick={() => toggleNonaktif(row.kode!)}
                               className={cn(
-                                'h-7 w-7 inline-flex items-center justify-center rounded-md text-xs transition-colors',
+                                'h-7 w-7 inline-flex items-center justify-center rounded-md border transition-colors',
                                 nonaktifKodes.has(row.kode)
-                                  ? 'bg-red-100 text-red-600 hover:bg-red-200'
-                                  : 'text-gray-400 hover:bg-orange-50 hover:text-orange-600',
+                                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                                  : 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100',
                               )}
-                              title={nonaktifKodes.has(row.kode) ? 'Aktifkan kembali' : 'Nonaktifkan (tidak carry-over)'}
+                              title={nonaktifKodes.has(row.kode) ? 'Aktifkan kembali (ikut carry-over)' : 'Nonaktifkan (prognosa 0, tidak carry-over)'}
                             >
-                              {nonaktifKodes.has(row.kode) ? '⊘' : '○'}
+                              {nonaktifKodes.has(row.kode)
+                                ? <CirclePlay size={14} strokeWidth={2} />
+                                : <Ban size={14} strokeWidth={2} />}
                             </button>
                           )}
                           <button
                             type="button"
                             onClick={() => openEdit(row)}
-                            className="h-7 w-7 inline-flex items-center justify-center rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-700"
-                            title="Edit"
+                            className="h-7 w-7 inline-flex items-center justify-center rounded-md border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
+                            title="Edit proker"
                           >
-                            <Pencil size={13} />
+                            <Pencil size={13} strokeWidth={2} />
                           </button>
                           {!isSeedRow(row.id) && (
                             <button
                               type="button"
                               onClick={() => setDeleteId(row.id)}
-                              className="h-7 w-7 inline-flex items-center justify-center rounded-md text-gray-400 hover:bg-red-50 hover:text-red-600"
-                              title="Hapus"
+                              className="h-7 w-7 inline-flex items-center justify-center rounded-md border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 transition-colors"
+                              title="Hapus proker"
                             >
-                              <Trash2 size={13} />
+                              <Trash2 size={13} strokeWidth={2} />
                             </button>
                           )}
                         </div>
