@@ -80,8 +80,9 @@ function tc(text: string, opts?: { bold?: boolean; width?: number; right?: boole
   </w:tc>`
 }
 
-function table(headers: string[], rows: string[][], colWidths: number[]): string {
+function table(headers: string[], rows: string[][], colWidths: number[], rightCols?: Set<number>): string {
   const totalW = colWidths.reduce((s, w) => s + w, 0)
+  const right = rightCols ?? new Set<number>()
   const headerRow = `<w:tr>${headers.map((h, i) =>
     tc(h, { bold: true, width: colWidths[i], shade: 'D9E2F3' }),
   ).join('')}</w:tr>`
@@ -89,7 +90,7 @@ function table(headers: string[], rows: string[][], colWidths: number[]): string
     `<w:tr>${row.map((cell, i) =>
       tc(cell, {
         width: colWidths[i],
-        right: i >= 4 && i <= 7, // nominal columns roughly
+        right: right.has(i),
       }),
     ).join('')}</w:tr>`,
   ).join('')
@@ -184,131 +185,97 @@ function buildMitraSectionXml(
     pMulti([{ text: `Rata-rata hari keterlambatan: `, bold: true }, { text: `${avgHariTelat(group)} hari` }]),
   ]
 
-  // Track record table — slightly condensed for Word width
-  const colW = [400, 1100, 1400, 1100, 1100, 1200, 1200, 1000, 1100, 900, 1200, 1000]
+  // Tabel ringkas — muat A4 portrait (~10.000 dxa usable)
+  // No | Periode | JT | Tagihan | Cash In | Status | Telat | Denda
+  const colW = [500, 1600, 1300, 1600, 1600, 1200, 900, 1400]
   const headers = [
     'No',
     'Periode',
-    'No. Invoice',
-    'Tgl Terbit',
     'Jatuh Tempo',
     'Tagihan',
     'Cash In',
-    'Sisa',
-    'Tgl Bayar',
-    'Hari Telat',
-    'Denda',
     'Status',
+    'Telat',
+    'Denda',
   ]
+  const rightCols = new Set([3, 4, 6, 7])
   const tableRows = rows.map((r, i) => [
     String(i + 1),
     r.periodeLabel,
-    r.noInvoice ?? '(belum terbit)',
-    r.tglTerbit ? formatTanggal(r.tglTerbit) : '—',
     formatTanggal(r.tglJatuhTempo),
     formatRupiah(r.totalTagihan),
     formatRupiah(r.cashIn),
-    formatRupiah(r.sisa),
-    r.tglBayarLabel,
+    MONITORING_STATUS_LABEL[r.statusBayar],
     r.hariTerlambat > 0 ? `${r.hariTerlambat} hr` : '0',
     r.nominalDenda > 0.5 ? formatRupiah(r.nominalDenda) : '—',
-    MONITORING_STATUS_LABEL[r.statusBayar],
   ])
 
-  // Narrative notes
+  // Baris ringkas per tahap (invoice + tgl bayar) — lebih ringan dari narasi panjang
+  const tahapLines = rows.map((r, idx) => {
+    const inv = r.noInvoice ?? 'belum terbit'
+    const terbit = r.tglTerbit ? formatTanggal(r.tglTerbit) : '—'
+    const bayar = r.pembayaranDetail.length
+      ? r.pembayaranDetail.map(pay =>
+          `${formatTanggal(pay.tgl)} (${formatRupiah(pay.nominal)})`,
+        ).join('; ')
+      : 'belum ada pembayaran'
+    return p(
+      `${idx + 1}. ${r.periodeLabel} · Inv. ${inv} · Terbit ${terbit} · Bayar: ${bayar}` +
+      (r.sisa > 0.5 ? ` · Sisa ${formatRupiah(r.sisa)}` : ''),
+      { size: 17, spaceAfter: 50 },
+    )
+  })
+
   const notes: string[] = []
   if (outstandingRows.length > 0) {
     notes.push(
-      `Masih terdapat ${outstandingRows.length} tahap dengan outstanding ` +
-      `(${formatRupiah(group.outstanding)}). Perlu ditindaklanjuti penagihan.`,
+      `${outstandingRows.length} tahap masih outstanding (${formatRupiah(group.outstanding)}).`,
     )
   } else if (group.nTagihan > 0) {
-    notes.push('Seluruh tagihan pada periode laporan sudah lunas (tidak ada outstanding).')
+    notes.push('Seluruh tagihan pada periode ini sudah lunas.')
   }
   if (terlambatRows.length > 0) {
     const maxTelat = Math.max(...terlambatRows.map(r => r.hariTerlambat))
     notes.push(
-      `Terdapat ${terlambatRows.length} tahap dengan riwayat/status keterlambatan ` +
-      `(maks. ${maxTelat} hari).`,
+      `${terlambatRows.length} tahap ada keterlambatan (maks. ${maxTelat} hari).`,
     )
   }
   if (dendaRows.length > 0) {
     notes.push(
-      `Estimasi denda terkumpul ${formatRupiah(group.totalDenda)} ` +
-      `pada ${dendaRows.length} tahap (perhitungan sesuai tarif denda & grace period tagihan).`,
+      `Estimasi denda ${formatRupiah(group.totalDenda)} pada ${dendaRows.length} tahap.`,
     )
-  }
-  if (rows.some(r => !r.noInvoice)) {
-    notes.push('Sebagian tahap belum memiliki nomor invoice resmi (belum diterbitkan di sistem).')
   }
   if (notes.length === 0) {
-    notes.push('Tidak ada catatan khusus untuk mitra ini pada periode laporan.')
+    notes.push('Tidak ada catatan khusus.')
   }
 
-  // Detail pembayaran per tahap (historikal)
-  const paymentNarrative = rows.flatMap((r, idx) => {
-    const head = p(
-      `${idx + 1}. ${r.periodeLabel} | Invoice ${r.noInvoice ?? '(belum terbit)'} | ` +
-      `terbit ${r.tglTerbit ? formatTanggal(r.tglTerbit) : '—'} | ` +
-      `JT ${formatTanggal(r.tglJatuhTempo)} | tagihan ${formatRupiah(r.totalTagihan)} | ` +
-      `status ${MONITORING_STATUS_LABEL[r.statusBayar]}` +
-      (r.hariTerlambat > 0 ? ` | keterlambatan ${r.hariTerlambat} hari` : ' | tepat waktu / belum JT') +
-      (r.nominalDenda > 0.5 ? ` | denda ${formatRupiah(r.nominalDenda)}` : '') +
-      '.',
-      { size: 18, spaceAfter: 20 },
-    )
-    if (r.pembayaranDetail.length === 0) {
-      return [
-        head,
-        p(
-          `    Pembayaran: belum ada yang tercatat` +
-          (r.sisa > 0.5 ? ` — sisa ${formatRupiah(r.sisa)}` : '') + '.',
-          { size: 16, spaceAfter: 80 },
-        ),
-      ]
-    }
-    const pays = r.pembayaranDetail.map((pay, j) =>
-      p(
-        `    ${j + 1}) ${formatTanggal(pay.tgl)} — ${formatRupiah(pay.nominal)}` +
-        (pay.noPembayaran ? ` (${pay.noPembayaran})` : ''),
-        { size: 16, spaceAfter: 20 },
-      ),
-    )
-    return [head, ...pays, emptyLine()]
-  })
-
   return [
-    p('LAPORAN MONITORING KOMPENSASI', { bold: true, center: true, size: 32, spaceAfter: 40 }),
+    p('LAPORAN MONITORING KOMPENSASI', { bold: true, center: true, size: 28, spaceAfter: 40 }),
     p('PT Perkebunan Nusantara I Regional 8', { center: true, size: 20, spaceAfter: 40 }),
-    p(`Tahun Jatuh Tempo ${tahun} · Dicetsak ${asOfLabel}`, { center: true, size: 18, spaceAfter: 200 }),
+    p(`Tahun JT ${tahun} · Dicetak ${asOfLabel}`, { center: true, size: 18, spaceAfter: 160 }),
 
     heading('A. Identitas Mitra', 2),
     ...identity,
     emptyLine(),
 
-    heading(`B. Ringkasan Historis Tahun ${tahun}`, 2),
+    heading(`B. Ringkasan Tahun ${tahun}`, 2),
     ...ringkas,
     emptyLine(),
 
-    heading('C. Track Record Tagihan & Pembayaran', 2),
-    p(
-      'Tabel berikut merangkum setiap tahap kompensasi: penerbitan invoice, jatuh tempo, realisasi bayar, keterlambatan, dan denda.',
-      { size: 18, spaceAfter: 100 },
-    ),
-    table(headers, tableRows, colW),
+    heading('C. Rekap Tagihan', 2),
+    table(headers, tableRows, colW, rightCols),
     emptyLine(),
 
-    heading('D. Rincian Historikal per Tahap', 2),
-    ...paymentNarrative,
+    heading('D. Invoice & Pembayaran', 2),
+    ...tahapLines,
     emptyLine(),
 
-    heading('E. Catatan Monitoring', 2),
-    ...notes.map((n, i) => p(`${i + 1}. ${n}`, { size: 20, spaceAfter: 60 })),
+    heading('E. Catatan', 2),
+    ...notes.map((n, i) => p(`${i + 1}. ${n}`, { size: 20, spaceAfter: 50 })),
     emptyLine(),
     p(
-      'Catatan: Denda untuk tagihan outstanding dihitung s.d. tanggal cetak; ' +
-      'untuk tagihan lunas dihitung s.d. tanggal pelunasan. Dokumen ini bersifat internal untuk monitoring collection.',
-      { size: 16, spaceAfter: 40 },
+      'Denda outstanding dihitung s.d. tanggal cetak; lunas s.d. tanggal pelunasan. Dokumen internal.',
+      { size: 15, spaceAfter: 40 },
     ),
   ].join('')
 }
@@ -320,8 +287,8 @@ function wrapDocument(bodyInner: string): string {
   <w:body>
     ${bodyInner}
     <w:sectPr>
-      <w:pgSz w:w="16838" w:h="11906" w:orient="landscape"/>
-      <w:pgMar w:top="720" w:right="720" w:bottom="720" w:left="720" w:header="0" w:footer="0" w:gutter="0"/>
+      <w:pgSz w:w="11906" w:h="16838"/>
+      <w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" w:header="0" w:footer="0" w:gutter="0"/>
     </w:sectPr>
   </w:body>
 </w:document>`
