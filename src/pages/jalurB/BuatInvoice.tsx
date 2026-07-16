@@ -1,12 +1,23 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { FileDown, ArrowRight, CheckCircle2, Upload } from 'lucide-react'
+import {
+  FileDown,
+  ArrowRight,
+  CheckCircle2,
+  Upload,
+  FileText,
+  Building2,
+  CalendarDays,
+  Hash,
+  Banknote,
+  ClipboardList,
+} from 'lucide-react'
 import { useKompensasiStore } from '@/store/kompensasiStore'
 import { useKerjaSamaStore } from '@/store/kerjaSamaStore'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { SearchableSelect } from '@/components/common/SearchableSelect'
 import { CurrencyDisplay } from '@/components/common/CurrencyDisplay'
 import { StatusBadge } from '@/components/common/StatusBadge'
@@ -14,7 +25,7 @@ import { DocumentUpload } from '@/components/common/DocumentUpload'
 import { InvoicePreviewPanel } from '@/components/common/InvoicePreviewPanel'
 import { api } from '@/lib/apiClient'
 import { supabase } from '@/lib/supabase'
-import { formatRupiah, formatTanggal } from '@/lib/utils'
+import { cn, formatRupiah, formatTanggal } from '@/lib/utils'
 import { generateNoInvoice } from '@/utils/invoiceDocxUtils'
 import {
   buildInvoiceKompensasiDocxBlob,
@@ -24,19 +35,12 @@ import type { SupermanDocRequirement } from '@/types'
 
 const today = () => new Date().toISOString().split('T')[0]
 
-function Section({ step, title, children }: { step: number; title: string; children: ReactNode }) {
-  return (
-    <section className="space-y-3">
-      <div className="flex items-center gap-2">
-        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#1B4F72] text-[11px] font-bold text-white shrink-0">
-          {step}
-        </span>
-        <h2 className="text-sm font-semibold text-gray-800">{title}</h2>
-      </div>
-      <div className="pl-8">{children}</div>
-    </section>
-  )
-}
+const STEPS = [
+  { n: 1, label: 'Pilih tagihan' },
+  { n: 2, label: 'Detail invoice' },
+  { n: 3, label: 'Simpan & unduh' },
+  { n: 4, label: 'Upload PDF' },
+] as const
 
 export function BuatInvoice() {
   const [params] = useSearchParams()
@@ -75,6 +79,17 @@ export function BuatInvoice() {
   const ws = selected ? getKompensasiWithStatus(selected, selected.pembayaran ?? []) : null
   const kompensasiWithKs = selected ? { ...selected, kerja_sama: ks } : null
   const hasInvoiceInDb = !!selected?.no_invoice
+  const showUpload = hasInvoiceInDb || invoiceSaved
+
+  const activeStep = !selected
+    ? 1
+    : !noInvoice.trim()
+      ? 2
+      : !showUpload
+        ? 3
+        : invoiceUploaded
+          ? 4
+          : 3
 
   useEffect(() => {
     if (!selected || !ks) return
@@ -180,22 +195,96 @@ export function BuatInvoice() {
     }
   }
 
-  const showUpload = hasInvoiceInDb || invoiceSaved
-
   return (
-    <div className="-m-5 flex flex-col lg:flex-row min-h-[calc(100vh-56px)]">
-      <aside className="w-full lg:w-[400px] xl:w-[420px] shrink-0 bg-white border-b lg:border-b-0 lg:border-r flex flex-col max-h-[50vh] lg:max-h-none">
-        <div className="px-5 py-4 border-b shrink-0">
-          <h1 className="text-lg font-bold text-gray-900">Buat Invoice</h1>
-          <p className="text-xs text-gray-500 mt-0.5">Tagihan kompensasi mitra — preview di panel kanan</p>
+    <div className="space-y-4 pb-6">
+      {/* Header */}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-lg font-bold text-gray-800">Buat Invoice</h1>
+          <p className="text-xs text-gray-500 mt-1">
+            Tagihan kompensasi mitra · isi form kiri · preview dokumen di kanan · unduh .docx
+          </p>
         </div>
+        {selected && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {hasInvoiceInDb || invoiceSaved ? (
+              <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">
+                <CheckCircle2 size={12} /> No. invoice tersimpan
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-100">
+                <FileText size={12} /> Belum disimpan
+              </span>
+            )}
+            {invoiceUploaded && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-100">
+                <Upload size={12} /> PDF terlampir
+              </span>
+            )}
+          </div>
+        )}
+      </div>
 
-        <div className="flex-1 overflow-y-auto px-5 py-5 space-y-6">
-          <Section step={1} title="Pilih Tagihan">
-            <div className="space-y-3">
+      {/* Step indicator */}
+      <div className="bg-white border rounded-xl px-3 sm:px-4 py-3 shadow-sm">
+        <ol className="flex flex-wrap items-center gap-1 sm:gap-0">
+          {STEPS.map((s, i) => {
+            const done = activeStep > s.n || (s.n === 4 && invoiceUploaded)
+            const current = activeStep === s.n && !(s.n === 4 && invoiceUploaded)
+            return (
+              <li key={s.n} className="flex items-center min-w-0">
+                {i > 0 && (
+                  <span className={cn(
+                    'hidden sm:block w-6 h-px mx-1.5 shrink-0',
+                    done || current ? 'bg-[#1B4F72]/40' : 'bg-gray-200',
+                  )} />
+                )}
+                <span className={cn(
+                  'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors',
+                  done && 'bg-emerald-50 text-emerald-700',
+                  current && 'bg-[#1B4F72] text-white shadow-sm',
+                  !done && !current && 'bg-gray-50 text-gray-400',
+                )}>
+                  <span className={cn(
+                    'flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold shrink-0',
+                    done && 'bg-emerald-200/80 text-emerald-800',
+                    current && 'bg-white/20 text-white',
+                    !done && !current && 'bg-gray-200 text-gray-500',
+                  )}>
+                    {done ? '✓' : s.n}
+                  </span>
+                  <span className="hidden xs:inline sm:inline truncate">{s.label}</span>
+                </span>
+              </li>
+            )
+          })}
+        </ol>
+      </div>
+
+      {/* Split workspace */}
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(340px,420px)_1fr] gap-4 items-start">
+        {/* ── Form ─────────────────────────────────────────── */}
+        <div className="space-y-3 min-w-0">
+          {/* Card: pilih tagihan */}
+          <Card className="shadow-sm border-gray-200/80 overflow-hidden">
+            <CardHeader className="py-3.5 px-5 border-b bg-white">
+              <div className="flex items-center gap-2.5">
+                <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#1B4F72]/10 text-[#1B4F72] shrink-0">
+                  <ClipboardList size={16} />
+                </span>
+                <div>
+                  <CardTitle className="text-sm font-semibold text-gray-900">Pilih Tagihan</CardTitle>
+                  <p className="text-[11px] text-gray-500">Kontrak mitra dan tahap kompensasi</p>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="px-5 py-4 space-y-3.5">
               <div>
-                <Label className="text-xs text-gray-600">No. Kontrak</Label>
-                <div className="mt-1">
+                <Label className="text-xs text-gray-600 inline-flex items-center gap-1.5">
+                  <Building2 size={12} className="text-gray-400" />
+                  No. Kontrak
+                </Label>
+                <div className="mt-1.5">
                   <SearchableSelect
                     className="h-9"
                     value={selectedKsId}
@@ -203,22 +292,27 @@ export function BuatInvoice() {
                     options={ksOptions.map(o => ({
                       value: o.id,
                       label: o.noKontrak,
-                      searchText: `${o.noKontrak}`,
+                      description: `${o.mitra} · ${o.aset}`,
+                      searchText: `${o.noKontrak} ${o.mitra} ${o.aset}`,
                     }))}
-                    placeholder="Cari no. kontrak..."
-                    searchPlaceholder="Ketik nomor kontrak..."
+                    placeholder="Cari no. kontrak / mitra..."
+                    searchPlaceholder="Ketik nomor kontrak, mitra, atau aset..."
                   />
                 </div>
                 {ks && (
-                  <p className="text-[11px] text-gray-500 mt-1.5 leading-snug">
-                    {ks.nama_mitra} · {ks.aset?.nama_aset ?? '-'}
-                  </p>
+                  <div className="mt-2 rounded-lg border border-slate-100 bg-slate-50/80 px-3 py-2">
+                    <p className="text-xs font-medium text-gray-800 leading-snug">{ks.nama_mitra}</p>
+                    <p className="text-[11px] text-gray-500 mt-0.5">{ks.aset?.nama_aset ?? '-'}</p>
+                  </div>
                 )}
               </div>
 
               <div>
-                <Label className="text-xs text-gray-600">Tahap Pembayaran</Label>
-                <div className="mt-1">
+                <Label className="text-xs text-gray-600 inline-flex items-center gap-1.5">
+                  <CalendarDays size={12} className="text-gray-400" />
+                  Tahap Pembayaran
+                </Label>
+                <div className="mt-1.5">
                   <SearchableSelect
                     className="h-9"
                     value={selectedId}
@@ -226,48 +320,84 @@ export function BuatInvoice() {
                     onValueChange={setSelectedId}
                     options={tahapOptions.map(o => ({
                       value: o.id,
-                      label: `${o.periode} — ${formatRupiah(o.total)}${!o.hasInvoice ? ' · baru' : ''}`,
-                      searchText: o.periode,
+                      label: o.periode,
+                      description: `${formatRupiah(o.total)}${o.hasInvoice ? ' · ada invoice' : ' · belum invoice'}`,
+                      searchText: `${o.periode} ${formatRupiah(o.total)}`,
                     }))}
-                    placeholder="Cari & pilih tahap..."
+                    placeholder={selectedKsId ? 'Cari & pilih tahap...' : 'Pilih kontrak dulu'}
                     searchPlaceholder="Ketik label periode..."
                   />
                 </div>
               </div>
-            </div>
-          </Section>
+            </CardContent>
+          </Card>
 
+          {/* Card: ringkasan */}
           {selected && ws && (
-            <Section step={2} title="Ringkasan Tagihan">
-              <div className="grid grid-cols-2 gap-2 text-sm">
-                <div className="rounded-lg bg-gray-50 px-3 py-2">
-                  <p className="text-[10px] text-gray-500 uppercase tracking-wide">Total</p>
-                  <CurrencyDisplay value={selected.total_tagihan} size="sm" />
-                </div>
-                <div className="rounded-lg bg-gray-50 px-3 py-2">
-                  <p className="text-[10px] text-gray-500 uppercase tracking-wide">Sisa</p>
-                  <CurrencyDisplay value={ws.sisaTagihan} size="sm" className="text-red-600" />
-                </div>
-                <div className="rounded-lg bg-gray-50 px-3 py-2 col-span-2 flex items-center justify-between">
-                  <div>
-                    <p className="text-[10px] text-gray-500 uppercase tracking-wide">Jatuh Tempo</p>
-                    <p className="text-sm font-medium">{formatTanggal(selected.tgl_jatuh_tempo)}</p>
+            <Card className="shadow-sm border-gray-200/80 overflow-hidden">
+              <CardHeader className="py-3 px-5 border-b bg-white">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700 shrink-0">
+                      <Banknote size={15} />
+                    </span>
+                    <CardTitle className="text-sm font-semibold text-gray-900">Ringkasan Tagihan</CardTitle>
                   </div>
                   <StatusBadge type="bayar" value={ws.statusBayar} />
                 </div>
-              </div>
-            </Section>
+              </CardHeader>
+              <CardContent className="px-5 py-3.5">
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div className="rounded-xl border bg-white px-3 py-2.5 shadow-sm">
+                    <p className="text-[10px] uppercase tracking-wide text-gray-400 font-medium">Total tagihan</p>
+                    <CurrencyDisplay value={selected.total_tagihan} size="sm" className="text-gray-900 mt-0.5" />
+                  </div>
+                  <div className="rounded-xl border bg-white px-3 py-2.5 shadow-sm">
+                    <p className="text-[10px] uppercase tracking-wide text-gray-400 font-medium">Sisa</p>
+                    <CurrencyDisplay
+                      value={ws.sisaTagihan}
+                      size="sm"
+                      className={cn('mt-0.5', ws.sisaTagihan > 0 ? 'text-red-600' : 'text-emerald-700')}
+                    />
+                  </div>
+                  <div className="col-span-2 rounded-xl border bg-slate-50/80 px-3 py-2.5 flex items-center justify-between gap-2">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wide text-gray-400 font-medium">Jatuh tempo</p>
+                      <p className="text-sm font-medium text-gray-800 mt-0.5">{formatTanggal(selected.tgl_jatuh_tempo)}</p>
+                    </div>
+                    {selected.periode_label && (
+                      <span className="text-[11px] text-gray-600 bg-white border rounded-md px-2 py-1 max-w-[50%] truncate">
+                        {selected.periode_label}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           )}
 
+          {/* Card: detail + aksi */}
           {selected && (
-            <Section step={3} title="Detail Invoice">
-              <div className="space-y-3">
+            <Card className="shadow-sm border-gray-200/80 overflow-hidden">
+              <CardHeader className="py-3.5 px-5 border-b bg-white">
+                <div className="flex items-center gap-2.5">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-50 text-indigo-700 shrink-0">
+                    <Hash size={16} />
+                  </span>
+                  <div>
+                    <CardTitle className="text-sm font-semibold text-gray-900">Detail Invoice</CardTitle>
+                    <p className="text-[11px] text-gray-500">Nomor & tanggal surat — muncul di preview</p>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="px-5 py-4 space-y-3.5">
                 <div>
                   <Label className="text-xs text-gray-600">No. Invoice</Label>
                   <Input
                     value={noInvoice}
                     onChange={e => setNoInvoice(e.target.value)}
-                    className="mt-1 h-9 font-mono text-sm"
+                    className="mt-1.5 h-9 font-mono text-sm"
+                    placeholder="No. invoice otomatis / edit manual"
                   />
                 </div>
                 <div>
@@ -276,62 +406,126 @@ export function BuatInvoice() {
                     type="date"
                     value={tanggalSurat}
                     onChange={e => setTanggalSurat(e.target.value)}
-                    className="mt-1 h-9"
+                    className="mt-1.5 h-9"
                   />
                 </div>
-                <Button
-                  onClick={handleSaveAndDownload}
-                  disabled={saving || !noInvoice.trim()}
-                  className="w-full bg-[#1B4F72] h-10"
-                >
-                  <FileDown size={15} />
-                  {saving ? 'Menyimpan...' : 'Simpan & Unduh .docx'}
-                </Button>
-              </div>
-            </Section>
+
+                <div className="pt-1 flex flex-col gap-2">
+                  <Button
+                    onClick={handleSaveAndDownload}
+                    disabled={saving || !noInvoice.trim()}
+                    className="w-full h-10 bg-[#1B4F72] hover:bg-[#163f5c] shadow-sm"
+                  >
+                    <FileDown size={15} />
+                    {saving ? 'Menyimpan...' : 'Simpan & Unduh .docx'}
+                  </Button>
+                  <p className="text-[10px] text-gray-400 text-center leading-relaxed">
+                    Menyimpan no. invoice ke database lalu mengunduh file Word
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
           )}
 
+          {/* Card: upload Superman */}
           {showUpload && selected && (
-            <Section step={4} title="Upload untuk Superman">
-              <div className="rounded-lg border bg-gray-50/50 p-3">
-                <DocumentUpload
-                  entityType="kompensasi"
-                  entityId={selected.id}
-                  docType="invoice"
-                  label="File Invoice (PDF/gambar)"
-                  uploaded={invoiceUploaded}
-                  fileName={invoiceFileName}
-                  onUploaded={fetchInvoiceDocStatus}
-                />
-              </div>
-              {invoiceUploaded && (
-                <div className="mt-3 flex items-center gap-2 rounded-lg bg-green-50 border border-green-200 px-3 py-2.5">
-                  <CheckCircle2 size={16} className="text-green-600 shrink-0" />
-                  <p className="text-xs text-green-800 flex-1">Invoice lengkap</p>
-                  <Button asChild variant="outline" size="sm" className="h-8 text-xs border-green-600 text-green-700">
-                    <Link to={`/jalur-b/pembayaran?kompensasi_id=${selected.id}`}>
-                      Pembayaran <ArrowRight size={12} />
-                    </Link>
-                  </Button>
+            <Card className={cn(
+              'shadow-sm overflow-hidden',
+              invoiceUploaded
+                ? 'border-emerald-200 ring-1 ring-emerald-100'
+                : 'border-gray-200/80',
+            )}>
+              <CardHeader className="py-3.5 px-5 border-b bg-white">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className={cn(
+                      'flex h-9 w-9 items-center justify-center rounded-lg shrink-0',
+                      invoiceUploaded ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700',
+                    )}>
+                      <Upload size={16} />
+                    </span>
+                    <div>
+                      <CardTitle className="text-sm font-semibold text-gray-900">Upload untuk Superman</CardTitle>
+                      <p className="text-[11px] text-gray-500">
+                        PDF/gambar hasil cetak — wajib hanya saat deklarasi SPPn
+                      </p>
+                    </div>
+                  </div>
+                  <span className={cn(
+                    'text-[10px] font-medium px-2 py-0.5 rounded-full shrink-0',
+                    invoiceUploaded
+                      ? 'bg-emerald-100 text-emerald-700'
+                      : 'bg-amber-100 text-amber-700',
+                  )}>
+                    {invoiceUploaded ? 'Lengkap' : 'Opsional'}
+                  </span>
                 </div>
-              )}
-              {!invoiceUploaded && (
-                <p className="text-[11px] text-gray-500 flex items-center gap-1 mt-2">
-                  <Upload size={12} /> Upload PDF hasil cetak invoice untuk deklarasi Superman
-                </p>
-              )}
-            </Section>
+              </CardHeader>
+              <CardContent className="px-5 py-4 space-y-3">
+                <div className="rounded-xl border bg-slate-50/60 px-3 py-1">
+                  <DocumentUpload
+                    entityType="kompensasi"
+                    entityId={selected.id}
+                    docType="invoice"
+                    label="File Invoice (PDF/gambar)"
+                    uploaded={invoiceUploaded}
+                    fileName={invoiceFileName}
+                    onUploaded={fetchInvoiceDocStatus}
+                  />
+                </div>
+
+                {invoiceUploaded ? (
+                  <div className="flex flex-wrap items-center gap-2 rounded-xl bg-emerald-50 border border-emerald-200 px-3 py-2.5">
+                    <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
+                    <p className="text-xs text-emerald-800 flex-1 min-w-[140px]">
+                      Invoice siap untuk deklarasi Superman
+                    </p>
+                    <Button
+                      asChild
+                      variant="outline"
+                      size="sm"
+                      className="h-8 text-xs border-emerald-600 text-emerald-700 hover:bg-emerald-100"
+                    >
+                      <Link to={`/jalur-b/pembayaran?kompensasi_id=${selected.id}`}>
+                        Ke Pembayaran <ArrowRight size={12} />
+                      </Link>
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-gray-500 leading-relaxed">
+                    Upload tidak wajib untuk membuat invoice. Lampirkan PDF bila akan kirim ke Superman dari menu Cash In.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {!selected && (
+            <div className="rounded-xl border border-dashed border-gray-200 bg-white px-5 py-8 text-center">
+              <div className="mx-auto w-11 h-11 rounded-xl bg-slate-50 flex items-center justify-center mb-3">
+                <FileText size={20} className="text-slate-400" />
+              </div>
+              <p className="text-sm font-medium text-gray-700">Belum ada tagihan dipilih</p>
+              <p className="text-xs text-gray-500 mt-1 max-w-xs mx-auto leading-relaxed">
+                Pilih no. kontrak dan tahap pembayaran untuk mengisi detail dan melihat preview
+              </p>
+            </div>
           )}
         </div>
-      </aside>
 
-      <InvoicePreviewPanel
-        docxBlob={docxBlob}
-        loading={previewLoading}
-        ready={!!kompensasiWithKs}
-        mitra={ks?.nama_mitra}
-        periode={selected?.periode_label ?? undefined}
-      />
+        {/* ── Preview ──────────────────────────────────────── */}
+        <div className="min-w-0 xl:sticky xl:top-4 xl:self-start">
+          <div className="rounded-xl border border-gray-200/80 shadow-sm overflow-hidden h-[min(78vh,820px)] min-h-[420px] flex flex-col">
+            <InvoicePreviewPanel
+              docxBlob={docxBlob}
+              loading={previewLoading}
+              ready={!!kompensasiWithKs && !!noInvoice.trim()}
+              mitra={ks?.nama_mitra}
+              periode={selected?.periode_label ?? undefined}
+            />
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
