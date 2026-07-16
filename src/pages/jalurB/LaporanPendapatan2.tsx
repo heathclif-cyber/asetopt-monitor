@@ -24,6 +24,10 @@ type SortDir = 'asc' | 'desc'
 type StatusFilter = 'all' | 'lunas' | 'belum_lunas'
 /** Filter tampilan periode (bukan sort) */
 type PeriodeMode = 'semua' | 'terbaru' | 'terdekat'
+/** Basis filter tahun/bulan: JT tagihan vs tanggal pembayaran diterima */
+type BulanBasis = 'jatuh_tempo' | 'diterima'
+
+type PaymentInYear = { month: number; nominal: number }
 /** Preset urutan cepat di dropdown */
 type SortPreset =
   | 'tgl_terbaru'
@@ -105,10 +109,18 @@ export default function LaporanPendapatan() {
   const [saving, setSaving] = useState(false)
 
   // ── Filters ───────────────────────────────────────────────────────────────
+  const [bulanBasis, setBulanBasis] = useState<BulanBasis>('jatuh_tempo')
+
   const tahunList = useMemo(() => {
-    const years = new Set(allKompensasi.map(k => parseTglParts(k.tgl_jatuh_tempo).year))
+    const years = new Set<number>()
     years.add(new Date().getFullYear())
     rkapRows.forEach(r => years.add(r.tahun))
+    allKompensasi.forEach(k => {
+      if (k.tgl_jatuh_tempo) years.add(parseTglParts(k.tgl_jatuh_tempo).year)
+      ;(k.pembayaran ?? []).forEach(p => {
+        if (p.tgl_bayar) years.add(parseTglParts(p.tgl_bayar).year)
+      })
+    })
     return Array.from(years).sort((a, b) => b - a)
   }, [allKompensasi, rkapRows])
 
@@ -149,10 +161,24 @@ export default function LaporanPendapatan() {
   // ── Build rows ────────────────────────────────────────────────────────────
   const allRows = useMemo(() => {
     return allKompensasi
-      .filter(k => parseTglParts(k.tgl_jatuh_tempo).year === tahun)
       .map(k => {
+        const pembayaran = k.pembayaran ?? []
+        const totalDibayar = pembayaran.reduce((s, p) => s + (p.nominal_bayar || 0), 0)
+        const paymentsInYear: PaymentInYear[] = pembayaran
+          .filter(p => p.tgl_bayar && parseTglParts(p.tgl_bayar).year === tahun)
+          .map(p => ({
+            month: parseTglParts(p.tgl_bayar).month,
+            nominal: p.nominal_bayar || 0,
+          }))
+
+        // JT: window by tgl_jatuh_tempo · Diterima: window by tgl_bayar (ada bayar di tahun itu)
+        const inScope =
+          bulanBasis === 'diterima'
+            ? paymentsInYear.length > 0
+            : !!k.tgl_jatuh_tempo && parseTglParts(k.tgl_jatuh_tempo).year === tahun
+        if (!inScope) return null
+
         const ks = daftarKS.find(x => x.id === k.ks_id) ?? k.kerja_sama
-        const totalDibayar = (k.pembayaran ?? []).reduce((s, p) => s + p.nominal_bayar, 0)
         const efektifTagihan = Math.max(0, (k.total_tagihan ?? 0) - (k.pengurang ?? 0))
         const sisa = Math.max(0, efektifTagihan - totalDibayar)
         const denda = hitungDenda({
@@ -171,6 +197,11 @@ export default function LaporanPendapatan() {
             )
           : null
 
+        const cashIn =
+          bulanBasis === 'diterima'
+            ? paymentsInYear.reduce((s, p) => s + p.nominal, 0)
+            : totalDibayar
+
         return {
           id: k.id,
           ksId: k.ks_id,
@@ -184,13 +215,15 @@ export default function LaporanPendapatan() {
           noInvoice: k.no_invoice_sap ?? '-',
           noBilling: k.no_billing_sap ?? '-',
           totalTagihan: k.total_tagihan ?? 0,
-          cashIn: totalDibayar,
+          cashIn,
+          paymentsInYear,
           pendapatanAkrual: match?.nominal ?? k.nominal ?? 0,
           sisa,
           status,
         }
       })
-  }, [allKompensasi, daftarKS, daftarPDDM, allPengakuan, tahun])
+      .filter((r): r is NonNullable<typeof r> => r !== null)
+  }, [allKompensasi, daftarKS, daftarPDDM, allPengakuan, tahun, bulanBasis])
 
   // ── Mitra list for dropdown ───────────────────────────────────────────────
   const mitraList = useMemo(() => {
@@ -206,8 +239,21 @@ export default function LaporanPendapatan() {
     if (filterMitra !== 'all') data = data.filter(r => r.ksId === filterMitra)
     if (filterStatus === 'lunas') data = data.filter(r => r.status === 'lunas')
     else if (filterStatus === 'belum_lunas') data = data.filter(r => r.status !== 'lunas')
+
+    // Filter bulan: JT tagihan ATAU bulan tgl_bayar (diterima)
     if (selectedMonths.length < 12) {
-      data = data.filter(r => selectedMonths.includes(parseTglParts(r.tglJatuhTempo).month))
+      if (bulanBasis === 'diterima') {
+        data = data
+          .map(r => {
+            const cashIn = r.paymentsInYear
+              .filter(p => selectedMonths.includes(p.month))
+              .reduce((s, p) => s + p.nominal, 0)
+            return { ...r, cashIn }
+          })
+          .filter(r => r.cashIn > 0)
+      } else {
+        data = data.filter(r => selectedMonths.includes(parseTglParts(r.tglJatuhTempo).month))
+      }
     }
 
     if (periodeMode === 'terbaru') {
@@ -278,7 +324,7 @@ export default function LaporanPendapatan() {
     })
 
     return data
-  }, [allRows, filterMitra, filterStatus, selectedMonths, periodeMode, sortKey, sortDir])
+  }, [allRows, filterMitra, filterStatus, selectedMonths, periodeMode, sortKey, sortDir, bulanBasis])
 
   // ── Summary ───────────────────────────────────────────────────────────────
   const totalTagihan = rows.reduce((s, r) => s + r.totalTagihan, 0)
@@ -380,7 +426,9 @@ export default function LaporanPendapatan() {
           <h1 className="text-lg font-bold text-gray-800">Laporan Pendapatan — {tahun}</h1>
           <p className="text-xs text-gray-500 mt-1">
             {viewMode === 'detail'
-              ? 'Satu baris = satu tahap · filter tahun = tgl jatuh tempo · Cash In = total bayar pada tagihan itu'
+              ? bulanBasis === 'diterima'
+                ? 'Satu baris = satu tahap · filter tahun/bulan = tgl bayar (diterima) · Cash In = bayar di periode itu'
+                : 'Satu baris = satu tahap · filter tahun/bulan = tgl jatuh tempo · Cash In = total bayar pada tagihan itu'
               : 'Satu baris = satu ID Monika · Cash In = total bayar pada tagihan JT tahun yang sama (selaras Detail) · Capaian = Cash In ÷ RKAP'}
           </p>
         </div>
@@ -583,6 +631,15 @@ export default function LaporanPendapatan() {
           {/* ── Month filter ──────────────────────────────────────────────── */}
           <div className="bg-white border rounded-xl px-4 py-2.5 flex flex-wrap items-center gap-1.5">
             <span className="text-xs text-gray-500 font-medium mr-1">Bulan:</span>
+            <select
+              value={bulanBasis}
+              onChange={e => setBulanBasis(e.target.value as BulanBasis)}
+              className="text-xs border rounded-md px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-[#1B4F72] mr-1"
+              title="Dasar filter tahun & bulan"
+            >
+              <option value="jatuh_tempo">Jatuh tempo</option>
+              <option value="diterima">Diterima (tgl bayar)</option>
+            </select>
             {['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'].map((label, idx) => {
               const active = selectedMonths.includes(idx)
               return (
@@ -631,9 +688,19 @@ export default function LaporanPendapatan() {
             </div>
           </div>
           <p className="text-[11px] text-gray-500 -mt-1">
-            Cash In = jumlah bayar pada tagihan dengan <strong>jatuh tempo tahun {tahun}</strong>
-            {selectedMonths.length < 12 ? ' (terfilter bulan JT)' : ''}.
-            Tagihan tanpa ID Monika tetap masuk di sini, tapi tidak di Per Proker.
+            {bulanBasis === 'diterima' ? (
+              <>
+                Cash In = jumlah <strong>pembayaran dengan tgl bayar tahun {tahun}</strong>
+                {selectedMonths.length < 12 ? ' (terfilter bulan diterima)' : ''}.
+                Hanya tagihan yang punya penerimaan di periode itu. Outstanding = sisa tagihan keseluruhan.
+              </>
+            ) : (
+              <>
+                Cash In = jumlah bayar pada tagihan dengan <strong>jatuh tempo tahun {tahun}</strong>
+                {selectedMonths.length < 12 ? ' (terfilter bulan JT)' : ''}.
+              </>
+            )}
+            {' '}Tagihan tanpa ID Monika tetap masuk di sini, tapi tidak di Per Proker.
           </p>
 
           {/* ── Detail table ─────────────────────────────────────────────── */}
