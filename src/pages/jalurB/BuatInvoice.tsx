@@ -28,12 +28,12 @@ import { supabase } from '@/lib/supabase'
 import { cn, formatRupiah, formatTanggal } from '@/lib/utils'
 import { generateNoInvoice, prefetchTemplate } from '@/utils/invoiceDocxUtils'
 import {
-  buildInvoiceKompensasiDocxBlob,
+  buildInvoiceKompensasiHtml,
   generateInvoiceKompensasiDocx,
 } from '@/utils/invoiceKompensasiPreview'
 import type { SupermanDocRequirement } from '@/types'
 
-const INVOICE_TEMPLATE = '/invoice/template_invoice_kompensasi.docx'
+const INVOICE_TEMPLATE = '/invoice/template_invoice_kompensasi.docx?v=tagihan-2'
 
 const today = () => new Date().toISOString().split('T')[0]
 
@@ -56,13 +56,11 @@ export function BuatInvoice() {
   const [invoiceSaved, setInvoiceSaved] = useState(false)
   const [invoiceUploaded, setInvoiceUploaded] = useState(false)
   const [invoiceFileName, setInvoiceFileName] = useState<string | null>(null)
-  const [docxBlob, setDocxBlob] = useState<Blob | null>(null)
-  const [previewLoading, setPreviewLoading] = useState(false)
 
   useEffect(() => {
     fetchAllKompensasi()
     fetchKS()
-    // Prefetch template di background — preview pertama tidak nunggu network
+    // Prefetch template unduhan di background
     prefetchTemplate(INVOICE_TEMPLATE)
   }, [])
 
@@ -160,38 +158,37 @@ export function BuatInvoice() {
 
   useEffect(() => { fetchInvoiceDocStatus() }, [selectedId])
 
-  // Depend field stabil (bukan object baru tiap render) agar preview tidak rebuild terus
-  useEffect(() => {
-    if (!selected || !noInvoice.trim()) {
-      setDocxBlob(null)
-      setPreviewLoading(false)
-      return
-    }
-    const payload = { ...selected, kerja_sama: ks }
-    let cancelled = false
-    setPreviewLoading(true)
-    const timer = setTimeout(() => {
-      buildInvoiceKompensasiDocxBlob(payload, noInvoice, tanggalSurat, { forPreview: true })
-        .then(blob => { if (!cancelled) setDocxBlob(blob) })
-        .catch(() => { if (!cancelled) setDocxBlob(null) })
-        .finally(() => { if (!cancelled) setPreviewLoading(false) })
-    }, 150)
-    return () => {
-      cancelled = true
-      clearTimeout(timer)
-    }
+  const baseUrl = typeof window !== 'undefined' ? window.location.origin : ''
+  const previewHtml = useMemo(() => {
+    if (!selected || !noInvoice.trim()) return null
+    return buildInvoiceKompensasiHtml(
+      { ...selected, kerja_sama: ks },
+      noInvoice,
+      tanggalSurat,
+      baseUrl,
+    )
   }, [
     selected?.id,
+    selected?.nominal,
+    selected?.nominal_ppn,
+    selected?.nominal_pph,
+    selected?.pph_mode,
+    selected?.ppn_persen,
+    selected?.pph_persen,
     selected?.total_tagihan,
     selected?.pengurang,
+    selected?.keterangan_pengurang,
     selected?.periode_label,
     selected?.tgl_jatuh_tempo,
-    selected?.no_invoice,
     ks?.id,
     ks?.nama_mitra,
-    (ks?.aset as { nama_aset?: string } | undefined)?.nama_aset,
+    ks?.no_perjanjian,
+    ks?.tgl_mulai,
+    (ks?.aset as { nama_aset?: string; alamat?: string } | undefined)?.nama_aset,
+    (ks?.aset as { nama_aset?: string; alamat?: string } | undefined)?.alamat,
     noInvoice,
     tanggalSurat,
+    baseUrl,
   ])
 
   const handleSaveAndDownload = async () => {
@@ -536,8 +533,7 @@ export function BuatInvoice() {
         <div className="min-w-0 xl:sticky xl:top-4 xl:self-start">
           <div className="rounded-xl border border-gray-200/80 shadow-sm overflow-hidden h-[min(78vh,820px)] min-h-[420px] flex flex-col">
             <InvoicePreviewPanel
-              docxBlob={docxBlob}
-              loading={previewLoading}
+              html={previewHtml}
               ready={!!kompensasiWithKs && !!noInvoice.trim()}
               mitra={ks?.nama_mitra}
               periode={selected?.periode_label ?? undefined}

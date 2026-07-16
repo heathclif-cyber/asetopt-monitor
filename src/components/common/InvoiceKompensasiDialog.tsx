@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { FileDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -8,10 +8,10 @@ import { formatRupiah } from '@/lib/utils'
 import { Kompensasi } from '@/types'
 import { supabase } from '@/lib/supabase'
 import { generateNoInvoice } from '@/utils/invoiceDocxUtils'
-import { DocxPreview } from '@/components/common/DocxPreview'
 import {
-  buildInvoiceKompensasiDocxBlob,
+  buildInvoiceKompensasiHtml,
   generateInvoiceKompensasiDocx,
+  getEfektifTagihan,
 } from '@/utils/invoiceKompensasiPreview'
 
 interface Props {
@@ -31,7 +31,6 @@ export function InvoiceKompensasiDialog({ open, onClose, kompensasi, onSaved }: 
   const [tanggalSurat, setTanggalSurat] = useState(kompensasi.invoice_tgl ?? today)
   const [saving, setSaving] = useState(false)
   const [downloading, setDownloading] = useState(false)
-  const [docxBlob, setDocxBlob] = useState<Blob | null>(null)
 
   useEffect(() => {
     if (!open) return
@@ -41,22 +40,11 @@ export function InvoiceKompensasiDialog({ open, onClose, kompensasi, onSaved }: 
     setTanggalSurat(kompensasi.invoice_tgl ?? today)
   }, [open, kompensasi.id, kompensasi.no_invoice, kompensasi.invoice_tgl])
 
-  useEffect(() => {
-    if (!open || !noInvoice.trim()) {
-      setDocxBlob(null)
-      return
-    }
-    let cancelled = false
-    const timer = setTimeout(() => {
-      buildInvoiceKompensasiDocxBlob(kompensasi, noInvoice, tanggalSurat, { forPreview: true })
-        .then(blob => { if (!cancelled) setDocxBlob(blob) })
-        .catch(() => { if (!cancelled) setDocxBlob(null) })
-    }, 150)
-    return () => {
-      cancelled = true
-      clearTimeout(timer)
-    }
-  }, [open, kompensasi, noInvoice, tanggalSurat])
+  const baseUrl = typeof window !== 'undefined' ? window.location.origin : ''
+  const previewHtml = useMemo(() => {
+    if (!open || !noInvoice.trim()) return ''
+    return buildInvoiceKompensasiHtml(kompensasi, noInvoice, tanggalSurat, baseUrl)
+  }, [open, kompensasi, noInvoice, tanggalSurat, baseUrl])
 
   const handleSaveAndDownload = async () => {
     setSaving(true)
@@ -97,8 +85,14 @@ export function InvoiceKompensasiDialog({ open, onClose, kompensasi, onSaved }: 
               <div className="bg-gray-50 rounded-lg p-3 text-xs space-y-1">
                 <div className="flex justify-between"><span className="text-gray-500">Mitra</span><span>{ks?.nama_mitra}</span></div>
                 <div className="flex justify-between"><span className="text-gray-500">Periode</span><span>{kompensasi.periode_label ?? '-'}</span></div>
-                <div className="flex justify-between"><span className="text-gray-500">Total</span><span className="font-medium">{formatRupiah(kompensasi.total_tagihan)}</span></div>
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Total ditagih</span>
+                  <span className="font-medium">{formatRupiah(getEfektifTagihan(kompensasi))}</span>
+                </div>
               </div>
+              <p className="text-[11px] text-gray-500 leading-relaxed">
+                Format: surat tagihan formal (bukan kuitansi). Kuitansi dibuat setelah cash in.
+              </p>
             </div>
             <DialogFooter className="px-5 py-4 border-t">
               <Button variant="outline" onClick={onClose}>Batal</Button>
@@ -107,8 +101,18 @@ export function InvoiceKompensasiDialog({ open, onClose, kompensasi, onSaved }: 
               </Button>
             </DialogFooter>
           </div>
-          <div className="flex-1 bg-slate-800 p-4 overflow-auto">
-            <DocxPreview blob={docxBlob} />
+          <div className="flex-1 bg-slate-100 p-4 overflow-auto flex justify-center">
+            {previewHtml ? (
+              <iframe
+                title="Preview invoice"
+                srcDoc={previewHtml}
+                className="bg-white shadow border-0"
+                style={{ width: 560, height: 792, transform: 'scale(0.9)', transformOrigin: 'top center' }}
+                sandbox=""
+              />
+            ) : (
+              <p className="text-sm text-gray-400 self-center">Isi no. invoice untuk preview</p>
+            )}
           </div>
         </div>
       </DialogContent>
