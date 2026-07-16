@@ -15,11 +15,25 @@ export function escXml(s: string): string {
     .replace(/"/g, '&quot;')
 }
 
+/** Cache raw template di memori — hindari fetch ulang tiap preview/unduh */
+const templateBufferCache = new Map<string, ArrayBuffer>()
+
 export async function loadTemplate(path: string): Promise<JSZip> {
-  const res = await fetch(path)
-  if (!res.ok) throw new Error(`Template tidak ditemukan: ${path}`)
-  const buf = await res.arrayBuffer()
-  return JSZip.loadAsync(buf)
+  let buf = templateBufferCache.get(path)
+  if (!buf) {
+    const res = await fetch(path)
+    if (!res.ok) throw new Error(`Template tidak ditemukan: ${path}`)
+    buf = await res.arrayBuffer()
+    templateBufferCache.set(path, buf)
+  }
+  // slice agar tiap loadAsync dapat salinan (load bisa transfer buffer)
+  return JSZip.loadAsync(buf.slice(0))
+}
+
+/** Prefetch template agar preview pertama tidak menunggu network */
+export function prefetchTemplate(path: string): void {
+  if (templateBufferCache.has(path)) return
+  void loadTemplate(path).catch(() => {})
 }
 
 export async function downloadDocx(zip: JSZip, filename: string): Promise<void> {

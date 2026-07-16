@@ -110,7 +110,7 @@ export function InvoicePreviewPanel({ docxBlob, loading, ready, mitra, periode }
             className="docx-preview-scale origin-top shadow-xl shadow-slate-300/50 rounded-sm"
             style={{ transform: `scale(${scale})` }}
           >
-            <DocxPreview blob={docxBlob} />
+            <DocxPreview blob={docxBlob} fast />
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center py-16 text-center my-auto">

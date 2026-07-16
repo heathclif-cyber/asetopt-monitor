@@ -26,12 +26,14 @@ import { InvoicePreviewPanel } from '@/components/common/InvoicePreviewPanel'
 import { api } from '@/lib/apiClient'
 import { supabase } from '@/lib/supabase'
 import { cn, formatRupiah, formatTanggal } from '@/lib/utils'
-import { generateNoInvoice } from '@/utils/invoiceDocxUtils'
+import { generateNoInvoice, prefetchTemplate } from '@/utils/invoiceDocxUtils'
 import {
   buildInvoiceKompensasiDocxBlob,
   generateInvoiceKompensasiDocx,
 } from '@/utils/invoiceKompensasiPreview'
 import type { SupermanDocRequirement } from '@/types'
+
+const INVOICE_TEMPLATE = '/invoice/template_invoice_kompensasi.docx'
 
 const today = () => new Date().toISOString().split('T')[0]
 
@@ -60,6 +62,8 @@ export function BuatInvoice() {
   useEffect(() => {
     fetchAllKompensasi()
     fetchKS()
+    // Prefetch template di background — preview pertama tidak nunggu network
+    prefetchTemplate(INVOICE_TEMPLATE)
   }, [])
 
   useEffect(() => {
@@ -156,24 +160,39 @@ export function BuatInvoice() {
 
   useEffect(() => { fetchInvoiceDocStatus() }, [selectedId])
 
+  // Depend field stabil (bukan object baru tiap render) agar preview tidak rebuild terus
   useEffect(() => {
-    if (!kompensasiWithKs || !noInvoice.trim()) {
+    if (!selected || !noInvoice.trim()) {
       setDocxBlob(null)
+      setPreviewLoading(false)
       return
     }
+    const payload = { ...selected, kerja_sama: ks }
     let cancelled = false
     setPreviewLoading(true)
     const timer = setTimeout(() => {
-      buildInvoiceKompensasiDocxBlob(kompensasiWithKs, noInvoice, tanggalSurat)
+      buildInvoiceKompensasiDocxBlob(payload, noInvoice, tanggalSurat, { forPreview: true })
         .then(blob => { if (!cancelled) setDocxBlob(blob) })
         .catch(() => { if (!cancelled) setDocxBlob(null) })
         .finally(() => { if (!cancelled) setPreviewLoading(false) })
-    }, 300)
+    }, 150)
     return () => {
       cancelled = true
       clearTimeout(timer)
     }
-  }, [kompensasiWithKs, noInvoice, tanggalSurat])
+  }, [
+    selected?.id,
+    selected?.total_tagihan,
+    selected?.pengurang,
+    selected?.periode_label,
+    selected?.tgl_jatuh_tempo,
+    selected?.no_invoice,
+    ks?.id,
+    ks?.nama_mitra,
+    (ks?.aset as { nama_aset?: string } | undefined)?.nama_aset,
+    noInvoice,
+    tanggalSurat,
+  ])
 
   const handleSaveAndDownload = async () => {
     if (!kompensasiWithKs) return

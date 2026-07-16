@@ -44,16 +44,22 @@ async function patchInvoiceKompensasiZip(
   })
 }
 
+const TEMPLATE_PATH = '/invoice/template_invoice_kompensasi.docx'
+
 export async function buildInvoiceKompensasiDocxBlob(
   k: Kompensasi,
   noInvoice: string,
   tanggalSurat: string,
+  opts?: { forPreview?: boolean },
 ): Promise<Blob> {
-  const zip = await loadTemplate('/invoice/template_invoice_kompensasi.docx')
+  const zip = await loadTemplate(TEMPLATE_PATH)
   await patchInvoiceKompensasiZip(zip, k, noInvoice, tanggalSurat)
+  // Preview: STORE (tanpa deflate) jauh lebih cepat; unduhan pakai DEFLATE biar file kecil
   return zip.generateAsync({
     type: 'blob',
     mimeType: DOCX_MIME,
+    compression: opts?.forPreview ? 'STORE' : 'DEFLATE',
+    compressionOptions: opts?.forPreview ? undefined : { level: 6 },
   })
 }
 

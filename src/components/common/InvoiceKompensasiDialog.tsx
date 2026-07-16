@@ -48,10 +48,10 @@ export function InvoiceKompensasiDialog({ open, onClose, kompensasi, onSaved }: 
     }
     let cancelled = false
     const timer = setTimeout(() => {
-      buildInvoiceKompensasiDocxBlob(kompensasi, noInvoice, tanggalSurat)
+      buildInvoiceKompensasiDocxBlob(kompensasi, noInvoice, tanggalSurat, { forPreview: true })
         .then(blob => { if (!cancelled) setDocxBlob(blob) })
         .catch(() => { if (!cancelled) setDocxBlob(null) })
-    }, 300)
+    }, 150)
     return () => {
       cancelled = true
       clearTimeout(timer)
