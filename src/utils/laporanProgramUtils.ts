@@ -101,7 +101,7 @@ function statusLabelAset(status: string | undefined): string {
  * Resolusi proker HANYA by ID Monika (kode).
  * Urutan: rkap_kode → aset.kode_aset. Tanpa ID Monika → null (tidak digabung by nama).
  */
-function resolveMonikaId(
+export function resolveMonikaId(
   k: Kompensasi,
   ks: KerjaSama | undefined,
 ): string | null {

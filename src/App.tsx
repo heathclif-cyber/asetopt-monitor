@@ -10,6 +10,7 @@ import { InputPembayaran } from './pages/jalurB/InputPembayaran'
 import { BuatInvoice } from './pages/jalurB/BuatInvoice'
 import { NotifikasiSP } from './pages/jalurB/NotifikasiSP'
 import LaporanPendapatan from './pages/jalurB/LaporanPendapatan2'
+import MonitoringKompensasi from './pages/jalurB/MonitoringKompensasi'
 import { DataAset } from './pages/master/DataAset'
 import { DataNJOP } from './pages/master/DataNJOP'
 import { PenilaianKJPP } from './pages/master/PenilaianKJPP'
@@ -31,6 +32,7 @@ function App() {
         <Route path="/jalur-b/pbb" element={<PembayaranPBB />} />
         <Route path="/jalur-b/notifikasi" element={<NotifikasiSP />} />
         <Route path="/jalur-b/laporan" element={<LaporanPendapatan />} />
+        <Route path="/jalur-b/monitoring-kompensasi" element={<MonitoringKompensasi />} />
         <Route path="/master/aset" element={<DataAset />} />
         <Route path="/master/njop" element={<DataNJOP />} />
         <Route path="/master/kjpp" element={<PenilaianKJPP />} />
