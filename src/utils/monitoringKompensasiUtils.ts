@@ -29,6 +29,8 @@ export interface MonitoringDetailRow {
   tglBayarTerakhir: string | null
   /** Label tampilan: satu tgl / "a → b" / "—" */
   tglBayarLabel: string
+  /** Rincian pembayaran historikal */
+  pembayaranDetail: { tgl: string; nominal: number; noPembayaran: string | null }[]
   hariTerlambat: number
   nominalDenda: number
   statusBayar: MonitoringStatusBayar
@@ -50,6 +52,153 @@ export interface MonitoringProkerRow {
   outstanding: number
   totalDenda: number
   pctTertagih: number | null
+}
+
+/** Satu unit monitoring = mitra (KS) atau proker (Monika), berisi daftar tagihan */
+export interface MonitoringGroup {
+  key: string
+  groupBy: 'mitra' | 'proker'
+  /** Mitra (KS) atau nama proker */
+  title: string
+  subtitle: string
+  monikaId: string | null
+  namaProker: string
+  namaMitra: string
+  noPerjanjian: string
+  statusKs: string
+  namaAset: string
+  rows: MonitoringDetailRow[]
+  nTagihan: number
+  nLunas: number
+  nTerlambat: number
+  nSebagian: number
+  nBelumBayar: number
+  totalTagihan: number
+  cashIn: number
+  outstanding: number
+  totalDenda: number
+  pctTertagih: number | null
+}
+
+function summarizeDetailRows(rows: MonitoringDetailRow[]) {
+  let nLunas = 0
+  let nTerlambat = 0
+  let nSebagian = 0
+  let nBelumBayar = 0
+  let totalTagihan = 0
+  let cashIn = 0
+  let outstanding = 0
+  let totalDenda = 0
+  for (const r of rows) {
+    totalTagihan += r.totalTagihan
+    cashIn += r.cashIn
+    outstanding += r.sisa
+    totalDenda += r.nominalDenda
+    if (r.statusBayar === 'lunas') nLunas += 1
+    else if (r.statusBayar === 'terlambat') nTerlambat += 1
+    else if (r.statusBayar === 'sebagian') nSebagian += 1
+    else nBelumBayar += 1
+  }
+  return {
+    nTagihan: rows.length,
+    nLunas,
+    nTerlambat,
+    nSebagian,
+    nBelumBayar,
+    totalTagihan,
+    cashIn,
+    outstanding,
+    totalDenda,
+    pctTertagih: totalTagihan > 0 ? (cashIn / totalTagihan) * 100 : null,
+  }
+}
+
+/** Grup monitoring per mitra (kerja sama) — unit utama track collection */
+export function groupMonitoringByMitra(rows: MonitoringDetailRow[]): MonitoringGroup[] {
+  const map = new Map<string, MonitoringDetailRow[]>()
+  for (const r of rows) {
+    const key = r.ksId || `unknown-${r.id}`
+    const list = map.get(key) ?? []
+    list.push(r)
+    map.set(key, list)
+  }
+
+  return Array.from(map.entries())
+    .map(([key, groupRows]) => {
+      const sorted = [...groupRows].sort((a, b) => a.tglJatuhTempo.localeCompare(b.tglJatuhTempo))
+      const head = sorted[0]
+      const agg = summarizeDetailRows(sorted)
+      return {
+        key,
+        groupBy: 'mitra' as const,
+        title: head.namaMitra,
+        subtitle: [
+          head.monikaId ?? null,
+          head.namaProker !== head.namaMitra ? head.namaProker : null,
+          head.noPerjanjian !== '-' ? head.noPerjanjian : null,
+        ].filter(Boolean).join(' · '),
+        monikaId: head.monikaId,
+        namaProker: head.namaProker,
+        namaMitra: head.namaMitra,
+        noPerjanjian: head.noPerjanjian,
+        statusKs: head.statusKs,
+        namaAset: head.namaAset,
+        rows: sorted,
+        ...agg,
+      }
+    })
+    .sort((a, b) => {
+      // yang ada outstanding/denda dulu, lalu abjad mitra
+      if (a.nTerlambat !== b.nTerlambat) return b.nTerlambat - a.nTerlambat
+      if (a.outstanding !== b.outstanding) return b.outstanding - a.outstanding
+      return a.namaMitra.localeCompare(b.namaMitra, 'id')
+    })
+}
+
+/** Grup monitoring per proker (ID Monika) */
+export function groupMonitoringByProker(rows: MonitoringDetailRow[]): MonitoringGroup[] {
+  const map = new Map<string, MonitoringDetailRow[]>()
+  for (const r of rows) {
+    const key = r.monikaId?.trim() || '__tanpa_monika__'
+    const list = map.get(key) ?? []
+    list.push(r)
+    map.set(key, list)
+  }
+
+  return Array.from(map.entries())
+    .map(([key, groupRows]) => {
+      const sorted = [...groupRows].sort((a, b) => {
+        const m = a.namaMitra.localeCompare(b.namaMitra, 'id')
+        if (m !== 0) return m
+        return a.tglJatuhTempo.localeCompare(b.tglJatuhTempo)
+      })
+      const head = sorted[0]
+      const agg = summarizeDetailRows(sorted)
+      const mitraUnique = Array.from(new Set(sorted.map(r => r.namaMitra))).sort((a, b) => a.localeCompare(b, 'id'))
+      const monikaId = key === '__tanpa_monika__' ? null : key
+      return {
+        key,
+        groupBy: 'proker' as const,
+        title: head.namaProker,
+        subtitle: [
+          monikaId,
+          mitraUnique.length <= 2 ? mitraUnique.join(', ') : `${mitraUnique.length} mitra`,
+        ].filter(Boolean).join(' · '),
+        monikaId,
+        namaProker: head.namaProker,
+        namaMitra: mitraUnique.join(', '),
+        noPerjanjian: '-',
+        statusKs: '-',
+        namaAset: head.namaAset,
+        rows: sorted,
+        ...agg,
+      }
+    })
+    .sort((a, b) => {
+      if (a.nTerlambat !== b.nTerlambat) return b.nTerlambat - a.nTerlambat
+      if (a.outstanding !== b.outstanding) return b.outstanding - a.outstanding
+      return (a.monikaId ?? 'zzz').localeCompare(b.monikaId ?? 'zzz', 'id')
+    })
 }
 
 export interface MonitoringSummary {
@@ -174,6 +323,11 @@ export function buildMonitoringDetailRows(opts: {
 
     const statusBayar = resolveStatus(cashIn, efektif, hariForStatus)
     const tglBayarList = pembayaran.map(p => dateKey(p.tgl_bayar))
+    const pembayaranDetail = pembayaran.map(p => ({
+      tgl: dateKey(p.tgl_bayar),
+      nominal: p.nominal_bayar || 0,
+      noPembayaran: p.no_pembayaran ?? null,
+    }))
 
     let tglTerbit: string | null = null
     let tglTerbitSource: MonitoringDetailRow['tglTerbitSource'] = 'none'
@@ -205,6 +359,7 @@ export function buildMonitoringDetailRows(opts: {
       tglBayarPertama: tglBayarList[0] ?? null,
       tglBayarTerakhir: tglBayarList[tglBayarList.length - 1] ?? null,
       tglBayarLabel: formatTglBayarLabel(tglBayarList),
+      pembayaranDetail,
       hariTerlambat: isLunas ? denda.hariTerlambat : hariForStatus,
       // Lunas: denda historis s.d. pelunasan; belum lunas: denda s.d. hari ini
       nominalDenda: isLunas
@@ -324,21 +479,21 @@ const STATUS_LABEL: Record<MonitoringStatusBayar, string> = {
 export function exportMonitoringExcel(
   tahun: number,
   detail: MonitoringDetailRow[],
-  proker: MonitoringProkerRow[],
+  groups: MonitoringGroup[],
+  groupBy: 'mitra' | 'proker',
 ): void {
   const wb = XLSX.utils.book_new()
   const today = new Date().toISOString().slice(0, 10)
 
   const detailSheet = [
     [
-      'ID Monika',
-      'Proker / Aset',
       'Mitra',
       'No. Perjanjian',
+      'ID Monika',
+      'Proker / Aset',
       'Periode',
       'No. Invoice',
       'Tgl Terbit',
-      'Sumber Tgl Terbit',
       'Tgl Jatuh Tempo',
       'Total Tagihan',
       'Cash In',
@@ -348,17 +503,15 @@ export function exportMonitoringExcel(
       'Denda',
       'Status Bayar',
       'Status KS',
-      'N Pembayaran',
     ],
     ...detail.map(r => [
-      r.monikaId ?? '—',
-      r.namaProker,
       r.namaMitra,
       r.noPerjanjian,
+      r.monikaId ?? '—',
+      r.namaProker,
       r.periodeLabel,
       r.noInvoice ?? '',
       r.tglTerbit ?? '',
-      r.tglTerbitSource,
       r.tglJatuhTempo,
       r.totalTagihan,
       r.cashIn,
@@ -368,48 +521,45 @@ export function exportMonitoringExcel(
       Math.round(r.nominalDenda),
       STATUS_LABEL[r.statusBayar],
       r.statusKs,
-      r.nPembayaran,
     ]),
   ]
   const ws1 = XLSX.utils.aoa_to_sheet(detailSheet)
-  ws1['!cols'] = [16, 28, 24, 20, 14, 18, 12, 12, 14, 14, 14, 12, 22, 10, 12, 12, 10, 10].map(wch => ({ wch }))
+  ws1['!cols'] = [24, 18, 16, 28, 14, 18, 12, 14, 14, 14, 12, 22, 10, 12, 12, 10].map(wch => ({ wch }))
   XLSX.utils.book_append_sheet(wb, ws1, 'Detail Tagihan')
 
-  const prokerSheet = [
+  const groupSheet = [
     [
+      groupBy === 'mitra' ? 'Mitra' : 'Proker',
       'ID Monika',
-      'Proker / Aset',
-      'Mitra',
+      groupBy === 'mitra' ? 'Proker' : 'Mitra',
+      'No. Perjanjian',
       'N Tagihan',
       'N Lunas',
       'N Terlambat',
-      'N Sebagian',
-      'N Belum',
       'Total Tagihan',
       'Cash In',
       'Outstanding',
       'Total Denda',
       '% Tertagih',
     ],
-    ...proker.map(r => [
-      r.monikaId,
-      r.namaProker,
-      r.mitraList.join('; '),
-      r.nTagihan,
-      r.nLunas,
-      r.nTerlambat,
-      r.nSebagian,
-      r.nBelumBayar,
-      r.totalTagihan,
-      r.cashIn,
-      r.outstanding,
-      Math.round(r.totalDenda),
-      r.pctTertagih != null ? +r.pctTertagih.toFixed(1) : null,
+    ...groups.map(g => [
+      g.title,
+      g.monikaId ?? '—',
+      groupBy === 'mitra' ? g.namaProker : g.namaMitra,
+      g.noPerjanjian,
+      g.nTagihan,
+      g.nLunas,
+      g.nTerlambat,
+      g.totalTagihan,
+      g.cashIn,
+      g.outstanding,
+      Math.round(g.totalDenda),
+      g.pctTertagih != null ? +g.pctTertagih.toFixed(1) : null,
     ]),
   ]
-  const ws2 = XLSX.utils.aoa_to_sheet(prokerSheet)
-  ws2['!cols'] = [16, 28, 36, 10, 10, 12, 10, 10, 14, 14, 14, 12, 10].map(wch => ({ wch }))
-  XLSX.utils.book_append_sheet(wb, ws2, 'Per Proker')
+  const ws2 = XLSX.utils.aoa_to_sheet(groupSheet)
+  ws2['!cols'] = [28, 16, 28, 18, 10, 10, 12, 14, 14, 14, 12, 10].map(wch => ({ wch }))
+  XLSX.utils.book_append_sheet(wb, ws2, groupBy === 'mitra' ? 'Per Mitra' : 'Per Proker')
 
   XLSX.writeFile(wb, `Monitoring_Kompensasi_${tahun}_${today}.xlsx`)
 }

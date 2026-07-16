@@ -2,11 +2,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import {
   Filter,
-  LayoutList,
-  Table2,
   FileSpreadsheet,
+  FileText,
   AlertTriangle,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  Download,
 } from 'lucide-react'
 import { useKompensasiStore } from '@/store/kompensasiStore'
 import { useKerjaSamaStore } from '@/store/kerjaSamaStore'
@@ -18,27 +20,21 @@ import { StatusBadge } from '@/components/common/StatusBadge'
 import { Button } from '@/components/ui/button'
 import { cn, formatTanggal } from '@/lib/utils'
 import {
-  aggregateMonitoringByProker,
   buildMonitoringDetailRows,
   exportMonitoringExcel,
+  groupMonitoringByMitra,
   MONITORING_STATUS_LABEL,
   summarizeMonitoringRows,
   type MonitoringDetailRow,
+  type MonitoringGroup,
   type MonitoringStatusBayar,
 } from '@/utils/monitoringKompensasiUtils'
+import {
+  downloadLaporanMitraDocx,
+  downloadLaporanSemuaMitraDocx,
+} from '@/utils/monitoringMitraDocx'
 
-type ViewMode = 'detail' | 'proker'
 type StatusFilter = 'all' | MonitoringStatusBayar
-type SortKey =
-  | 'tglJatuhTempo'
-  | 'monikaId'
-  | 'namaMitra'
-  | 'totalTagihan'
-  | 'cashIn'
-  | 'sisa'
-  | 'nominalDenda'
-  | 'statusBayar'
-type SortDir = 'asc' | 'desc'
 
 const STATUS_COLOR: Record<MonitoringStatusBayar, string> = {
   lunas: 'bg-green-100 text-green-700',
@@ -58,14 +54,14 @@ export default function MonitoringKompensasi() {
   const { daftarAset, fetchAset } = useAsetStore()
   const { rows: rkapRows, fetchRKAP } = useRKAPStore()
 
-  const [viewMode, setViewMode] = useState<ViewMode>('detail')
   const [tahun, setTahun] = useState(new Date().getFullYear())
   const [filterProker, setFilterProker] = useState('all')
   const [filterMitra, setFilterMitra] = useState('all')
   const [filterStatus, setFilterStatus] = useState<StatusFilter>('all')
   const [onlyDenda, setOnlyDenda] = useState(false)
-  const [sortKey, setSortKey] = useState<SortKey>('tglJatuhTempo')
-  const [sortDir, setSortDir] = useState<SortDir>('asc')
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [expandAll, setExpandAll] = useState(true)
+  const [exporting, setExporting] = useState<string | null>(null)
 
   useEffect(() => {
     fetchAllKompensasi()
@@ -85,6 +81,11 @@ export default function MonitoringKompensasi() {
     })
     return m
   }, [rkapRows])
+
+  const ksById = useMemo(
+    () => new Map(daftarKS.map(k => [k.id, k])),
+    [daftarKS],
+  )
 
   const tahunList = useMemo(() => {
     const years = new Set<number>([new Date().getFullYear()])
@@ -133,114 +134,99 @@ export default function MonitoringKompensasi() {
 
   const filteredDetail = useMemo(() => {
     let data = allDetail
-    if (filterProker !== 'all') {
-      data = data.filter(r => r.monikaId === filterProker)
-    }
-    if (filterMitra !== 'all') {
-      data = data.filter(r => r.ksId === filterMitra)
-    }
-    if (filterStatus !== 'all') {
-      data = data.filter(r => r.statusBayar === filterStatus)
-    }
-    if (onlyDenda) {
-      data = data.filter(r => r.nominalDenda > 0.5)
-    }
-
-    const dir = sortDir === 'asc' ? 1 : -1
-    data = [...data].sort((a, b) => {
-      const cmpStr = (x: string, y: string) => x.localeCompare(y, 'id') * dir
-      const cmpNum = (x: number, y: number) => (x - y) * dir
-      if (sortKey === 'tglJatuhTempo') return cmpStr(a.tglJatuhTempo, b.tglJatuhTempo)
-      if (sortKey === 'monikaId') return cmpStr(a.monikaId ?? 'zzz', b.monikaId ?? 'zzz')
-      if (sortKey === 'namaMitra') return cmpStr(a.namaMitra, b.namaMitra)
-      if (sortKey === 'totalTagihan') return cmpNum(a.totalTagihan, b.totalTagihan)
-      if (sortKey === 'cashIn') return cmpNum(a.cashIn, b.cashIn)
-      if (sortKey === 'sisa') return cmpNum(a.sisa, b.sisa)
-      if (sortKey === 'nominalDenda') return cmpNum(a.nominalDenda, b.nominalDenda)
-      if (sortKey === 'statusBayar') {
-        return cmpStr(
-          MONITORING_STATUS_LABEL[a.statusBayar],
-          MONITORING_STATUS_LABEL[b.statusBayar],
-        )
-      }
-      return 0
-    })
+    if (filterProker !== 'all') data = data.filter(r => r.monikaId === filterProker)
+    if (filterMitra !== 'all') data = data.filter(r => r.ksId === filterMitra)
+    if (filterStatus !== 'all') data = data.filter(r => r.statusBayar === filterStatus)
+    if (onlyDenda) data = data.filter(r => r.nominalDenda > 0.5)
     return data
-  }, [allDetail, filterProker, filterMitra, filterStatus, onlyDenda, sortKey, sortDir])
+  }, [allDetail, filterProker, filterMitra, filterStatus, onlyDenda])
 
-  const prokerRows = useMemo(
-    () => aggregateMonitoringByProker(filteredDetail),
+  /** Satu unit laporan = per mitra (kerja sama) */
+  const groups = useMemo(
+    () => groupMonitoringByMitra(filteredDetail),
     [filteredDetail],
   )
+
+  useEffect(() => {
+    if (expandAll) setExpanded(new Set(groups.map(g => g.key)))
+  }, [groups, expandAll])
 
   const summary = useMemo(
     () => summarizeMonitoringRows(filteredDetail),
     [filteredDetail],
   )
 
-  const toggleSort = (key: SortKey) => {
-    if (sortKey === key) setSortDir(d => (d === 'asc' ? 'desc' : 'asc'))
-    else {
-      setSortKey(key)
-      setSortDir(key === 'namaMitra' || key === 'monikaId' || key === 'tglJatuhTempo' ? 'asc' : 'desc')
+  const toggleGroup = (key: string) => {
+    setExpandAll(false)
+    setExpanded(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  const handleDownloadMitra = async (g: MonitoringGroup) => {
+    setExporting(g.key)
+    try {
+      await downloadLaporanMitraDocx({
+        group: g,
+        tahun,
+        ks: ksById.get(g.key),
+      })
+    } catch (e) {
+      console.error(e)
+      alert('Gagal membuat laporan Word.')
+    } finally {
+      setExporting(null)
     }
   }
 
-  const handleExport = () => {
-    exportMonitoringExcel(tahun, filteredDetail, prokerRows)
-  }
-
-  const drillToProker = (monikaId: string) => {
-    if (monikaId === '—') {
-      setFilterProker('all')
-    } else {
-      setFilterProker(monikaId)
+  const handleDownloadAll = async () => {
+    if (groups.length === 0) return
+    setExporting('all')
+    try {
+      await downloadLaporanSemuaMitraDocx({
+        groups,
+        tahun,
+        ksById,
+      })
+    } catch (e) {
+      console.error(e)
+      alert('Gagal membuat laporan Word.')
+    } finally {
+      setExporting(null)
     }
-    setViewMode('detail')
   }
 
   return (
     <div className="space-y-4 pb-8">
-      {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-lg font-bold text-gray-800">Monitoring Kompensasi — {tahun}</h1>
           <p className="text-xs text-gray-500 mt-1">
-            Track tagihan terbit, jatuh tempo, pembayaran, dan denda per kerja sama / proker (ID Monika)
+            Laporan historikal <strong>per mitra</strong>: identitas, track record invoice &amp; pembayaran,
+            keterlambatan, dan denda — unduh format Word
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex rounded-lg border bg-white p-0.5 shadow-sm">
-            <button
-              type="button"
-              onClick={() => setViewMode('detail')}
-              className={cn(
-                'inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors',
-                viewMode === 'detail' ? 'bg-[#1B4F72] text-white' : 'text-gray-600 hover:bg-gray-50',
-              )}
-            >
-              <LayoutList size={14} />
-              Detail Tagihan
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode('proker')}
-              className={cn(
-                'inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-colors',
-                viewMode === 'proker' ? 'bg-[#1B4F72] text-white' : 'text-gray-600 hover:bg-gray-50',
-              )}
-            >
-              <Table2 size={14} />
-              Per Proker
-            </button>
-          </div>
+          <Button
+            type="button"
+            size="sm"
+            className="h-8 text-xs bg-[#1B4F72] hover:bg-[#163f5c]"
+            onClick={handleDownloadAll}
+            disabled={groups.length === 0 || exporting !== null}
+          >
+            <FileText size={14} />
+            {exporting === 'all' ? 'Menyusun Word...' : 'Unduh Word semua mitra'}
+          </Button>
           <Button
             type="button"
             variant="outline"
             size="sm"
             className="h-8 text-xs"
-            onClick={handleExport}
+            onClick={() => exportMonitoringExcel(tahun, filteredDetail, groups, 'mitra')}
             disabled={filteredDetail.length === 0}
           >
             <FileSpreadsheet size={14} />
@@ -249,7 +235,6 @@ export default function MonitoringKompensasi() {
         </div>
       </div>
 
-      {/* Filters */}
       <div className="bg-white border rounded-xl px-4 py-3 flex flex-wrap items-center gap-3 shadow-sm">
         <Filter size={14} className="text-gray-400 shrink-0" />
 
@@ -266,7 +251,21 @@ export default function MonitoringKompensasi() {
           </select>
         </div>
 
-        <div className="flex items-center gap-1.5 min-w-[180px]">
+        <div className="flex items-center gap-1.5 min-w-[160px]">
+          <label className="text-xs text-gray-500 whitespace-nowrap">Mitra</label>
+          <SearchableSelect
+            className="h-8 text-xs min-w-[160px] max-w-[240px]"
+            value={filterMitra === 'all' ? '' : filterMitra}
+            onValueChange={v => setFilterMitra(v || 'all')}
+            options={mitraOptions}
+            placeholder="Semua mitra"
+            searchPlaceholder="Cari mitra..."
+            allowClear
+            clearLabel="Semua mitra"
+          />
+        </div>
+
+        <div className="flex items-center gap-1.5 min-w-[160px]">
           <label className="text-xs text-gray-500 whitespace-nowrap">Proker</label>
           <SearchableSelect
             className="h-8 text-xs min-w-[160px] max-w-[220px]"
@@ -280,22 +279,8 @@ export default function MonitoringKompensasi() {
           />
         </div>
 
-        <div className="flex items-center gap-1.5 min-w-[160px]">
-          <label className="text-xs text-gray-500 whitespace-nowrap">Mitra</label>
-          <SearchableSelect
-            className="h-8 text-xs min-w-[160px] max-w-[220px]"
-            value={filterMitra === 'all' ? '' : filterMitra}
-            onValueChange={v => setFilterMitra(v || 'all')}
-            options={mitraOptions}
-            placeholder="Semua mitra"
-            searchPlaceholder="Cari mitra..."
-            allowClear
-            clearLabel="Semua mitra"
-          />
-        </div>
-
         <div className="flex items-center gap-1.5">
-          <label className="text-xs text-gray-500 whitespace-nowrap">Status</label>
+          <label className="text-xs text-gray-500 whitespace-nowrap">Status tagihan</label>
           <select
             value={filterStatus}
             onChange={e => setFilterStatus(e.target.value as StatusFilter)}
@@ -319,14 +304,27 @@ export default function MonitoringKompensasi() {
           Hanya ada denda
         </label>
 
-        <span className="ml-auto text-xs text-gray-400">
-          {viewMode === 'detail'
-            ? `${filteredDetail.length} tagihan`
-            : `${prokerRows.length} proker`}
-        </span>
+        <div className="ml-auto flex items-center gap-2 text-xs text-gray-400">
+          <button
+            type="button"
+            className="hover:text-[#1B4F72] hover:underline"
+            onClick={() => { setExpandAll(true); setExpanded(new Set(groups.map(g => g.key))) }}
+          >
+            Buka semua
+          </button>
+          <span>·</span>
+          <button
+            type="button"
+            className="hover:text-[#1B4F72] hover:underline"
+            onClick={() => { setExpandAll(false); setExpanded(new Set()) }}
+          >
+            Tutup semua
+          </button>
+          <span className="text-gray-300">|</span>
+          <span>{groups.length} mitra · {filteredDetail.length} tagihan</span>
+        </div>
       </div>
 
-      {/* KPI */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <KpiCard label="Total Tagihan" value={summary.totalTagihan} />
         <KpiCard label="Cash In" value={summary.totalCashIn} color="text-emerald-700" />
@@ -340,33 +338,39 @@ export default function MonitoringKompensasi() {
           <p className="text-[10px] text-gray-400 mt-0.5">{summary.nLunas}/{summary.nTagihan} lunas</p>
         </div>
         <div className="rounded-xl border bg-white px-4 py-3 shadow-sm">
-          <p className="text-[10px] uppercase tracking-wide text-gray-400 font-medium">Terlambat</p>
+          <p className="text-[10px] uppercase tracking-wide text-gray-400 font-medium">Mitra bermasalah</p>
           <p className={cn(
             'text-sm font-bold tabular-nums mt-0.5',
-            summary.nTerlambat > 0 ? 'text-red-600' : 'text-gray-800',
+            groups.some(g => g.nTerlambat > 0) ? 'text-red-600' : 'text-gray-800',
           )}>
-            {summary.nTerlambat}
+            {groups.filter(g => g.nTerlambat > 0 || g.outstanding > 0.5).length}
           </p>
-          <p className="text-[10px] text-gray-400 mt-0.5">tagihan outstanding</p>
+          <p className="text-[10px] text-gray-400 mt-0.5">ada telat / outstanding</p>
         </div>
       </div>
 
       <p className="text-[11px] text-gray-500 -mt-1">
-        Tahun filter = <strong>tahun jatuh tempo</strong>.
-        Denda: outstanding dihitung s.d. hari ini; lunas dihitung s.d. tanggal pelunasan (historis).
-        Proker = ID Monika (<code className="text-[10px]">rkap_kode</code> / kode aset).
+        Satu kartu = <strong>satu mitra</strong>. Klik baris untuk melihat track record tahap;
+        tombol <strong>Word</strong> mengunduh laporan formal historikal mitra tersebut.
       </p>
 
-      {/* Tables */}
-      {viewMode === 'detail' ? (
-        <DetailTable
-          rows={filteredDetail}
-          sortKey={sortKey}
-          sortDir={sortDir}
-          onSort={toggleSort}
-        />
+      {groups.length === 0 ? (
+        <div className="rounded-xl border border-dashed bg-white px-6 py-12 text-center text-sm text-gray-400">
+          Tidak ada data mitra untuk filter yang dipilih
+        </div>
       ) : (
-        <ProkerTable rows={prokerRows} onDrill={drillToProker} />
+        <div className="space-y-3">
+          {groups.map(g => (
+            <MitraCard
+              key={g.key}
+              group={g}
+              open={expanded.has(g.key)}
+              onToggle={() => toggleGroup(g.key)}
+              onDownloadWord={() => handleDownloadMitra(g)}
+              downloading={exporting === g.key}
+            />
+          ))}
+        </div>
       )}
     </div>
   )
@@ -391,318 +395,262 @@ function KpiCard({
   )
 }
 
-function SortTh({
+function MitraCard({
+  group,
+  open,
+  onToggle,
+  onDownloadWord,
+  downloading,
+}: {
+  group: MonitoringGroup
+  open: boolean
+  onToggle: () => void
+  onDownloadWord: () => void
+  downloading: boolean
+}) {
+  const hasIssue = group.nTerlambat > 0 || group.outstanding > 0.5
+
+  return (
+    <div className={cn(
+      'rounded-xl border bg-white shadow-sm overflow-hidden',
+      hasIssue ? 'border-red-100' : 'border-gray-200/80',
+    )}>
+      <div className="flex items-stretch">
+        <button
+          type="button"
+          onClick={onToggle}
+          className="flex-1 text-left px-4 py-3.5 flex flex-wrap items-start gap-3 hover:bg-slate-50/80 transition-colors min-w-0"
+        >
+          <span className="mt-0.5 text-gray-400 shrink-0">
+            {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+          </span>
+
+          <div className="flex-1 min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-sm font-semibold text-gray-900">{group.namaMitra}</h2>
+              {group.statusKs !== '-' && (
+                <StatusBadge type="ks" value={group.statusKs as any} />
+              )}
+              {group.nTerlambat > 0 && (
+                <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-100">
+                  <AlertTriangle size={10} /> {group.nTerlambat} terlambat
+                </span>
+              )}
+              {group.nLunas === group.nTagihan && group.nTagihan > 0 && (
+                <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">
+                  <CheckCircle2 size={10} /> Semua lunas
+                </span>
+              )}
+            </div>
+            <p className="text-[11px] text-gray-500 mt-0.5 truncate">
+              {[
+                group.noPerjanjian !== '-' ? group.noPerjanjian : null,
+                group.monikaId,
+                group.namaProker,
+                group.namaAset,
+              ].filter(Boolean).join(' · ')}
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-1 text-right shrink-0">
+            <MiniStat label="Tagihan" value={group.totalTagihan} />
+            <MiniStat label="Cash In" value={group.cashIn} className="text-emerald-700" />
+            <MiniStat
+              label="Sisa"
+              value={group.outstanding}
+              className={group.outstanding > 0 ? 'text-red-600' : 'text-gray-400'}
+            />
+            <MiniStat
+              label="Denda"
+              value={group.totalDenda}
+              className={group.totalDenda > 0.5 ? 'text-amber-700' : 'text-gray-400'}
+            />
+          </div>
+
+          <div className="w-full sm:w-auto flex flex-wrap gap-2 text-[10px] text-gray-500">
+            <span className="bg-slate-50 border rounded-md px-2 py-0.5">{group.nTagihan} tahap</span>
+            <span className="bg-emerald-50 border border-emerald-100 text-emerald-700 rounded-md px-2 py-0.5">
+              {group.nLunas} lunas
+            </span>
+            {group.pctTertagih != null && (
+              <span className="bg-[#1B4F72]/5 border border-[#1B4F72]/15 text-[#1B4F72] rounded-md px-2 py-0.5 font-medium">
+                {group.pctTertagih.toFixed(0)}% tertagih
+              </span>
+            )}
+          </div>
+        </button>
+
+        <div className="flex items-center px-3 border-l bg-slate-50/50 shrink-0">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs border-[#1B4F72]/30 text-[#1B4F72] hover:bg-[#1B4F72]/5"
+            onClick={e => {
+              e.stopPropagation()
+              onDownloadWord()
+            }}
+            disabled={downloading}
+            title="Unduh laporan Word historikal mitra ini"
+          >
+            <Download size={13} />
+            {downloading ? '...' : 'Word'}
+          </Button>
+        </div>
+      </div>
+
+      {open && (
+        <div className="border-t bg-slate-50/40">
+          <div className="px-4 py-2 border-b bg-white/60 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[11px] text-gray-500">
+              Track record tagihan &amp; pembayaran — {group.namaMitra}
+            </p>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 text-[11px] text-[#1B4F72]"
+              onClick={onDownloadWord}
+              disabled={downloading}
+            >
+              <FileText size={12} />
+              Unduh laporan Word mitra ini
+            </Button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-gray-500 uppercase border-b bg-slate-50/80">
+                  <th className="text-left px-3 py-2 font-semibold w-8">#</th>
+                  <th className="text-left px-3 py-2 font-semibold">Periode</th>
+                  <th className="text-left px-3 py-2 font-semibold">No. Invoice</th>
+                  <th className="text-left px-3 py-2 font-semibold">Tgl Terbit</th>
+                  <th className="text-left px-3 py-2 font-semibold">Jatuh Tempo</th>
+                  <th className="text-right px-3 py-2 font-semibold">Tagihan</th>
+                  <th className="text-right px-3 py-2 font-semibold">Cash In</th>
+                  <th className="text-right px-3 py-2 font-semibold">Sisa</th>
+                  <th className="text-left px-3 py-2 font-semibold">Tgl Bayar</th>
+                  <th className="text-right px-3 py-2 font-semibold">Hari Telat</th>
+                  <th className="text-right px-3 py-2 font-semibold">Denda</th>
+                  <th className="text-left px-3 py-2 font-semibold">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y bg-white">
+                {group.rows.map((r, i) => (
+                  <TagihanRow key={r.id} row={r} index={i} />
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 bg-slate-50 font-semibold text-xs">
+                  <td colSpan={5} className="px-3 py-2 text-gray-600">
+                    Subtotal {group.namaMitra}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    <CurrencyDisplay value={group.totalTagihan} size="sm" />
+                  </td>
+                  <td className="px-3 py-2 text-right text-emerald-700">
+                    <CurrencyDisplay value={group.cashIn} size="sm" />
+                  </td>
+                  <td className="px-3 py-2 text-right text-red-600">
+                    <CurrencyDisplay value={group.outstanding} size="sm" />
+                  </td>
+                  <td colSpan={2} />
+                  <td className="px-3 py-2 text-right text-amber-700">
+                    {group.totalDenda > 0.5
+                      ? <CurrencyDisplay value={group.totalDenda} size="sm" className="text-amber-700" />
+                      : '—'}
+                  </td>
+                  <td />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function MiniStat({
   label,
-  col,
-  sortKey,
-  sortDir,
-  onSort,
-  align = 'left',
+  value,
+  className,
 }: {
   label: string
-  col: SortKey
-  sortKey: SortKey
-  sortDir: SortDir
-  onSort: (k: SortKey) => void
-  align?: 'left' | 'right'
-}) {
-  const active = sortKey === col
-  return (
-    <th
-      className={cn(
-        'px-2.5 py-2.5 font-semibold cursor-pointer select-none whitespace-nowrap',
-        align === 'right' ? 'text-right' : 'text-left',
-        active ? 'text-[#1B4F72]' : 'text-gray-500',
-      )}
-      onClick={() => onSort(col)}
-    >
-      {label}
-      {active && <span className="ml-0.5 text-[10px]">{sortDir === 'asc' ? '↑' : '↓'}</span>}
-    </th>
-  )
-}
-
-function DetailTable({
-  rows,
-  sortKey,
-  sortDir,
-  onSort,
-}: {
-  rows: MonitoringDetailRow[]
-  sortKey: SortKey
-  sortDir: SortDir
-  onSort: (k: SortKey) => void
+  value: number
+  className?: string
 }) {
   return (
-    <div className="bg-white rounded-xl border overflow-hidden shadow-sm">
-      <div className="overflow-auto max-h-[70vh]">
-        <table className="w-full text-xs">
-          <thead className="sticky top-0 z-10">
-            <tr className="bg-gray-50 text-gray-500 uppercase shadow-[0_1px_0_#e5e7eb]">
-              <th className="text-left px-2.5 py-2.5 w-8">#</th>
-              <SortTh label="Proker" col="monikaId" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-              <SortTh label="Mitra" col="namaMitra" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-              <th className="text-left px-2.5 py-2.5">Periode</th>
-              <th className="text-left px-2.5 py-2.5">No. Invoice</th>
-              <th className="text-left px-2.5 py-2.5">Tgl Terbit</th>
-              <SortTh label="Jatuh Tempo" col="tglJatuhTempo" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-              <SortTh label="Tagihan" col="totalTagihan" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" />
-              <SortTh label="Cash In" col="cashIn" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" />
-              <SortTh label="Sisa" col="sisa" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" />
-              <th className="text-left px-2.5 py-2.5">Tgl Bayar</th>
-              <th className="text-right px-2.5 py-2.5">Hari Telat</th>
-              <SortTh label="Denda" col="nominalDenda" sortKey={sortKey} sortDir={sortDir} onSort={onSort} align="right" />
-              <SortTh label="Status" col="statusBayar" sortKey={sortKey} sortDir={sortDir} onSort={onSort} />
-              <th className="text-left px-2.5 py-2.5">KS</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y">
-            {rows.length === 0 && (
-              <tr>
-                <td colSpan={15} className="px-4 py-10 text-center text-gray-400">
-                  Tidak ada data untuk filter yang dipilih
-                </td>
-              </tr>
-            )}
-            {rows.map((r, i) => (
-              <tr key={r.id} className="hover:bg-gray-50/80">
-                <td className="px-2.5 py-2 text-gray-400">{i + 1}</td>
-                <td className="px-2.5 py-2">
-                  <div className="font-mono text-[11px] text-[#1B4F72]">{r.monikaId ?? '—'}</div>
-                  <div className="text-[10px] text-gray-500 truncate max-w-[140px]" title={r.namaProker}>
-                    {r.namaProker}
-                  </div>
-                </td>
-                <td className="px-2.5 py-2">
-                  <div className="font-medium text-gray-800">{r.namaMitra}</div>
-                  <div className="text-[10px] text-gray-400 truncate max-w-[120px]">{r.noPerjanjian}</div>
-                </td>
-                <td className="px-2.5 py-2 text-gray-600 whitespace-nowrap">{r.periodeLabel}</td>
-                <td className="px-2.5 py-2">
-                  {r.noInvoice ? (
-                    <span className="font-mono text-[11px]">{r.noInvoice}</span>
-                  ) : (
-                    <span className="inline-flex text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-100">
-                      Belum terbit
-                    </span>
-                  )}
-                </td>
-                <td className="px-2.5 py-2 text-gray-600 whitespace-nowrap">
-                  {r.tglTerbit ? (
-                    <>
-                      {formatTanggal(r.tglTerbit)}
-                      {r.tglTerbitSource === 'created' && (
-                        <span className="block text-[9px] text-gray-400">dari created</span>
-                      )}
-                    </>
-                  ) : (
-                    '—'
-                  )}
-                </td>
-                <td className="px-2.5 py-2 text-gray-700 whitespace-nowrap font-medium">
-                  {formatTanggal(r.tglJatuhTempo)}
-                </td>
-                <td className="px-2.5 py-2 text-right">
-                  <CurrencyDisplay value={r.totalTagihan} size="sm" />
-                </td>
-                <td className="px-2.5 py-2 text-right text-emerald-700">
-                  <CurrencyDisplay value={r.cashIn} size="sm" />
-                </td>
-                <td className="px-2.5 py-2 text-right">
-                  <CurrencyDisplay
-                    value={r.sisa}
-                    size="sm"
-                    className={r.sisa > 0 ? 'text-red-600' : 'text-gray-400'}
-                  />
-                </td>
-                <td className="px-2.5 py-2 text-gray-600 whitespace-nowrap text-[11px]">
-                  {r.tglBayarLabel}
-                  {r.nPembayaran > 1 && (
-                    <span className="block text-[9px] text-gray-400">{r.nPembayaran}x bayar</span>
-                  )}
-                </td>
-                <td className="px-2.5 py-2 text-right tabular-nums">
-                  {r.hariTerlambat > 0 ? (
-                    <span className="text-red-600 font-medium">{r.hariTerlambat}</span>
-                  ) : (
-                    <span className="text-gray-300">0</span>
-                  )}
-                </td>
-                <td className="px-2.5 py-2 text-right">
-                  {r.nominalDenda > 0.5 ? (
-                    <span className="text-amber-700 font-medium">
-                      <CurrencyDisplay value={r.nominalDenda} size="sm" className="text-amber-700" />
-                    </span>
-                  ) : (
-                    <span className="text-gray-300">—</span>
-                  )}
-                </td>
-                <td className="px-2.5 py-2">
-                  <span className={cn(
-                    'inline-block px-2 py-0.5 rounded-full text-[10px] font-medium whitespace-nowrap',
-                    STATUS_COLOR[r.statusBayar],
-                  )}>
-                    {MONITORING_STATUS_LABEL[r.statusBayar]}
-                  </span>
-                </td>
-                <td className="px-2.5 py-2">
-                  <StatusBadge type="ks" value={r.statusKs as any} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-          {rows.length > 0 && (
-            <tfoot>
-              <tr className="border-t-2 bg-gray-50 font-semibold text-xs">
-                <td colSpan={7} className="px-2.5 py-2.5 text-gray-700">
-                  Total ({rows.length} tagihan)
-                </td>
-                <td className="px-2.5 py-2.5 text-right">
-                  <CurrencyDisplay value={rows.reduce((s, r) => s + r.totalTagihan, 0)} size="sm" />
-                </td>
-                <td className="px-2.5 py-2.5 text-right text-emerald-700">
-                  <CurrencyDisplay value={rows.reduce((s, r) => s + r.cashIn, 0)} size="sm" />
-                </td>
-                <td className="px-2.5 py-2.5 text-right text-red-600">
-                  <CurrencyDisplay value={rows.reduce((s, r) => s + r.sisa, 0)} size="sm" />
-                </td>
-                <td colSpan={2} />
-                <td className="px-2.5 py-2.5 text-right text-amber-700">
-                  <CurrencyDisplay value={rows.reduce((s, r) => s + r.nominalDenda, 0)} size="sm" />
-                </td>
-                <td colSpan={2} />
-              </tr>
-            </tfoot>
-          )}
-        </table>
-      </div>
+    <div>
+      <p className="text-[9px] uppercase tracking-wide text-gray-400">{label}</p>
+      <p className={cn('text-[11px] font-semibold tabular-nums', className)}>
+        <CurrencyDisplay value={value} size="sm" className={className} />
+      </p>
     </div>
   )
 }
 
-function ProkerTable({
-  rows,
-  onDrill,
-}: {
-  rows: ReturnType<typeof aggregateMonitoringByProker>
-  onDrill: (monikaId: string) => void
-}) {
+function TagihanRow({ row: r, index }: { row: MonitoringDetailRow; index: number }) {
   return (
-    <div className="bg-white rounded-xl border overflow-hidden shadow-sm">
-      <div className="overflow-auto max-h-[70vh]">
-        <table className="w-full text-xs">
-          <thead className="sticky top-0 z-10">
-            <tr className="bg-gray-50 text-gray-500 uppercase shadow-[0_1px_0_#e5e7eb]">
-              <th className="text-left px-3 py-2.5">#</th>
-              <th className="text-left px-3 py-2.5">ID Monika</th>
-              <th className="text-left px-3 py-2.5">Proker / Aset</th>
-              <th className="text-left px-3 py-2.5">Mitra</th>
-              <th className="text-right px-3 py-2.5">Tagihan</th>
-              <th className="text-right px-3 py-2.5">Lunas</th>
-              <th className="text-right px-3 py-2.5">Terlambat</th>
-              <th className="text-right px-3 py-2.5">Total Tagihan</th>
-              <th className="text-right px-3 py-2.5">Cash In</th>
-              <th className="text-right px-3 py-2.5">Outstanding</th>
-              <th className="text-right px-3 py-2.5">Denda</th>
-              <th className="text-right px-3 py-2.5">% Tertagih</th>
-              <th className="text-left px-3 py-2.5" />
-            </tr>
-          </thead>
-          <tbody className="divide-y">
-            {rows.length === 0 && (
-              <tr>
-                <td colSpan={13} className="px-4 py-10 text-center text-gray-400">
-                  Tidak ada data proker untuk filter yang dipilih
-                </td>
-              </tr>
-            )}
-            {rows.map((r, i) => (
-              <tr key={r.monikaId + r.namaProker} className="hover:bg-gray-50/80">
-                <td className="px-3 py-2.5 text-gray-400">{i + 1}</td>
-                <td className="px-3 py-2.5 font-mono text-[11px] text-[#1B4F72]">{r.monikaId}</td>
-                <td className="px-3 py-2.5 font-medium text-gray-800">{r.namaProker}</td>
-                <td className="px-3 py-2.5 text-gray-600 max-w-[180px]">
-                  <span className="line-clamp-2" title={r.mitraList.join(', ')}>
-                    {r.mitraList.length ? r.mitraList.join(', ') : '—'}
-                  </span>
-                </td>
-                <td className="px-3 py-2.5 text-right tabular-nums">{r.nTagihan}</td>
-                <td className="px-3 py-2.5 text-right">
-                  <span className="inline-flex items-center gap-0.5 text-emerald-700">
-                    <CheckCircle2 size={11} /> {r.nLunas}
-                  </span>
-                </td>
-                <td className="px-3 py-2.5 text-right">
-                  {r.nTerlambat > 0 ? (
-                    <span className="inline-flex items-center gap-0.5 text-red-600 font-medium">
-                      <AlertTriangle size={11} /> {r.nTerlambat}
-                    </span>
-                  ) : (
-                    <span className="text-gray-300">0</span>
-                  )}
-                </td>
-                <td className="px-3 py-2.5 text-right">
-                  <CurrencyDisplay value={r.totalTagihan} size="sm" />
-                </td>
-                <td className="px-3 py-2.5 text-right text-emerald-700">
-                  <CurrencyDisplay value={r.cashIn} size="sm" />
-                </td>
-                <td className="px-3 py-2.5 text-right text-red-600">
-                  <CurrencyDisplay value={r.outstanding} size="sm" />
-                </td>
-                <td className="px-3 py-2.5 text-right text-amber-700">
-                  {r.totalDenda > 0.5
-                    ? <CurrencyDisplay value={r.totalDenda} size="sm" className="text-amber-700" />
-                    : <span className="text-gray-300">—</span>}
-                </td>
-                <td className="px-3 py-2.5 text-right tabular-nums font-medium text-[#1B4F72]">
-                  {r.pctTertagih != null ? `${r.pctTertagih.toFixed(1)}%` : '—'}
-                </td>
-                <td className="px-3 py-2.5">
-                  <button
-                    type="button"
-                    onClick={() => onDrill(r.monikaId)}
-                    className="text-[11px] text-[#1B4F72] hover:underline whitespace-nowrap"
-                  >
-                    Lihat detail
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-          {rows.length > 0 && (
-            <tfoot>
-              <tr className="border-t-2 bg-gray-50 font-semibold text-xs">
-                <td colSpan={4} className="px-3 py-2.5 text-gray-700">
-                  Total ({rows.length} proker)
-                </td>
-                <td className="px-3 py-2.5 text-right">
-                  {rows.reduce((s, r) => s + r.nTagihan, 0)}
-                </td>
-                <td className="px-3 py-2.5 text-right text-emerald-700">
-                  {rows.reduce((s, r) => s + r.nLunas, 0)}
-                </td>
-                <td className="px-3 py-2.5 text-right text-red-600">
-                  {rows.reduce((s, r) => s + r.nTerlambat, 0)}
-                </td>
-                <td className="px-3 py-2.5 text-right">
-                  <CurrencyDisplay value={rows.reduce((s, r) => s + r.totalTagihan, 0)} size="sm" />
-                </td>
-                <td className="px-3 py-2.5 text-right text-emerald-700">
-                  <CurrencyDisplay value={rows.reduce((s, r) => s + r.cashIn, 0)} size="sm" />
-                </td>
-                <td className="px-3 py-2.5 text-right text-red-600">
-                  <CurrencyDisplay value={rows.reduce((s, r) => s + r.outstanding, 0)} size="sm" />
-                </td>
-                <td className="px-3 py-2.5 text-right text-amber-700">
-                  <CurrencyDisplay value={rows.reduce((s, r) => s + r.totalDenda, 0)} size="sm" />
-                </td>
-                <td colSpan={2} />
-              </tr>
-            </tfoot>
-          )}
-        </table>
-      </div>
-    </div>
+    <tr className="hover:bg-gray-50/80">
+      <td className="px-3 py-2 text-gray-400">{index + 1}</td>
+      <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{r.periodeLabel}</td>
+      <td className="px-3 py-2">
+        {r.noInvoice ? (
+          <span className="font-mono text-[11px]">{r.noInvoice}</span>
+        ) : (
+          <span className="inline-flex text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-100">
+            Belum terbit
+          </span>
+        )}
+      </td>
+      <td className="px-3 py-2 text-gray-600 whitespace-nowrap">
+        {r.tglTerbit ? formatTanggal(r.tglTerbit) : '—'}
+      </td>
+      <td className="px-3 py-2 text-gray-800 font-medium whitespace-nowrap">
+        {formatTanggal(r.tglJatuhTempo)}
+      </td>
+      <td className="px-3 py-2 text-right">
+        <CurrencyDisplay value={r.totalTagihan} size="sm" />
+      </td>
+      <td className="px-3 py-2 text-right text-emerald-700">
+        <CurrencyDisplay value={r.cashIn} size="sm" />
+      </td>
+      <td className="px-3 py-2 text-right">
+        <CurrencyDisplay
+          value={r.sisa}
+          size="sm"
+          className={r.sisa > 0 ? 'text-red-600' : 'text-gray-400'}
+        />
+      </td>
+      <td className="px-3 py-2 text-gray-600 whitespace-nowrap text-[11px]">
+        {r.tglBayarLabel}
+        {r.nPembayaran > 1 && (
+          <span className="block text-[9px] text-gray-400">{r.nPembayaran}x bayar</span>
+        )}
+      </td>
+      <td className="px-3 py-2 text-right tabular-nums">
+        {r.hariTerlambat > 0 ? (
+          <span className="text-red-600 font-medium">{r.hariTerlambat}</span>
+        ) : (
+          <span className="text-gray-300">0</span>
+        )}
+      </td>
+      <td className="px-3 py-2 text-right">
+        {r.nominalDenda > 0.5 ? (
+          <CurrencyDisplay value={r.nominalDenda} size="sm" className="text-amber-700" />
+        ) : (
+          <span className="text-gray-300">—</span>
+        )}
+      </td>
+      <td className="px-3 py-2">
+        <span className={cn(
+          'inline-block px-2 py-0.5 rounded-full text-[10px] font-medium whitespace-nowrap',
+          STATUS_COLOR[r.statusBayar],
+        )}>
+          {MONITORING_STATUS_LABEL[r.statusBayar]}
+        </span>
+      </td>
+    </tr>
   )
 }
