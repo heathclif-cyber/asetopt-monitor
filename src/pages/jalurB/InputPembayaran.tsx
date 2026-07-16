@@ -445,7 +445,7 @@ export function InputPembayaran() {
             {viewMode === 'input'
               ? (editingId
                 ? 'Mode edit — ubah data pembayaran yang sudah tercatat, lalu simpan'
-                : 'Satu form = satu pembayaran · pilih mitra & tahap tagihan · invoice tidak wajib')
+                : 'Satu form = satu pembayaran · pilih mitra & tahap tagihan · dokumen Superman tidak wajib untuk simpan')
               : 'Satu baris = satu transaksi cash in · cari aset/mitra/Monika · edit atau hapus dari daftar'}
           </p>
         </div>

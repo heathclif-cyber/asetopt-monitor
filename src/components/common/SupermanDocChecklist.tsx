@@ -56,7 +56,8 @@ export function SupermanDocChecklist({ kompensasiId, refreshKey, onReadyChange }
         <div>
           <p className="text-xs font-semibold text-gray-700">Dokumen Superman</p>
           <p className="text-[10px] text-gray-500">
-            Wajib: Kontrak (per KS), Invoice &amp; Rekening Koran (per tahap ini) — dilampirkan ke SPPn
+            Wajib hanya saat Kirim ke Superman (bukan untuk simpan cash in):
+            Kontrak (per KS), Invoice &amp; Rekening Koran (per tahap) — dilampirkan ke SPPn
           </p>
         </div>
         <span className={`text-[10px] px-2 py-0.5 rounded-full ${
