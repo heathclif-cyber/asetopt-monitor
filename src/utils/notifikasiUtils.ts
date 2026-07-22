@@ -9,6 +9,11 @@ export function cekJatuhTempoH14(daftarKompensasi: Kompensasi[]): Kompensasi[] {
   h14.setHours(23, 59, 59, 999)
 
   return daftarKompensasi.filter(k => {
+    const efektifTagihan = Math.max(0, (k.total_tagihan ?? 0) - (k.pengurang ?? 0))
+    const totalDibayar = (k.pembayaran ?? []).reduce((s, p) => s + p.nominal_bayar, 0)
+    if (totalDibayar >= efektifTagihan && efektifTagihan > 0) return false
+    if (efektifTagihan <= 0) return false
+
     const jt = new Date(k.tgl_jatuh_tempo)
     return jt >= hariIni && jt <= h14
   })

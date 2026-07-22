@@ -70,8 +70,10 @@ export function NotifikasiSP() {
     const byKS: Record<string, { ks_id: string; tglJT: string; maksHari: number; namaAset: string; namaMitra: string; totalSisa: number }> = {}
 
     allKompensasi.forEach(k => {
+      // Sama dengan getKompensasiWithStatus: lunas = bayar ≥ (total_tagihan − pengurang)
+      const efektifTagihan = Math.max(0, (k.total_tagihan ?? 0) - (k.pengurang ?? 0))
       const totalDibayar = (k.pembayaran ?? []).reduce((s, p) => s + p.nominal_bayar, 0)
-      const sisa = (k.total_tagihan ?? 0) - totalDibayar
+      const sisa = Math.max(0, efektifTagihan - totalDibayar)
       if (sisa <= 0) return   // sudah lunas, skip
       const today = new Date(); today.setHours(0,0,0,0)
       const graceEnd = addDays(k.tgl_jatuh_tempo, k.maks_hari_bayar ?? 0)
