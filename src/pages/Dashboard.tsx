@@ -599,13 +599,17 @@ export function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card className={`cursor-pointer hover:shadow-md transition-shadow ${stats.totalPiutang > 0 ? 'border-orange-300' : ''}`} onClick={() => setDrillDown({ title: 'Total Piutang (Belum Bayar)', type: 'piutang' })}>
+        <Card
+          className={`cursor-pointer hover:shadow-md transition-shadow ${stats.totalPiutang > 0 ? 'border-orange-300' : ''}`}
+          onClick={() => navigate('/jalur-b/piutang')}
+          title="Buka halaman Piutang (Jalur B)"
+        >
           <CardContent className="p-5">
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-xs text-gray-500 font-medium">Total Piutang (Belum Bayar)</p>
                 <CurrencyDisplay value={stats.totalPiutang} size="lg" className="text-orange-600 mt-1 block" />
-                <p className="text-[10px] text-gray-400 mt-1">{piutangList.length} tagihan</p>
+                <p className="text-[10px] text-gray-400 mt-1">{piutangList.length} tagihan · klik buka Piutang</p>
               </div>
               <WalletCards className={stats.totalPiutang > 0 ? 'text-orange-500' : 'text-gray-400'} size={22} />
             </div>
@@ -784,10 +788,17 @@ export function Dashboard() {
             <WalletCards size={16} className="text-orange-500" />
             Piutang Belum Dibayar
             {piutangList.length > 0 && (
-              <span className="ml-auto text-xs font-normal text-orange-600 bg-orange-50 border border-orange-200 px-2 py-0.5 rounded-full">
+              <span className="text-xs font-normal text-orange-600 bg-orange-50 border border-orange-200 px-2 py-0.5 rounded-full">
                 {piutangList.length} tagihan
               </span>
             )}
+            <button
+              type="button"
+              onClick={() => navigate('/jalur-b/piutang')}
+              className="ml-auto text-xs font-medium text-[#1B4F72] hover:underline flex items-center gap-0.5"
+            >
+              Buka Piutang <ChevronRight size={14} />
+            </button>
           </CardTitle>
         </CardHeader>
         <CardContent>

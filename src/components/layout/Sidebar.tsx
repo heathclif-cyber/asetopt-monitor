@@ -40,6 +40,7 @@ const navItems: NavItem[] = [
       { label: 'Kompensasi', to: '/jalur-b/kompensasi' },
       { label: 'Buat Invoice', to: '/jalur-b/invoice' },
       { label: 'Input Cash In', to: '/jalur-b/pembayaran' },
+      { label: 'Piutang', to: '/jalur-b/piutang' },
       { label: 'Pembayaran PBB', to: '/jalur-b/pbb' },
       { label: 'Notifikasi & SP', to: '/jalur-b/notifikasi' },
       { label: 'Laporan Pendapatan', to: '/jalur-b/laporan' },

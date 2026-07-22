@@ -21,7 +21,7 @@ import {
 type ViewMode = 'detail' | 'program'
 type SortKey = 'namaMitra' | 'namaAset' | 'periodeLabel' | 'tglJatuhTempo' | 'totalTagihan' | 'cashIn' | 'sisa' | 'status' | 'pendapatanAkrual'
 type SortDir = 'asc' | 'desc'
-type StatusFilter = 'all' | 'lunas' | 'belum_lunas'
+type StatusFilter = 'all' | 'outstanding' | 'lunas' | 'terlambat'
 /** Filter tampilan periode (bukan sort) */
 type PeriodeMode = 'semua' | 'terbaru' | 'terdekat'
 /** Basis filter tahun/bulan: JT tagihan vs tanggal pembayaran diterima */
@@ -237,8 +237,9 @@ export default function LaporanPendapatan() {
     let data = allRows
 
     if (filterMitra !== 'all') data = data.filter(r => r.ksId === filterMitra)
-    if (filterStatus === 'lunas') data = data.filter(r => r.status === 'lunas')
-    else if (filterStatus === 'belum_lunas') data = data.filter(r => r.status !== 'lunas')
+    if (filterStatus === 'outstanding') data = data.filter(r => r.sisa > 0)
+    else if (filterStatus === 'lunas') data = data.filter(r => r.status === 'lunas')
+    else if (filterStatus === 'terlambat') data = data.filter(r => r.status === 'terlambat')
 
     // Filter bulan: JT tagihan ATAU bulan tgl_bayar (diterima)
     if (selectedMonths.length < 12) {
@@ -548,11 +549,20 @@ export default function LaporanPendapatan() {
               <label className="text-xs text-gray-500 whitespace-nowrap">Status</label>
               <select
                 value={filterStatus}
-                onChange={e => setFilterStatus(e.target.value as StatusFilter)}
+                onChange={e => {
+                  const v = e.target.value as StatusFilter
+                  setFilterStatus(v)
+                  if (v === 'outstanding') {
+                    setSortKey('sisa')
+                    setSortDir('desc')
+                  }
+                }}
                 className="text-xs border rounded-md px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-[#1B4F72]"
+                title="Outstanding = tagihan dengan sisa > 0"
               >
                 <option value="all">Semua</option>
-                <option value="belum_lunas">Belum Lunas</option>
+                <option value="outstanding">Outstanding</option>
+                <option value="terlambat">Terlambat</option>
                 <option value="lunas">Lunas</option>
               </select>
             </div>
@@ -680,7 +690,22 @@ export default function LaporanPendapatan() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <SummaryCard label="Total Tagihan" value={totalTagihan} color="text-gray-800" />
             <SummaryCard label="Cash In" value={totalCashIn} color="text-green-700" />
-            <SummaryCard label="Outstanding" value={totalSisa} color="text-red-600" />
+            <SummaryCard
+              label="Outstanding"
+              value={totalSisa}
+              color="text-red-600"
+              active={filterStatus === 'outstanding'}
+              onClick={() => {
+                if (filterStatus === 'outstanding') {
+                  setFilterStatus('all')
+                } else {
+                  setFilterStatus('outstanding')
+                  setSortKey('sisa')
+                  setSortDir('desc')
+                }
+              }}
+              hint={filterStatus === 'outstanding' ? 'Klik untuk tampilkan semua' : 'Klik untuk filter outstanding'}
+            />
             <div className="bg-white rounded-xl border px-4 py-3">
               <p className="text-xs text-gray-500">% Tertagih</p>
               <p className="text-lg font-bold text-[#1B4F72] mt-0.5">{pctTertagih.toFixed(1)}%</p>
@@ -1047,10 +1072,45 @@ function ProgramView({
 
 // ─── Summary Card ─────────────────────────────────────────────────────────────
 
-function SummaryCard({ label, value, color }: { label: string; value: number; color: string }) {
+function SummaryCard({
+  label,
+  value,
+  color,
+  active,
+  onClick,
+  hint,
+}: {
+  label: string
+  value: number
+  color: string
+  active?: boolean
+  onClick?: () => void
+  hint?: string
+}) {
+  const interactive = Boolean(onClick)
   return (
-    <div className="bg-white rounded-xl border px-4 py-3">
-      <p className="text-xs text-gray-500">{label}</p>
+    <div
+      role={interactive ? 'button' : undefined}
+      tabIndex={interactive ? 0 : undefined}
+      title={hint}
+      onClick={onClick}
+      onKeyDown={interactive
+        ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick?.() } }
+        : undefined}
+      className={cn(
+        'bg-white rounded-xl border px-4 py-3',
+        interactive && 'cursor-pointer select-none transition-shadow hover:shadow-sm',
+        active && 'ring-2 ring-red-400 border-red-300 bg-red-50/40',
+      )}
+    >
+      <p className="text-xs text-gray-500">
+        {label}
+        {interactive && (
+          <span className="ml-1 text-[10px] font-normal text-gray-400">
+            {active ? '· aktif' : '· filter'}
+          </span>
+        )}
+      </p>
       <p className={`text-lg font-bold ${color} mt-0.5`}>{formatRupiah(value)}</p>
     </div>
   )
