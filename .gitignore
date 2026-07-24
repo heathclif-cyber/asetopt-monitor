@@ -10,9 +10,12 @@ dist-ssr/
 .env
 .env.local
 .env.*.local
+.env.selfhost
 api/.env
 api/uploads/
 api/.superman_state.json
+api/data/
+backups/
 __pycache__/
 *.pyc
 terminals/

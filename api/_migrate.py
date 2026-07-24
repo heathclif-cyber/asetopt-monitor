@@ -1,3 +1,4 @@
+import os
 import re
 import sys
 from pathlib import Path
@@ -12,12 +13,19 @@ SKIP = {
     "001_initial_schema.sql",
     "003_anon_policies.sql",
 }
-MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "supabase" / "migrations"
 
 RLS_LINE = re.compile(
     r"^\s*(ALTER TABLE .+ ENABLE ROW LEVEL SECURITY|CREATE POLICY .+|FOR ALL TO (anon|authenticated).+)\s*;?\s*$",
     re.IGNORECASE,
 )
+
+
+def _migrations_dir() -> Path:
+    env = os.getenv("MIGRATIONS_DIR", "").strip()
+    if env:
+        return Path(env)
+    # Default: <repo>/supabase/migrations (saat dijalankan dari api/)
+    return Path(__file__).resolve().parent.parent / "supabase" / "migrations"
 
 
 def strip_supabase_rls(sql: str) -> str:
@@ -37,11 +45,13 @@ def strip_supabase_rls(sql: str) -> str:
 
 
 def main():
-    files = sorted(MIGRATIONS_DIR.glob("*.sql"))
+    migrations_dir = _migrations_dir()
+    files = sorted(migrations_dir.glob("*.sql"))
     if not files:
-        print("No migration files found")
+        print(f"No migration files found in {migrations_dir}")
         sys.exit(1)
 
+    print(f"Migrations dir: {migrations_dir}")
     with engine.begin() as conn:
         for path in files:
             if path.name in SKIP:
