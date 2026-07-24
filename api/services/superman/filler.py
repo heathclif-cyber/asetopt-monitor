@@ -598,7 +598,15 @@ def submit_sppn_draft(
             except Exception:
                 store_body = None
 
-    page.wait_for_load_state("networkidle", timeout=120000)
+    # Jangan pakai networkidle — SPA Superman sering punya poll/websocket
+    # yang membuat wait menggantung di Railway sampai timeout.
+    try:
+        page.wait_for_load_state("domcontentloaded", timeout=15000)
+    except Exception:
+        pass
+    page.wait_for_timeout(2000)
+    if on_progress:
+        on_progress(91, "Draft tersimpan di Superman")
     return store_body
 
 

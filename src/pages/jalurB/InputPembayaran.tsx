@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -59,6 +59,7 @@ export function InputPembayaran() {
   const [lastSaved, setLastSaved] = useState<Pembayaran | null>(null)
   const [supermanStatus, setSupermanStatus] = useState<SupermanStatus | null>(null)
   const [saving, setSaving] = useState(false)
+  const savingRef = useRef(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Pembayaran | null>(null)
   const [deleting, setDeleting] = useState(false)
@@ -299,6 +300,28 @@ export function InputPembayaran() {
     }
   }
 
+  const recoverSuperman = async (kompensasiId: string) => {
+    try {
+      const res = await api.post<{
+        ok?: boolean
+        superman_saved?: string | null
+        message?: string
+      }>(`/api/superman/recover?kompensasi_id=${kompensasiId}`)
+      await fetchAllKompensasi()
+      if (res.ok && res.superman_saved) {
+        alert(res.message ?? `Nomor Superman dipulihkan: ${res.superman_saved}`)
+      } else {
+        alert(res.message ?? 'Gagal memulihkan nomor dari To Do List Superman')
+      }
+    } catch (e: any) {
+      if (e.message?.includes('captcha') || e.message?.includes('Captcha')) {
+        setCaptchaOpen(true)
+      } else {
+        alert(e.message ?? 'Gagal pulihkan nomor Superman')
+      }
+    }
+  }
+
   const cancelEdit = () => {
     setEditingId(null)
     form.setValue('tgl_bayar', new Date().toISOString().split('T')[0])
@@ -336,10 +359,31 @@ export function InputPembayaran() {
 
   const onSubmit = async (data: FormData) => {
     if (!selected) return
+    // Guard sinkron: setState(saving) belum re-render → cegah double-click
+    if (savingRef.current || saving) return
     if (lockedBySuperman && !editingId) {
       alert('Kompensasi sudah punya nomor Superman — pembayaran tidak bisa ditambah.')
       return
     }
+
+    const sisaAvail = editingId
+      ? (ws?.sisaTagihan ?? 0) + (
+        riwayat.find(p => String(p.id) === String(editingId))?.nominal_bayar
+        ?? allCashInRows.find(r => String(r.payment.id) === String(editingId))?.payment.nominal_bayar
+        ?? 0
+      )
+      : (ws?.sisaTagihan ?? 0)
+
+    if (data.nominal_bayar > sisaAvail + 0.5) {
+      alert(
+        sisaAvail <= 0.5
+          ? 'Tagihan sudah lunas — tidak bisa menambah pembayaran.'
+          : `Nominal melebihi sisa tagihan. Sisa tersedia: ${formatRupiah(sisaAvail)}`,
+      )
+      return
+    }
+
+    savingRef.current = true
     setSaving(true)
     try {
       if (editingId) {
@@ -352,6 +396,11 @@ export function InputPembayaran() {
         })
         setLastSaved(saved)
         setEditingId(null)
+        form.setValue('nominal_bayar', 0)
+        form.setValue('keterangan', '')
+        form.setValue('bukti_url', '')
+        form.setValue('is_pph_disetor', false)
+        form.setValue('tgl_bayar', new Date().toISOString().split('T')[0])
         await fetchAllKompensasi()
         setRiwayatTick(t => t + 1)
         switchView('daftar')
@@ -365,16 +414,20 @@ export function InputPembayaran() {
           bukti_url: data.bukti_url || null,
         })
         setLastSaved(saved)
-        await fetchAllKompensasi()
-        setRiwayatTick(t => t + 1)
+        // Reset nominal dulu agar tombol Simpan tidak aktif sebelum riwayat refresh
+        form.setValue('nominal_bayar', 0)
         form.setValue('keterangan', '')
         form.setValue('bukti_url', '')
         form.setValue('tgl_bayar', new Date().toISOString().split('T')[0])
         form.setValue('is_pph_disetor', false)
+        await fetchAllKompensasi()
+        setRiwayatTick(t => t + 1)
+        switchView('daftar')
       }
     } catch (e: any) {
       alert(e.message ?? (editingId ? 'Gagal mengubah pembayaran' : 'Gagal menyimpan pembayaran'))
     } finally {
+      savingRef.current = false
       setSaving(false)
     }
   }
@@ -430,7 +483,8 @@ export function InputPembayaran() {
     && !saving
     && !lockedBySuperman
     && nominalWatch > 0
-    && (editingId || sisaUntukInput > 0.5)
+    && sisaUntukInput > 0.5
+    && nominalWatch <= sisaUntukInput + 0.5
   )
 
   const previewSisa = Math.max(0, sisaUntukInput - (nominalWatch || 0))
@@ -659,8 +713,16 @@ export function InputPembayaran() {
                       onChange={v => form.setValue('nominal_bayar', v)}
                       disabled={lockedBySuperman}
                     />
-                    {editingId && sisaUntukInput > 0 && (
+                    {sisaUntukInput > 0.5 && (
                       <p className="text-[11px] text-gray-400">Maks. {formatRupiah(sisaUntukInput)}</p>
+                    )}
+                    {!editingId && selected && sisaUntukInput <= 0.5 && (
+                      <p className="text-[11px] text-amber-700">Tagihan sudah lunas — tidak bisa menambah cash in.</p>
+                    )}
+                    {nominalWatch > 0 && nominalWatch > sisaUntukInput + 0.5 && sisaUntukInput > 0.5 && (
+                      <p className="text-[11px] text-red-600">
+                        Nominal melebihi sisa {formatRupiah(sisaUntukInput)}
+                      </p>
                     )}
                   </div>
                 </div>
@@ -753,15 +815,33 @@ export function InputPembayaran() {
                   onReadyChange={setDocsReady}
                 />
                 {!selected.superman && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="border-[#1B4F72] text-[#1B4F72]"
-                    disabled={!canAutoSuperman}
-                    onClick={() => selected && startSuperman(selected.id)}
-                  >
-                    <Zap size={14} /> Kirim ke Superman
-                  </Button>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="border-[#1B4F72] text-[#1B4F72]"
+                      disabled={!canAutoSuperman}
+                      onClick={() => selected && startSuperman(selected.id)}
+                    >
+                      <Zap size={14} /> Kirim ke Superman
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="border-amber-300 text-amber-800"
+                      disabled={!supermanReady || !selected}
+                      title="Ambil nomor SPPn/SPPb dari To Do List jika draft sudah masuk Superman"
+                      onClick={() => selected && recoverSuperman(selected.id)}
+                    >
+                      Pulihkan nomor Superman
+                    </Button>
+                  </div>
+                )}
+                {!selected.superman && (
+                  <p className="text-[11px] text-gray-500">
+                    Jika progress berhenti di verifikasi To Do tetapi draft sudah terlihat di Superman,
+                    gunakan <strong>Pulihkan nomor Superman</strong>.
+                  </p>
                 )}
               </div>
             </details>

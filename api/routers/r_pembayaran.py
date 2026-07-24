@@ -102,10 +102,11 @@ def _maybe_trigger_superman(db: Session, kompensasi: models.Kompensasi) -> dict 
 
 @router.post("", response_model=schemas.PembayaranOut)
 def create_pembayaran(body: schemas.PembayaranCreate, db: Session = Depends(get_db)):
+    # Lock baris kompensasi agar race double-submit tidak lolos validasi sisa tagihan
     kompensasi = (
         db.query(models.Kompensasi)
-        .options(joinedload(models.Kompensasi.kerja_sama))
         .filter(models.Kompensasi.id == body.kompensasi_id)
+        .with_for_update()
         .first()
     )
     if not kompensasi:
@@ -162,14 +163,18 @@ def update_pembayaran(
 ):
     pay = (
         db.query(models.Pembayaran)
-        .options(joinedload(models.Pembayaran.kompensasi).joinedload(models.Kompensasi.kerja_sama))
         .filter(models.Pembayaran.id == pembayaran_id)
         .first()
     )
     if not pay:
         raise HTTPException(status_code=404, detail="Pembayaran tidak ditemukan")
 
-    kompensasi = pay.kompensasi
+    kompensasi = (
+        db.query(models.Kompensasi)
+        .filter(models.Kompensasi.id == pay.kompensasi_id)
+        .with_for_update()
+        .first()
+    )
     if not kompensasi:
         raise HTTPException(status_code=404, detail="Kompensasi tidak ditemukan")
 

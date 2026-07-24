@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { useEffect, useRef, useState } from 'react'
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
 import { api } from '@/lib/apiClient'
 import type { SupermanDeklarasiProgress } from '@/types'
 
@@ -24,41 +25,74 @@ export function SupermanProgressDialog({ open, jobId, onDone, onError, onClose }
   const [percent, setPercent] = useState(0)
   const [stage, setStage] = useState('Memulai otomasi Playwright...')
   const [errorDetail, setErrorDetail] = useState<string | null>(null)
+  const [doneMessage, setDoneMessage] = useState<string | null>(null)
+  const [pollMisses, setPollMisses] = useState(0)
+  const finishedRef = useRef(false)
 
   useEffect(() => {
     if (!open || !jobId) return
     setPercent(0)
     setStage('Memulai otomasi Playwright...')
     setErrorDetail(null)
+    setDoneMessage(null)
+    setPollMisses(0)
+    finishedRef.current = false
     let cancelled = false
+    let consecutiveMisses = 0
 
     const poll = async () => {
-      while (!cancelled) {
+      while (!cancelled && !finishedRef.current) {
         try {
           const res = await api.get<SupermanDeklarasiProgress>(
             `/api/superman/deklarasi/progress?job_id=${jobId}`,
           )
+          consecutiveMisses = 0
+          setPollMisses(0)
           setPercent(res.percent ?? 0)
           setStage(res.stage ?? 'Memproses...')
 
           if (res.status === 'completed') {
+            finishedRef.current = true
             const ref = extractSupermanRef(res)
+            const msg = res.result?.message
+              ?? (ref ? `Berhasil: ${ref}` : 'Draft SPPn/SPPb berhasil dikirim ke Superman')
             if (ref) {
               onDone(ref)
             } else {
-              onDone(res.result?.message ?? 'Draft SPPn/SPPb berhasil dikirim ke Superman')
+              // Draft sukses tapi nomor belum terbaca — biarkan user tutup dialog
+              setDoneMessage(msg)
+              setPercent(100)
+              setStage('Selesai (nomor belum terbaca otomatis)')
             }
             return
           }
           if (res.status === 'failed') {
+            finishedRef.current = true
             const msg = res.error ?? 'Superman gagal'
             setErrorDetail(msg)
             onError(msg)
             return
           }
         } catch (e: any) {
-          onError(e.message ?? 'Gagal memantau progres Superman')
-          return
+          const msg = String(e?.message ?? '')
+          // Job hilang (multi-instance / restart) — jangan langsung fail keras
+          if (msg.includes('tidak ditemukan') || msg.includes('kedaluwarsa') || msg.includes('404')) {
+            consecutiveMisses += 1
+            setPollMisses(consecutiveMisses)
+            if (consecutiveMisses >= 8) {
+              finishedRef.current = true
+              const hint =
+                'Progress job tidak ditemukan di server (kemungkinan instance API berbeda atau worker restart). '
+                + 'Cek To Do List Superman — jika draft sudah masuk, gunakan Pulihkan nomor Superman.'
+              setErrorDetail(hint)
+              onError(hint)
+              return
+            }
+          } else {
+            finishedRef.current = true
+            onError(msg || 'Gagal memantau progres Superman')
+            return
+          }
         }
         await new Promise(r => setTimeout(r, 1200))
       }
@@ -85,10 +119,25 @@ export function SupermanProgressDialog({ open, jobId, onDone, onError, onClose }
           />
         </div>
         <p className="text-[11px] text-gray-400 text-right">{percent}%</p>
+        {pollMisses > 0 && !errorDetail && !doneMessage && (
+          <p className="mt-2 text-[11px] text-amber-700">
+            Menunggu status job… ({pollMisses}/8). Proses Playwright mungkin masih berjalan di server.
+          </p>
+        )}
+        {doneMessage && (
+          <div className="mt-3 rounded border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-900 whitespace-pre-wrap break-words">
+            {doneMessage}
+          </div>
+        )}
         {errorDetail && (
           <div className="mt-3 max-h-48 overflow-y-auto rounded border border-red-200 bg-red-50 p-2 text-[11px] text-red-800 whitespace-pre-wrap break-words">
             {errorDetail}
           </div>
+        )}
+        {(doneMessage || errorDetail) && (
+          <DialogFooter className="mt-3">
+            <Button type="button" variant="outline" onClick={onClose}>Tutup</Button>
+          </DialogFooter>
         )}
       </DialogContent>
     </Dialog>
