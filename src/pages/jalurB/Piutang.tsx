@@ -127,11 +127,11 @@ export default function Piutang() {
     || filterTahun !== 'all'
     || q.trim().length > 0
 
-  const handleExport = () => {
+  const handleExport = async () => {
     if (rows.length === 0) return
     setExporting(true)
     try {
-      exportPiutangExcel(rows, { includeSP: isAdmin })
+      await exportPiutangExcel(rows, { includeSP: isAdmin })
     } finally {
       setExporting(false)
     }

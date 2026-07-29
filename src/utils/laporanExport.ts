@@ -1,5 +1,11 @@
-import * as XLSX from 'xlsx'
 import type { ProgramLaporanRow } from '@/utils/laporanProgramUtils'
+import {
+  addTemplatedSheet,
+  downloadWorkbook,
+  newWorkbook,
+  todayKey,
+  type ExcelColumn,
+} from '@/utils/excelTemplate'
 
 const STATUS_LABEL: Record<string, string> = {
   lunas: 'Lunas',
@@ -25,127 +31,107 @@ export interface LaporanDetailExportRow {
   sisa: number
 }
 
-export function exportLaporanDetailExcel(
+export async function exportLaporanDetailExcel(
   rows: LaporanDetailExportRow[],
   opts: { tahun: number; bulanBasis: string; monthsLabel?: string },
-): void {
-  const today = new Date().toISOString().slice(0, 10)
-  const headers = [
-    'Mitra',
-    'Aset',
-    'Periode',
-    'No. Perjanjian',
-    'Status',
-    'Tgl Billing / JT',
-    'Tgl Pembayaran',
-    'No. Kontrak SAP',
-    'No. Invoice SAP',
-    'No. Billing SAP',
-    'Total Tagihan',
-    'Cash In',
-    'Pendapatan Akrual',
-    'Sisa',
+): Promise<void> {
+  const today = todayKey()
+  const columns: ExcelColumn[] = [
+    { header: 'Mitra', key: 'namaMitra', width: 24, type: 'text' },
+    { header: 'Aset', key: 'namaAset', width: 24, type: 'text' },
+    { header: 'Periode', key: 'periodeLabel', width: 14, type: 'text' },
+    { header: 'No. Perjanjian', key: 'noPerjanjian', width: 16, type: 'text' },
+    { header: 'Status', key: 'status', width: 12, type: 'text', align: 'center' },
+    { header: 'Tgl Billing / JT', key: 'tglBilling', width: 14, type: 'date', align: 'center' },
+    { header: 'Tgl Pembayaran', key: 'tglBayar', width: 22, type: 'text' },
+    { header: 'No. Kontrak SAP', key: 'noKontrakSAP', width: 16, type: 'text' },
+    { header: 'No. Invoice SAP', key: 'noInvoice', width: 16, type: 'text' },
+    { header: 'No. Billing SAP', key: 'noBilling', width: 14, type: 'text' },
+    { header: 'Total Tagihan', key: 'totalTagihan', width: 15, type: 'money' },
+    { header: 'Cash In', key: 'cashIn', width: 14, type: 'money' },
+    { header: 'Pendapatan Akrual', key: 'pendapatanAkrual', width: 16, type: 'money' },
+    { header: 'Sisa', key: 'sisa', width: 14, type: 'money' },
   ]
 
-  const data = rows.map(r => [
-    r.namaMitra,
-    r.namaAset,
-    r.periodeLabel,
-    r.noPerjanjian,
-    STATUS_LABEL[r.status] ?? r.status,
-    r.tglBilling?.slice(0, 10) ?? '',
-    r.tglBayarList.join(', '),
-    r.noKontrakSAP === '-' ? '' : r.noKontrakSAP,
-    r.noInvoice === '-' ? '' : r.noInvoice,
-    r.noBilling === '-' ? '' : r.noBilling,
-    Math.round(r.totalTagihan),
-    Math.round(r.cashIn),
-    Math.round(r.pendapatanAkrual),
-    Math.round(r.sisa),
-  ])
+  const data = rows.map(r => ({
+    namaMitra: r.namaMitra,
+    namaAset: r.namaAset,
+    periodeLabel: r.periodeLabel,
+    noPerjanjian: r.noPerjanjian,
+    status: STATUS_LABEL[r.status] ?? r.status,
+    tglBilling: r.tglBilling?.slice(0, 10) ?? '',
+    tglBayar: r.tglBayarList.join(', '),
+    noKontrakSAP: r.noKontrakSAP === '-' ? '' : r.noKontrakSAP,
+    noInvoice: r.noInvoice === '-' ? '' : r.noInvoice,
+    noBilling: r.noBilling === '-' ? '' : r.noBilling,
+    totalTagihan: Math.round(r.totalTagihan),
+    cashIn: Math.round(r.cashIn),
+    pendapatanAkrual: Math.round(r.pendapatanAkrual),
+    sisa: Math.round(r.sisa),
+  }))
 
-  const total = [
-    'TOTAL',
-    '',
-    '',
-    '',
-    '',
-    '',
-    '',
-    '',
-    '',
-    '',
-    Math.round(rows.reduce((s, r) => s + r.totalTagihan, 0)),
-    Math.round(rows.reduce((s, r) => s + r.cashIn, 0)),
-    Math.round(rows.reduce((s, r) => s + r.pendapatanAkrual, 0)),
-    Math.round(rows.reduce((s, r) => s + r.sisa, 0)),
-  ]
+  const wb = newWorkbook()
+  addTemplatedSheet(wb, {
+    sheetName: 'Detail Tagihan',
+    title: `Laporan Pendapatan — Detail Tagihan ${opts.tahun}`,
+    subtitle: 'Rekap kompensasi & cash in per tahap tagihan',
+    metaLines: [
+      `Basis filter: ${opts.bulanBasis === 'diterima' ? 'Tanggal bayar (diterima)' : 'Jatuh tempo'}`,
+      ...(opts.monthsLabel ? [`Bulan: ${opts.monthsLabel}`] : []),
+      `Jumlah baris: ${rows.length}`,
+      `Diekspor: ${today}`,
+    ],
+    columns,
+    rows: data,
+    totalKeys: ['totalTagihan', 'cashIn', 'pendapatanAkrual', 'sisa'],
+    totalLabelCol: 0,
+  })
 
-  const meta = [
-    [`Laporan Pendapatan — Detail Tagihan ${opts.tahun}`],
-    [`Basis filter: ${opts.bulanBasis === 'diterima' ? 'Tanggal bayar (diterima)' : 'Jatuh tempo'}`],
-    opts.monthsLabel ? [`Bulan: ${opts.monthsLabel}`] : [],
-    [`Diekspor: ${today}`],
-    [],
-  ].filter(r => r.length > 0)
-
-  const ws = XLSX.utils.aoa_to_sheet([...meta, headers, ...data, total])
-  ws['!cols'] = [22, 22, 14, 16, 12, 12, 22, 16, 16, 14, 14, 12, 14, 12].map(wch => ({ wch }))
-
-  const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, ws, 'Detail Tagihan')
-  XLSX.writeFile(wb, `Laporan_Pendapatan_Detail_${opts.tahun}_${today}.xlsx`)
+  await downloadWorkbook(wb, `Laporan_Pendapatan_Detail_${opts.tahun}_${today}.xlsx`)
 }
 
-export function exportLaporanProgramExcel(
+export async function exportLaporanProgramExcel(
   rows: ProgramLaporanRow[],
   opts: { tahun: number; horizon: string },
-): void {
-  const today = new Date().toISOString().slice(0, 10)
-  const headers = [
-    'No',
-    'ID Monika',
-    'Nama Proker',
-    'Kategori',
-    'RKAP',
-    'Pendapatan',
-    'Cash In',
-    'Capaian %',
+): Promise<void> {
+  const today = todayKey()
+  const columns: ExcelColumn[] = [
+    { header: 'No', key: 'no', width: 6, type: 'int', align: 'center' },
+    { header: 'ID Monika', key: 'kode', width: 16, type: 'text' },
+    { header: 'Nama Proker', key: 'programAset', width: 32, type: 'text' },
+    { header: 'Kategori', key: 'kategori', width: 16, type: 'text' },
+    { header: 'RKAP', key: 'rkap', width: 15, type: 'money' },
+    { header: 'Pendapatan', key: 'pendapatan', width: 15, type: 'money' },
+    { header: 'Cash In', key: 'cashIn', width: 15, type: 'money' },
+    { header: 'Capaian %', key: 'capaianPct', width: 12, type: 'percent', align: 'center' },
   ]
 
-  const data = rows.map(r => [
-    r.no,
-    r.kode,
-    r.programAset,
-    r.kategori,
-    Math.round(r.rkap),
-    Math.round(r.pendapatan),
-    Math.round(r.cashIn),
-    r.capaianPct != null ? +r.capaianPct.toFixed(1) : null,
-  ])
+  const data = rows.map(r => ({
+    no: r.no,
+    kode: r.kode,
+    programAset: r.programAset,
+    kategori: r.kategori,
+    rkap: Math.round(r.rkap),
+    pendapatan: Math.round(r.pendapatan),
+    cashIn: Math.round(r.cashIn),
+    capaianPct: r.capaianPct != null ? +r.capaianPct.toFixed(1) : null,
+  }))
 
-  const total = [
-    '',
-    '',
-    'TOTAL',
-    '',
-    Math.round(rows.reduce((s, r) => s + r.rkap, 0)),
-    Math.round(rows.reduce((s, r) => s + r.pendapatan, 0)),
-    Math.round(rows.reduce((s, r) => s + r.cashIn, 0)),
-    '',
-  ]
+  const wb = newWorkbook()
+  addTemplatedSheet(wb, {
+    sheetName: 'Per Proker',
+    title: `Laporan Pendapatan — Per Proker ${opts.tahun}`,
+    subtitle: 'Rekap Optimalisasi Aset per ID Monika',
+    metaLines: [
+      `Cakupan: ${opts.horizon === 'ytd' ? 'YTD s.d. hari ini' : 'Full year'}`,
+      `Jumlah program: ${rows.length}`,
+      `Diekspor: ${today}`,
+    ],
+    columns,
+    rows: data,
+    totalKeys: ['rkap', 'pendapatan', 'cashIn'],
+    totalLabelCol: 2,
+  })
 
-  const meta = [
-    [`Laporan Pendapatan — Per Proker ${opts.tahun}`],
-    [`Cakupan: ${opts.horizon === 'ytd' ? 'YTD' : 'Full year'}`],
-    [`Diekspor: ${today}`],
-    [],
-  ]
-
-  const ws = XLSX.utils.aoa_to_sheet([...meta, headers, ...data, total])
-  ws['!cols'] = [6, 16, 32, 14, 14, 14, 14, 10].map(wch => ({ wch }))
-
-  const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, ws, 'Per Proker')
-  XLSX.writeFile(wb, `Laporan_Pendapatan_Proker_${opts.tahun}_${today}.xlsx`)
+  await downloadWorkbook(wb, `Laporan_Pendapatan_Proker_${opts.tahun}_${today}.xlsx`)
 }

@@ -65,6 +65,7 @@ export default function MonitoringKompensasi() {
   /** Default tertutup — detail tidak langsung ditampilkan */
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [exporting, setExporting] = useState<string | null>(null)
+  const [exportingExcel, setExportingExcel] = useState(false)
   const user = useAuthStore(s => s.user)
   const isAdmin = user?.role === 'admin'
 
@@ -243,7 +244,15 @@ export default function MonitoringKompensasi() {
         description="Detail tagihan + rekap per mitra sesuai filter tahun, cakupan JT, mitra, proker, dan status."
         meta={`${filteredDetail.length} tagihan · ${groups.length} mitra · ${tahun} · ${horizon === 'jt_berjalan' ? 'JT berjalan' : 'Full year'} · sisa ${formatRupiah(summary.totalSisa)}`}
         fileNameHint={`Monitoring_Kompensasi_${tahun}.xlsx`}
-        onExport={() => exportMonitoringExcel(tahun, filteredDetail, groups, 'mitra', { hideSp: !isAdmin })}
+        onExport={async () => {
+          setExportingExcel(true)
+          try {
+            await exportMonitoringExcel(tahun, filteredDetail, groups, 'mitra', { hideSp: !isAdmin })
+          } finally {
+            setExportingExcel(false)
+          }
+        }}
+        loading={exportingExcel}
         disabled={filteredDetail.length === 0}
       />
 

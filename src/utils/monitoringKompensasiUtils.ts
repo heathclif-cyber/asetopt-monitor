@@ -1,8 +1,14 @@
-import * as XLSX from 'xlsx'
 import type { Aset, KerjaSama, Kompensasi } from '@/types'
 import { findTglPelunasan, hitungDenda } from '@/utils/taxUtils'
 import { resolveMonikaId } from '@/utils/laporanProgramUtils'
 import { formatTanggal } from '@/lib/utils'
+import {
+  addTemplatedSheet,
+  downloadWorkbook,
+  newWorkbook,
+  todayKey,
+  type ExcelColumn,
+} from '@/utils/excelTemplate'
 
 export type MonitoringStatusBayar = 'lunas' | 'sebagian' | 'belum_bayar' | 'terlambat'
 
@@ -478,95 +484,128 @@ function displayStatusKs(status: string, hideSp?: boolean): string {
   return status
 }
 
-export function exportMonitoringExcel(
+export async function exportMonitoringExcel(
   tahun: number,
   detail: MonitoringDetailRow[],
   groups: MonitoringGroup[],
   groupBy: 'mitra' | 'proker',
   opts?: { hideSp?: boolean },
-): void {
+): Promise<void> {
   const hideSp = opts?.hideSp ?? false
-  const wb = XLSX.utils.book_new()
-  const today = new Date().toISOString().slice(0, 10)
+  const today = todayKey()
+  const wb = newWorkbook()
 
-  const detailHeaders = [
-    'Mitra',
-    'No. Perjanjian',
-    'ID Monika',
-    'Proker / Aset',
-    'Periode',
-    'No. Invoice',
-    'Tgl Terbit',
-    'Tgl Jatuh Tempo',
-    'Total Tagihan',
-    'Cash In',
-    'Sisa',
-    'Tgl Bayar',
-    'Hari Telat',
-    'Denda',
-    'Status Bayar',
-    ...(hideSp ? [] : ['Status KS']),
+  const detailCols: ExcelColumn[] = [
+    { header: 'Mitra', key: 'namaMitra', width: 24, type: 'text' },
+    { header: 'No. Perjanjian', key: 'noPerjanjian', width: 16, type: 'text' },
+    { header: 'ID Monika', key: 'monikaId', width: 14, type: 'text' },
+    { header: 'Proker / Aset', key: 'namaProker', width: 26, type: 'text' },
+    { header: 'Periode', key: 'periodeLabel', width: 14, type: 'text' },
+    { header: 'No. Invoice', key: 'noInvoice', width: 14, type: 'text' },
+    { header: 'Tgl Terbit', key: 'tglTerbit', width: 12, type: 'date', align: 'center' },
+    { header: 'Tgl Jatuh Tempo', key: 'tglJatuhTempo', width: 14, type: 'date', align: 'center' },
+    { header: 'Total Tagihan', key: 'totalTagihan', width: 14, type: 'money' },
+    { header: 'Cash In', key: 'cashIn', width: 14, type: 'money' },
+    { header: 'Sisa', key: 'sisa', width: 14, type: 'money' },
+    { header: 'Tgl Bayar', key: 'tglBayarLabel', width: 20, type: 'text' },
+    { header: 'Hari Telat', key: 'hariTerlambat', width: 10, type: 'int', align: 'center' },
+    { header: 'Denda', key: 'nominalDenda', width: 12, type: 'money' },
+    { header: 'Status Bayar', key: 'statusBayar', width: 12, type: 'text', align: 'center' },
+    ...(hideSp
+      ? []
+      : [{ header: 'Status KS', key: 'statusKs', width: 10, type: 'text' as const, align: 'center' as const }]),
   ]
-  const detailSheet = [
-    detailHeaders,
-    ...detail.map(r => [
-      r.namaMitra,
-      r.noPerjanjian,
-      r.monikaId ?? '—',
-      r.namaProker,
-      r.periodeLabel,
-      r.noInvoice ?? '',
-      r.tglTerbit ?? '',
-      r.tglJatuhTempo,
-      r.totalTagihan,
-      r.cashIn,
-      r.sisa,
-      r.tglBayarLabel,
-      r.hariTerlambat,
-      Math.round(r.nominalDenda),
-      STATUS_LABEL[r.statusBayar],
-      ...(hideSp ? [] : [displayStatusKs(r.statusKs, false)]),
-    ]),
-  ]
-  const ws1 = XLSX.utils.aoa_to_sheet(detailSheet)
-  ws1['!cols'] = [24, 18, 16, 28, 14, 18, 12, 14, 14, 14, 12, 22, 10, 12, 12, 10].map(wch => ({ wch }))
-  XLSX.utils.book_append_sheet(wb, ws1, 'Detail Tagihan')
 
-  const groupSheet = [
-    [
-      groupBy === 'mitra' ? 'Mitra' : 'Proker',
-      'ID Monika',
-      groupBy === 'mitra' ? 'Proker' : 'Mitra',
-      'No. Perjanjian',
-      'N Tagihan',
-      'N Lunas',
-      'N Terlambat',
-      'Total Tagihan',
-      'Cash In',
-      'Outstanding',
-      'Total Denda',
-      '% Tertagih',
+  const detailRows = detail.map(r => ({
+    namaMitra: r.namaMitra,
+    noPerjanjian: r.noPerjanjian,
+    monikaId: r.monikaId ?? '—',
+    namaProker: r.namaProker,
+    periodeLabel: r.periodeLabel,
+    noInvoice: r.noInvoice ?? '',
+    tglTerbit: r.tglTerbit ?? '',
+    tglJatuhTempo: r.tglJatuhTempo,
+    totalTagihan: Math.round(r.totalTagihan),
+    cashIn: Math.round(r.cashIn),
+    sisa: Math.round(r.sisa),
+    tglBayarLabel: r.tglBayarLabel,
+    hariTerlambat: r.hariTerlambat,
+    nominalDenda: Math.round(r.nominalDenda),
+    statusBayar: STATUS_LABEL[r.statusBayar],
+    ...(hideSp ? {} : { statusKs: displayStatusKs(r.statusKs, false) }),
+  }))
+
+  const totalSisa = detail.reduce((s, r) => s + r.sisa, 0)
+  addTemplatedSheet(wb, {
+    sheetName: 'Detail Tagihan',
+    title: `Monitoring Kompensasi — Detail ${tahun}`,
+    subtitle: 'Track record tagihan, pembayaran, keterlambatan & denda per tahap',
+    metaLines: [
+      `Jumlah tagihan: ${detail.length}`,
+      `Total outstanding: ${Math.round(totalSisa).toLocaleString('id-ID')}`,
+      `Diekspor: ${today}`,
     ],
-    ...groups.map(g => [
-      g.title,
-      g.monikaId ?? '—',
-      groupBy === 'mitra' ? g.namaProker : g.namaMitra,
-      g.noPerjanjian,
-      g.nTagihan,
-      g.nLunas,
-      g.nTerlambat,
-      g.totalTagihan,
-      g.cashIn,
-      g.outstanding,
-      Math.round(g.totalDenda),
-      g.pctTertagih != null ? +g.pctTertagih.toFixed(1) : null,
-    ]),
-  ]
-  const ws2 = XLSX.utils.aoa_to_sheet(groupSheet)
-  ws2['!cols'] = [28, 16, 28, 18, 10, 10, 12, 14, 14, 14, 12, 10].map(wch => ({ wch }))
-  XLSX.utils.book_append_sheet(wb, ws2, groupBy === 'mitra' ? 'Per Mitra' : 'Per Proker')
+    columns: detailCols,
+    rows: detailRows,
+    totalKeys: ['totalTagihan', 'cashIn', 'sisa', 'nominalDenda'],
+    totalLabelCol: 0,
+  })
 
-  XLSX.writeFile(wb, `Monitoring_Kompensasi_${tahun}_${today}.xlsx`)
+  const groupCols: ExcelColumn[] = [
+    {
+      header: groupBy === 'mitra' ? 'Mitra' : 'Proker',
+      key: 'title',
+      width: 26,
+      type: 'text',
+    },
+    { header: 'ID Monika', key: 'monikaId', width: 14, type: 'text' },
+    {
+      header: groupBy === 'mitra' ? 'Proker' : 'Mitra',
+      key: 'secondary',
+      width: 24,
+      type: 'text',
+    },
+    { header: 'No. Perjanjian', key: 'noPerjanjian', width: 16, type: 'text' },
+    { header: 'N Tagihan', key: 'nTagihan', width: 10, type: 'int', align: 'center' },
+    { header: 'N Lunas', key: 'nLunas', width: 10, type: 'int', align: 'center' },
+    { header: 'N Terlambat', key: 'nTerlambat', width: 11, type: 'int', align: 'center' },
+    { header: 'Total Tagihan', key: 'totalTagihan', width: 14, type: 'money' },
+    { header: 'Cash In', key: 'cashIn', width: 14, type: 'money' },
+    { header: 'Outstanding', key: 'outstanding', width: 14, type: 'money' },
+    { header: 'Total Denda', key: 'totalDenda', width: 12, type: 'money' },
+    { header: '% Tertagih', key: 'pctTertagih', width: 11, type: 'percent', align: 'center' },
+  ]
+
+  const groupRows = groups.map(g => ({
+    title: g.title,
+    monikaId: g.monikaId ?? '—',
+    secondary: groupBy === 'mitra' ? g.namaProker : g.namaMitra,
+    noPerjanjian: g.noPerjanjian,
+    nTagihan: g.nTagihan,
+    nLunas: g.nLunas,
+    nTerlambat: g.nTerlambat,
+    totalTagihan: Math.round(g.totalTagihan),
+    cashIn: Math.round(g.cashIn),
+    outstanding: Math.round(g.outstanding),
+    totalDenda: Math.round(g.totalDenda),
+    pctTertagih: g.pctTertagih != null ? +g.pctTertagih.toFixed(1) : null,
+  }))
+
+  addTemplatedSheet(wb, {
+    sheetName: groupBy === 'mitra' ? 'Per Mitra' : 'Per Proker',
+    title: `Monitoring Kompensasi — Rekap ${groupBy === 'mitra' ? 'Mitra' : 'Proker'} ${tahun}`,
+    subtitle: 'Ringkasan collection per unit monitoring',
+    metaLines: [
+      `Jumlah grup: ${groups.length}`,
+      `Diekspor: ${today}`,
+    ],
+    columns: groupCols,
+    rows: groupRows,
+    totalKeys: ['nTagihan', 'nLunas', 'nTerlambat', 'totalTagihan', 'cashIn', 'outstanding', 'totalDenda'],
+    totalLabelCol: 0,
+  })
+
+  await downloadWorkbook(wb, `Monitoring_Kompensasi_${tahun}_${today}.xlsx`)
 }
 
 export { STATUS_LABEL as MONITORING_STATUS_LABEL }

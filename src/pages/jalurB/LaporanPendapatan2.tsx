@@ -124,6 +124,7 @@ export default function LaporanPendapatan() {
   const [filterKategori, setFilterKategori] = useState('all')
   const [editing, setEditing] = useState<{ id: string; field: string; value: string } | null>(null)
   const [saving, setSaving] = useState(false)
+  const [exportingExcel, setExportingExcel] = useState(false)
 
   // ── Filters ───────────────────────────────────────────────────────────────
   const [bulanBasis, setBulanBasis] = useState<BulanBasis>('jatuh_tempo')
@@ -457,20 +458,25 @@ export default function LaporanPendapatan() {
       ? 'Semua bulan'
       : selectedMonths.map(m => monthLabels[m]).join(', ')
 
-  const handleExportExcel = () => {
-    if (viewMode === 'detail') {
-      if (rows.length === 0) return
-      exportLaporanDetailExcel(rows, {
-        tahun,
-        bulanBasis,
-        monthsLabel,
-      })
-    } else {
-      if (programRows.length === 0) return
-      exportLaporanProgramExcel(programRows, {
-        tahun,
-        horizon: programHorizon,
-      })
+  const handleExportExcel = async () => {
+    setExportingExcel(true)
+    try {
+      if (viewMode === 'detail') {
+        if (rows.length === 0) return
+        await exportLaporanDetailExcel(rows, {
+          tahun,
+          bulanBasis,
+          monthsLabel,
+        })
+      } else {
+        if (programRows.length === 0) return
+        await exportLaporanProgramExcel(programRows, {
+          tahun,
+          horizon: programHorizon,
+        })
+      }
+    } finally {
+      setExportingExcel(false)
     }
   }
 
@@ -533,6 +539,7 @@ export default function LaporanPendapatan() {
             : `Laporan_Pendapatan_Proker_${tahun}.xlsx`
         }
         onExport={handleExportExcel}
+        loading={exportingExcel}
         disabled={viewMode === 'detail' ? rows.length === 0 : programRows.length === 0}
       />
 
