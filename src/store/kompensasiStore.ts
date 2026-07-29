@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { supabase } from '@/lib/supabase'
 import { Kompensasi, Pembayaran, KompensasiWithStatus } from '@/types'
-import { hitungDenda } from '@/utils/taxUtils'
+import { findTglPelunasan, hitungDenda } from '@/utils/taxUtils'
 
 interface KompensasiStore {
   daftarKompensasi: Record<string, Kompensasi[]>
@@ -104,16 +104,25 @@ export const useKompensasiStore = create<KompensasiStore>((set, get) => ({
     const efektifTagihan = Math.max(0, kompensasi.total_tagihan - (kompensasi.pengurang ?? 0))
     const totalDibayar = pembayaran.reduce((sum, p) => sum + p.nominal_bayar, 0)
     const sisaTagihan = Math.max(0, efektifTagihan - totalDibayar)
+    const isLunas = efektifTagihan > 0 && totalDibayar + 0.5 >= efektifTagihan
+
+    // Lunas: denda membeku di tgl pelunasan. Belum lunas: denda s.d. hari ini.
+    const tglAcuanDenda = isLunas
+      ? (findTglPelunasan(pembayaran, efektifTagihan) ?? new Date())
+      : new Date()
+
     const dendaAkumulasi = hitungDenda({
       nominal: kompensasi.nominal,
       tglJatuhTempo: kompensasi.tgl_jatuh_tempo,
-      tglHariIni: new Date(),
-      persenDendaPerHari: kompensasi.persen_denda_per_hari / 100,
-      maksHariBayar: kompensasi.maks_hari_bayar,
+      tglHariIni: tglAcuanDenda,
+      persenDendaPerHari: (kompensasi.persen_denda_per_hari ?? 0) / 100,
+      // Grace denda: 0 — lewat JT langsung ber-denda.
+      // (maks_hari_bayar dulu dipakai sebagai grace 14hr → telat 14 hari denda 0)
+      maksHariBayar: 0,
     })
 
     let statusBayar: KompensasiWithStatus['statusBayar'] = 'belum_bayar'
-    if (totalDibayar >= efektifTagihan) {
+    if (isLunas) {
       statusBayar = 'lunas'
     } else if (totalDibayar > 0) {
       statusBayar = dendaAkumulasi.hariTerlambat > 0 ? 'terlambat' : 'sebagian'

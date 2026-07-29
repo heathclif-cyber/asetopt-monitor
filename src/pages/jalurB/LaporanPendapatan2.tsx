@@ -199,14 +199,21 @@ export default function LaporanPendapatan() {
         const ks = daftarKS.find(x => x.id === k.ks_id) ?? k.kerja_sama
         const efektifTagihan = Math.max(0, (k.total_tagihan ?? 0) - (k.pengurang ?? 0))
         const sisa = Math.max(0, efektifTagihan - totalDibayar)
+        const isLunasRow = efektifTagihan > 0 && totalDibayar + 0.5 >= efektifTagihan
+        // Lunas: denda membeku di tgl bayar terakhir. Belum lunas: s.d. hari ini.
+        // Grace 0 — lewat JT langsung ber-denda.
         const denda = hitungDenda({
           nominal: k.nominal,
           tglJatuhTempo: k.tgl_jatuh_tempo,
-          tglHariIni: new Date(),
+          tglHariIni: isLunasRow && tglBayarList.length
+            ? tglBayarList[tglBayarList.length - 1]
+            : new Date(),
           persenDendaPerHari: (k.persen_denda_per_hari ?? 0) / 100,
-          maksHariBayar: k.maks_hari_bayar ?? 30,
+          maksHariBayar: 0,
         })
-        const status = resolveStatus(totalDibayar, efektifTagihan, denda.hariTerlambat)
+        const status = isLunasRow
+          ? 'lunas'
+          : resolveStatus(totalDibayar, efektifTagihan, denda.hariTerlambat)
 
         const pddm = daftarPDDM.find(p => p.ks_id === k.ks_id)
         const match = pddm

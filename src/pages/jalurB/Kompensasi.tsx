@@ -207,7 +207,8 @@ const genSchema = z.object({
   ppn_persen: z.coerce.number().min(0).default(11),
   pph_persen: z.coerce.number().min(0).default(10),
   pph_mode: z.enum(['none', 'bukti_potong']).default('none'),
-  maks_hari_bayar: z.coerce.number().min(1).default(14),
+  // Grace denda setelah JT — default 0 (denda mulai H+1 lewat JT)
+  maks_hari_bayar: z.coerce.number().min(0).default(0),
   persen_denda_per_hari: z.coerce.number().min(0).default(0.1),
   offset_cetak_tagihan: z.coerce.number().min(0).default(0),
   offset_jatuh_tempo: z.coerce.number().min(0).default(14),
@@ -222,7 +223,7 @@ const kompSchema = z.object({
   ppn_persen: z.coerce.number().min(0).default(11),
   pph_persen: z.coerce.number().min(0).default(10),
   pph_mode: z.enum(['none', 'bukti_potong']).default('none'),
-  maks_hari_bayar: z.coerce.number().min(1).default(14),
+  maks_hari_bayar: z.coerce.number().min(0).default(0),
   persen_denda_per_hari: z.coerce.number().min(0).default(0.1),
   /** Tanggal cetak tagihan (kolom DB: invoice_tgl) */
   invoice_tgl: z.string().optional().or(z.literal('')),
@@ -281,7 +282,7 @@ export function Kompensasi() {
 
   const kompForm = useForm<KompForm>({
     resolver: zodResolver(kompSchema),
-    defaultValues: { ppn_persen: 11, pph_persen: 10, pph_mode: 'none', maks_hari_bayar: 14, persen_denda_per_hari: 0.1 },
+    defaultValues: { ppn_persen: 11, pph_persen: 10, pph_mode: 'none', maks_hari_bayar: 0, persen_denda_per_hari: 0.1 },
   })
 
 
@@ -296,7 +297,7 @@ export function Kompensasi() {
     campuran_tahun_peralihan: 1,
     ada_grace_period: false,
     ppn_persen: 11, pph_persen: 10, pph_mode: 'none' as const,
-    maks_hari_bayar: 14, persen_denda_per_hari: 0.1,
+    maks_hari_bayar: 0, persen_denda_per_hari: 0.1,
     offset_cetak_tagihan: 0,
     offset_jatuh_tempo: 14,
   }
@@ -408,7 +409,7 @@ export function Kompensasi() {
     setAdaPengurang(false)
     kompForm.reset({
       ppn_persen: 11, pph_persen: 10, pph_mode: 'none',
-      maks_hari_bayar: 14, persen_denda_per_hari: 0.1,
+      maks_hari_bayar: 0, persen_denda_per_hari: 0.1,
       pengurang: 0, keterangan_pengurang: '',
       invoice_tgl: '', tgl_jatuh_tempo: '',
     })
@@ -676,8 +677,14 @@ export function Kompensasi() {
                         {k.superman && (
                           <span className="inline-block text-[10px] text-green-700 bg-green-50 px-1.5 py-0.5 rounded mt-0.5">{k.superman}</span>
                         )}
-                        {ws.dendaAkumulasi.hariTerlambat > 0 && ws.statusBayar !== 'lunas' && (
-                          <p className="text-xs text-red-600 mt-0.5">Terlambat {ws.dendaAkumulasi.hariTerlambat} hari</p>
+                        {ws.dendaAkumulasi.hariTerlambat > 0 && (
+                          <p className="text-xs text-red-600 mt-0.5">
+                            {ws.statusBayar === 'lunas' ? 'Dibayar terlambat' : 'Terlambat'}{' '}
+                            {ws.dendaAkumulasi.hariTerlambat} hari
+                            {ws.dendaAkumulasi.nominalDenda > 0.5 && (
+                              <> · denda {formatRupiah(ws.dendaAkumulasi.nominalDenda)}</>
+                            )}
+                          </p>
                         )}
                       </td>
                       <td className="px-4 py-3 hidden md:table-cell text-gray-600">{k.periode_label ?? '-'}</td>
@@ -765,11 +772,16 @@ export function Kompensasi() {
                                 )}
                               </div>
 
-                              {ws.dendaAkumulasi.hariTerlambat > 0 && ws.statusBayar !== 'lunas' && (
+                              {ws.dendaAkumulasi.hariTerlambat > 0 && (
                                 <div className="mt-2 pt-2 border-t space-y-1">
-                                  <p className="font-semibold text-red-700 text-[11px] uppercase tracking-wide">Denda</p>
+                                  <p className="font-semibold text-red-700 text-[11px] uppercase tracking-wide">
+                                    Denda{ws.statusBayar === 'lunas' ? ' (saat pelunasan)' : ''}
+                                  </p>
                                   <div className="flex justify-between text-red-600">
-                                    <span>Terlambat {ws.dendaAkumulasi.hariTerlambat} hr (denda: {Math.max(0, ws.dendaAkumulasi.hariTerlambat - k.maks_hari_bayar)} hr × {k.persen_denda_per_hari}%/hr)</span>
+                                    <span>
+                                      Terlambat {ws.dendaAkumulasi.hariTerlambat} hr
+                                      {' '}× {k.persen_denda_per_hari}%/hr
+                                    </span>
                                     <span className="font-medium">{formatRupiah(ws.dendaAkumulasi.nominalDenda)}</span>
                                   </div>
                                   <div className="flex justify-between text-red-500">
@@ -1104,8 +1116,9 @@ export function Kompensasi() {
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <Label className="text-xs text-gray-500">Maks Hari Bayar</Label>
+                    <Label className="text-xs text-gray-500">Grace denda (hari setelah JT)</Label>
                     <Input type="number" {...genForm.register('maks_hari_bayar')} className="mt-1 h-8 text-xs" />
+                    <p className="text-[10px] text-gray-400 mt-0.5">0 = denda mulai H+1 lewat JT</p>
                   </div>
                   <div>
                     <Label className="text-xs text-gray-500">Cetak Tagihan (hari stlh awal periode)</Label>
@@ -1297,8 +1310,9 @@ export function Kompensasi() {
             )}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label>Maks Hari Bayar</Label>
+                <Label>Grace denda (hari setelah JT)</Label>
                 <Input type="number" {...kompForm.register('maks_hari_bayar')} className="mt-1" />
+                <p className="text-[10px] text-gray-400 mt-0.5">0 = denda mulai H+1 lewat JT</p>
               </div>
               <div>
                 <Label>% Denda / Hari</Label>

@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx'
-import type { Aset, KerjaSama, Kompensasi, Pembayaran } from '@/types'
-import { hitungDenda } from '@/utils/taxUtils'
+import type { Aset, KerjaSama, Kompensasi } from '@/types'
+import { findTglPelunasan, hitungDenda } from '@/utils/taxUtils'
 import { resolveMonikaId } from '@/utils/laporanProgramUtils'
 import { formatTanggal } from '@/lib/utils'
 
@@ -222,23 +222,6 @@ function dateKey(s: string): string {
   return s.slice(0, 10)
 }
 
-/** Tanggal pelunasan: tgl bayar terakhir yang membuat kumulatif ≥ efektif */
-function findTglPelunasan(
-  payments: Pembayaran[],
-  efektif: number,
-): string | null {
-  if (efektif <= 0 || payments.length === 0) return null
-  const sorted = [...payments].sort((a, b) =>
-    dateKey(a.tgl_bayar).localeCompare(dateKey(b.tgl_bayar)),
-  )
-  let cum = 0
-  for (const p of sorted) {
-    cum += p.nominal_bayar || 0
-    if (cum + 0.5 >= efektif) return dateKey(p.tgl_bayar)
-  }
-  return null
-}
-
 function resolveStatus(
   totalDibayar: number,
   efektif: number,
@@ -298,30 +281,22 @@ export function buildMonitoringDetailRows(opts: {
     const sisa = Math.max(0, efektif - cashIn)
     const isLunas = efektif > 0 && cashIn + 0.5 >= efektif
 
+    // Lunas: denda + telat membeku di tgl pelunasan. Belum lunas: s.d. hari ini.
     const tglAsOf = isLunas
       ? (findTglPelunasan(pembayaran, efektif) ?? dateKey(asOf.toISOString()))
       : dateKey(asOf.toISOString())
 
+    // Denda sejak lewat JT (grace 0). maks_hari_bayar tidak menunda denda —
+    // dulu default 14 membuat "telat 14 hari, denda —".
     const denda = hitungDenda({
       nominal: k.nominal ?? 0,
       tglJatuhTempo: k.tgl_jatuh_tempo,
-      tglHariIni: new Date(tglAsOf + 'T12:00:00'),
+      tglHariIni: tglAsOf,
       persenDendaPerHari: (k.persen_denda_per_hari ?? 0) / 100,
-      maksHariBayar: k.maks_hari_bayar ?? 0,
+      maksHariBayar: 0,
     })
 
-    // Untuk status: hari telat s.d. hari ini jika belum lunas; jika lunas pakai as-of pelunasan
-    const hariForStatus = isLunas
-      ? denda.hariTerlambat
-      : hitungDenda({
-          nominal: k.nominal ?? 0,
-          tglJatuhTempo: k.tgl_jatuh_tempo,
-          tglHariIni: asOf,
-          persenDendaPerHari: (k.persen_denda_per_hari ?? 0) / 100,
-          maksHariBayar: k.maks_hari_bayar ?? 0,
-        }).hariTerlambat
-
-    const statusBayar = resolveStatus(cashIn, efektif, hariForStatus)
+    const statusBayar = resolveStatus(cashIn, efektif, denda.hariTerlambat)
     const tglBayarList = pembayaran.map(p => dateKey(p.tgl_bayar))
     const pembayaranDetail = pembayaran.map(p => ({
       tgl: dateKey(p.tgl_bayar),
@@ -360,17 +335,8 @@ export function buildMonitoringDetailRows(opts: {
       tglBayarTerakhir: tglBayarList[tglBayarList.length - 1] ?? null,
       tglBayarLabel: formatTglBayarLabel(tglBayarList),
       pembayaranDetail,
-      hariTerlambat: isLunas ? denda.hariTerlambat : hariForStatus,
-      // Lunas: denda historis s.d. pelunasan; belum lunas: denda s.d. hari ini
-      nominalDenda: isLunas
-        ? denda.nominalDenda
-        : hitungDenda({
-            nominal: k.nominal ?? 0,
-            tglJatuhTempo: k.tgl_jatuh_tempo,
-            tglHariIni: asOf,
-            persenDendaPerHari: (k.persen_denda_per_hari ?? 0) / 100,
-            maksHariBayar: k.maks_hari_bayar ?? 0,
-          }).nominalDenda,
+      hariTerlambat: denda.hariTerlambat,
+      nominalDenda: denda.nominalDenda,
       statusBayar,
       statusKs: ks?.status ?? '-',
       nPembayaran: pembayaran.length,

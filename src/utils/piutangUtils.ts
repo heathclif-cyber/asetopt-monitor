@@ -152,12 +152,13 @@ export function buildPiutangRows(opts: {
     const hariLewatGrace = daysBetween(graceEnd, today)
     const dalamGrace = sudahJT && hariLewatGrace <= 0
 
+    // Denda sejak lewat JT (grace 0). maks_hari_bayar tidak menunda denda.
     const denda = hitungDenda({
       nominal: k.nominal ?? 0,
       tglJatuhTempo: k.tgl_jatuh_tempo,
       tglHariIni: asOf,
       persenDendaPerHari: (k.persen_denda_per_hari ?? 0) / 100,
-      maksHariBayar: maksHari,
+      maksHariBayar: 0,
     })
 
     const ks = ksMap.get(k.ks_id) ?? k.kerja_sama
