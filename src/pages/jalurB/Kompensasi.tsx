@@ -443,6 +443,8 @@ export function Kompensasi() {
     try {
       const payload = {
         ...data,
+        // Tidak ada grace setelah JT — denda mulai H+1
+        maks_hari_bayar: 0,
         invoice_tgl: data.invoice_tgl?.trim() ? data.invoice_tgl : null,
         pengurang: adaPengurang ? (data.pengurang ?? 0) : 0,
         keterangan_pengurang: adaPengurang ? (data.keterangan_pengurang ?? null) : null,
@@ -532,7 +534,7 @@ export function Kompensasi() {
       graceSelesai: data.ada_grace_period ? graceSelesai     : undefined,
       ppnPersen: data.ppn_persen,
       pphPersen: data.pph_persen,
-      maksHariBayar: data.maks_hari_bayar,
+      maksHariBayar: 0,
       persenDenda: data.persen_denda_per_hari,
       offsetCetakTagihan: data.offset_cetak_tagihan,
       offsetJatuhTempo: data.offset_jatuh_tempo,
@@ -689,7 +691,12 @@ export function Kompensasi() {
                       </td>
                       <td className="px-4 py-3 hidden md:table-cell text-gray-600">{k.periode_label ?? '-'}</td>
                       <td className="px-4 py-3 text-right font-semibold">
-                        <CurrencyDisplay value={k.total_tagihan} size="sm" />
+                        <CurrencyDisplay value={ws.efektifTagihan} size="sm" />
+                        {(k.pengurang ?? 0) > 0 && (
+                          <p className="text-[10px] text-gray-400 font-normal mt-0.5">
+                            bruto {formatRupiah(k.total_tagihan)}
+                          </p>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-right hidden lg:table-cell text-green-700">
                         <CurrencyDisplay value={ws.totalDibayar} size="sm" />
@@ -754,22 +761,20 @@ export function Kompensasi() {
                                     <span>− {formatRupiah(k.nominal_pph)}</span>
                                   </div>
                                 )}
-                                <div className="flex justify-between font-semibold border-t pt-1 mt-1">
-                                  <span>Total Tagihan</span>
+                                <div className="flex justify-between text-gray-600 border-t pt-1 mt-1">
+                                  <span>Bruto (sebelum pengurang)</span>
                                   <span>{formatRupiah(k.total_tagihan)}</span>
                                 </div>
                                 {(k.pengurang ?? 0) > 0 && (
-                                  <>
-                                    <div className="flex justify-between text-purple-700">
-                                      <span>− Pengurang {k.keterangan_pengurang ? `(${k.keterangan_pengurang})` : ''}</span>
-                                      <span>− {formatRupiah(k.pengurang!)}</span>
-                                    </div>
-                                    <div className="flex justify-between font-semibold text-purple-800 border-t pt-1 mt-1">
-                                      <span>Efektif Harus Dibayar</span>
-                                      <span>{formatRupiah(ws.efektifTagihan)}</span>
-                                    </div>
-                                  </>
+                                  <div className="flex justify-between text-purple-700">
+                                    <span>− Pengurang {k.keterangan_pengurang ? `(${k.keterangan_pengurang})` : ''}</span>
+                                    <span>− {formatRupiah(k.pengurang!)}</span>
+                                  </div>
                                 )}
+                                <div className="flex justify-between font-semibold text-[#1B4F72] border-t pt-1.5 mt-0.5">
+                                  <span>Tagihan (efektif)</span>
+                                  <span>{formatRupiah(ws.efektifTagihan)}</span>
+                                </div>
                               </div>
 
                               {ws.dendaAkumulasi.hariTerlambat > 0 && (
@@ -1116,20 +1121,16 @@ export function Kompensasi() {
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <Label className="text-xs text-gray-500">Grace denda (hari setelah JT)</Label>
-                    <Input type="number" {...genForm.register('maks_hari_bayar')} className="mt-1 h-8 text-xs" />
-                    <p className="text-[10px] text-gray-400 mt-0.5">0 = denda mulai H+1 lewat JT</p>
-                  </div>
-                  <div>
                     <Label className="text-xs text-gray-500">Cetak Tagihan (hari stlh awal periode)</Label>
                     <Input type="number" {...genForm.register('offset_cetak_tagihan')} className="mt-1 h-8 text-xs" />
                     <p className="text-[10px] text-gray-400 mt-0.5">0 = tgl cetak = awal periode</p>
                   </div>
-                  <div className="col-span-2">
+                  <div>
                     <Label className="text-xs text-gray-500">Jatuh Tempo (hari setelah awal periode)</Label>
                     <Input type="number" {...genForm.register('offset_jatuh_tempo')} className="mt-1 h-8 text-xs" />
                   </div>
                 </div>
+                <p className="text-[10px] text-gray-400">Denda: mulai H+1 setelah jatuh tempo (tanpa grace).</p>
               </div>
 
               <DialogFooter>
@@ -1288,36 +1289,28 @@ export function Kompensasi() {
                           <span>− PPh ({watchPPH ?? 10}%) [Bukti Potong]</span><span>− {formatRupiah(pph)}</span>
                         </div>
                       )}
-                      <div className={`flex justify-between font-semibold border-t pt-1 ${penguranganNom > 0 ? '' : ''}`}>
-                        <span>Total Tagihan</span><span>{formatRupiah(total)}</span>
+                      <div className="flex justify-between text-gray-600 border-t pt-1">
+                        <span>Bruto (sebelum pengurang)</span><span>{formatRupiah(total)}</span>
                       </div>
                       {penguranganNom > 0 && (
-                        <>
-                          <div className="flex justify-between text-purple-700">
-                            <span>− Pengurang {watchKetPengurang ? `(${watchKetPengurang})` : ''}</span>
-                            <span>− {formatRupiah(penguranganNom)}</span>
-                          </div>
-                          <div className="flex justify-between font-semibold text-purple-800 border-t pt-1">
-                            <span>Efektif Harus Dibayar</span>
-                            <span>{formatRupiah(Math.max(0, total - penguranganNom))}</span>
-                          </div>
-                        </>
+                        <div className="flex justify-between text-purple-700">
+                          <span>− Pengurang {watchKetPengurang ? `(${watchKetPengurang})` : ''}</span>
+                          <span>− {formatRupiah(penguranganNom)}</span>
+                        </div>
                       )}
+                      <div className="flex justify-between font-semibold text-[#1B4F72] border-t pt-1.5 mt-0.5">
+                        <span>Tagihan (efektif)</span>
+                        <span>{formatRupiah(Math.max(0, total - penguranganNom))}</span>
+                      </div>
                     </>
                   )
                 })()}
               </div>
             )}
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>Grace denda (hari setelah JT)</Label>
-                <Input type="number" {...kompForm.register('maks_hari_bayar')} className="mt-1" />
-                <p className="text-[10px] text-gray-400 mt-0.5">0 = denda mulai H+1 lewat JT</p>
-              </div>
-              <div>
-                <Label>% Denda / Hari</Label>
-                <Input type="number" step="0.001" {...kompForm.register('persen_denda_per_hari')} className="mt-1" />
-              </div>
+            <div>
+              <Label>% Denda / Hari</Label>
+              <Input type="number" step="0.001" {...kompForm.register('persen_denda_per_hari')} className="mt-1" />
+              <p className="text-[10px] text-gray-400 mt-0.5">Denda dihitung sejak H+1 lewat JT (tanpa grace)</p>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>

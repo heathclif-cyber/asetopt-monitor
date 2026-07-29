@@ -365,8 +365,8 @@ export function BuatInvoice() {
               <CardContent className="px-5 py-3.5">
                 <div className="grid grid-cols-2 gap-2.5">
                   <div className="rounded-xl border bg-white px-3 py-2.5 shadow-sm">
-                    <p className="text-[10px] uppercase tracking-wide text-gray-400 font-medium">Total tagihan</p>
-                    <CurrencyDisplay value={selected.total_tagihan} size="sm" className="text-gray-900 mt-0.5" />
+                    <p className="text-[10px] uppercase tracking-wide text-gray-400 font-medium">Tagihan (efektif)</p>
+                    <CurrencyDisplay value={ws.efektifTagihan} size="sm" className="text-gray-900 mt-0.5" />
                   </div>
                   <div className="rounded-xl border bg-white px-3 py-2.5 shadow-sm">
                     <p className="text-[10px] uppercase tracking-wide text-gray-400 font-medium">Sisa</p>

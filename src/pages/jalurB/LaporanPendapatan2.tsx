@@ -246,7 +246,7 @@ export default function LaporanPendapatan() {
           noKontrakSAP: ks?.no_kontrak_sap ?? '-',
           noInvoice: k.no_invoice_sap ?? '-',
           noBilling: k.no_billing_sap ?? '-',
-          totalTagihan: k.total_tagihan ?? 0,
+          totalTagihan: efektifTagihan,
           cashIn,
           paymentsInYear,
           pendapatanAkrual: match?.nominal ?? k.nominal ?? 0,

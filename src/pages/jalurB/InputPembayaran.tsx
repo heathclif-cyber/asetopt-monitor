@@ -670,8 +670,8 @@ export function InputPembayaran() {
                 {selected && ws && (
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 rounded-xl border border-gray-100 bg-slate-50/80 p-3">
                     <div>
-                      <p className="text-[10px] uppercase tracking-wide text-gray-400">Tagihan</p>
-                      <CurrencyDisplay value={selected.total_tagihan} size="sm" className="font-semibold text-gray-800" />
+                      <p className="text-[10px] uppercase tracking-wide text-gray-400">Tagihan (efektif)</p>
+                      <CurrencyDisplay value={ws.efektifTagihan} size="sm" className="font-semibold text-gray-800" />
                     </div>
                     <div>
                       <p className="text-[10px] uppercase tracking-wide text-gray-400">Dibayar</p>
