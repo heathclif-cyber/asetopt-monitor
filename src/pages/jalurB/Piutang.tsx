@@ -1,12 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import {
-  AlertTriangle,
   Banknote,
   FileText,
   Filter,
   MessageSquareWarning,
-  Receipt,
   Wallet,
 } from 'lucide-react'
 import { useKompensasiStore } from '@/store/kompensasiStore'
@@ -306,12 +304,10 @@ export default function Piutang() {
                   <th className="text-left px-3 py-2.5">Periode</th>
                   <th className="text-left px-3 py-2.5">JT</th>
                   <th className="text-left px-3 py-2.5">Aging</th>
-                  <th className="text-left px-3 py-2.5">Invoice</th>
                   <th className="text-right px-3 py-2.5">Tagihan</th>
                   <th className="text-right px-3 py-2.5">Dibayar</th>
                   <th className="text-right px-3 py-2.5">Sisa</th>
                   <th className="text-right px-3 py-2.5">Denda</th>
-                  <th className="text-left px-3 py-2.5">SP / KS</th>
                   <th className="text-right px-3 py-2.5">Aksi</th>
                 </tr>
               </thead>
@@ -354,27 +350,6 @@ export default function Piutang() {
                         {PIUTANG_AGING_LABEL[r.aging]}
                       </span>
                     </td>
-                    <td className="px-3 py-2">
-                      {r.hasInvoice ? (
-                        <div>
-                          <span className="inline-flex items-center gap-1 text-green-700">
-                            <Receipt size={11} /> Ada
-                          </span>
-                          {(r.noInvoice || r.noInvoiceSap) && (
-                            <div className="text-[10px] text-gray-500 font-mono mt-0.5">
-                              {r.noInvoiceSap || r.noInvoice}
-                            </div>
-                          )}
-                          {r.invoiceTgl && (
-                            <div className="text-[10px] text-gray-400">{formatTanggal(r.invoiceTgl)}</div>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-amber-700">
-                          <AlertTriangle size={11} /> Belum
-                        </span>
-                      )}
-                    </td>
                     <td className="px-3 py-2 text-right">
                       <CurrencyDisplay value={r.efektifTagihan} size="sm" />
                     </td>
@@ -391,53 +366,20 @@ export default function Piutang() {
                         <span className="text-gray-300">—</span>
                       )}
                     </td>
-                    <td className="px-3 py-2">
-                      {r.spJenis ? (
-                        <span className={cn(
-                          'inline-block px-2 py-0.5 rounded-full text-[10px] font-bold',
-                          r.spJenis === 'PUTUS' && 'bg-red-700 text-white',
-                          r.spJenis === 'SP3' && 'bg-red-100 text-red-800',
-                          r.spJenis === 'SP2' && 'bg-orange-100 text-orange-800',
-                          r.spJenis === 'SP1' && 'bg-yellow-100 text-yellow-800',
-                        )}>
-                          {r.spJenis}
-                        </span>
-                      ) : (
-                        <span className="text-[10px] text-gray-400 uppercase">{r.statusKs}</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2">
-                      <div className="flex flex-col items-end gap-1">
-                        <Link
-                          to={`/jalur-b/pembayaran?kompensasi_id=${r.id}`}
-                          className="text-[11px] font-medium text-green-700 hover:underline whitespace-nowrap"
-                        >
-                          Catat bayar
-                        </Link>
-                        {!r.hasInvoice && (
-                          <Link
-                            to={`/jalur-b/invoice?kompensasi_id=${r.id}`}
-                            className="text-[11px] font-medium text-[#1B4F72] hover:underline whitespace-nowrap"
-                          >
-                            Buat invoice
-                          </Link>
-                        )}
-                        {(r.aging === '1_30' || r.aging === '31_60' || r.aging === '61_90' || r.aging === '90_plus' || r.spJenis) && (
-                          <Link
-                            to="/jalur-b/notifikasi"
-                            className="text-[11px] font-medium text-orange-700 hover:underline whitespace-nowrap"
-                          >
-                            Cek SP
-                          </Link>
-                        )}
-                      </div>
+                    <td className="px-3 py-2 text-right">
+                      <Link
+                        to={`/jalur-b/pembayaran?kompensasi_id=${r.id}`}
+                        className="text-[11px] font-medium text-green-700 hover:underline whitespace-nowrap"
+                      >
+                        Catat bayar
+                      </Link>
                     </td>
                   </tr>
                 ))}
               </tbody>
               <tfoot>
                 <tr className="border-t-2 bg-gray-50 font-semibold text-xs">
-                  <td colSpan={6} className="px-3 py-2.5 text-gray-700">
+                  <td colSpan={5} className="px-3 py-2.5 text-gray-700">
                     Total ({rows.length} piutang)
                   </td>
                   <td className="px-3 py-2.5 text-right">
@@ -452,7 +394,7 @@ export default function Piutang() {
                   <td className="px-3 py-2.5 text-right text-red-600">
                     <CurrencyDisplay value={summary.totalDenda} size="sm" />
                   </td>
-                  <td colSpan={2} />
+                  <td />
                 </tr>
               </tfoot>
             </table>
