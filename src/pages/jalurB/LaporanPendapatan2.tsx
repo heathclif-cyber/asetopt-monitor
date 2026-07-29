@@ -91,6 +91,18 @@ function resolveStatus(totalDibayar: number, efektifTagihan: number, hariTerlamb
   return 'belum_bayar'
 }
 
+/** Bulan 0..N (Jan–bulan berjalan). Contoh Juli → [0..6] */
+function monthsYtd(asOf = new Date()): number[] {
+  const m = asOf.getMonth()
+  return Array.from({ length: m + 1 }, (_, i) => i)
+}
+
+const ALL_MONTHS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+
+function formatTglBayarList(list: string[]): string[] {
+  return list.map(d => formatTanggal(d))
+}
+
 export default function LaporanPendapatan() {
   const location = useLocation()
   const { allKompensasi, fetchAllKompensasi } = useKompensasiStore()
@@ -128,7 +140,8 @@ export default function LaporanPendapatan() {
   const [filterMitra, setFilterMitra] = useState('all')
   const [filterStatus, setFilterStatus] = useState<StatusFilter>('all')
   const [periodeMode, setPeriodeMode] = useState<PeriodeMode>('semua')
-  const [selectedMonths, setSelectedMonths] = useState<number[]>([0,1,2,3,4,5,6,7,8,9,10,11])
+  // Default: Jan–bulan berjalan (YTD). Contoh Juli → Jan–Jul aktif.
+  const [selectedMonths, setSelectedMonths] = useState<number[]>(() => monthsYtd())
 
   // ── Sort (default: laporan / tagihan terbaru dulu) ───────────────────────
   const [sortKey, setSortKey] = useState<SortKey>('tglJatuhTempo')
@@ -162,8 +175,13 @@ export default function LaporanPendapatan() {
   const allRows = useMemo(() => {
     return allKompensasi
       .map(k => {
-        const pembayaran = k.pembayaran ?? []
+        const pembayaran = [...(k.pembayaran ?? [])].sort((a, b) =>
+          dateKey(a.tgl_bayar || '').localeCompare(dateKey(b.tgl_bayar || '')),
+        )
         const totalDibayar = pembayaran.reduce((s, p) => s + (p.nominal_bayar || 0), 0)
+        const tglBayarList = pembayaran
+          .filter(p => p.tgl_bayar)
+          .map(p => dateKey(p.tgl_bayar))
         const paymentsInYear: PaymentInYear[] = pembayaran
           .filter(p => p.tgl_bayar && parseTglParts(p.tgl_bayar).year === tahun)
           .map(p => ({
@@ -210,6 +228,7 @@ export default function LaporanPendapatan() {
           periodeLabel: k.periode_label ?? formatTanggal(k.tgl_jatuh_tempo),
           tglJatuhTempo: k.tgl_jatuh_tempo,
           tglBilling: k.tgl_jatuh_tempo,
+          tglBayarList,
           noPerjanjian: ks?.no_perjanjian ?? '-',
           noKontrakSAP: ks?.no_kontrak_sap ?? '-',
           noInvoice: k.no_invoice_sap ?? '-',
@@ -655,6 +674,7 @@ export default function LaporanPendapatan() {
               return (
                 <button
                   key={idx}
+                  type="button"
                   onClick={() => {
                     setSelectedMonths(prev => {
                       if (prev.length === 12) return [idx]
@@ -676,12 +696,21 @@ export default function LaporanPendapatan() {
                 </button>
               )
             })}
+            <button
+              type="button"
+              onClick={() => setSelectedMonths(monthsYtd())}
+              className="ml-1 text-[10px] text-blue-600 hover:underline"
+              title="Aktifkan Januari s.d. bulan berjalan"
+            >
+              YTD
+            </button>
             {selectedMonths.length < 12 && (
               <button
-                onClick={() => setSelectedMonths([0,1,2,3,4,5,6,7,8,9,10,11])}
-                className="ml-1 text-[10px] text-blue-600 hover:underline"
+                type="button"
+                onClick={() => setSelectedMonths(ALL_MONTHS)}
+                className="text-[10px] text-blue-600 hover:underline"
               >
-                Reset
+                Semua
               </button>
             )}
           </div>
@@ -741,6 +770,7 @@ export default function LaporanPendapatan() {
                     <th className="text-left px-3 py-2.5">No Perjanjian</th>
                     <SortTh label="Status" col="status" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                     <th className="text-left px-3 py-2.5">Tgl Billing</th>
+                    <th className="text-left px-3 py-2.5">Tgl Pembayaran</th>
                     <th className="text-left px-3 py-2.5">No Kontrak SAP</th>
                     <th className="text-left px-3 py-2.5">No Invoice SAP</th>
                     <th className="text-left px-3 py-2.5">No Billing SAP</th>
@@ -753,7 +783,7 @@ export default function LaporanPendapatan() {
                 <tbody className="divide-y">
                   {rows.length === 0 && (
                     <tr>
-                      <td colSpan={14} className="px-4 py-8 text-center text-gray-400">
+                      <td colSpan={15} className="px-4 py-8 text-center text-gray-400">
                         Tidak ada data untuk filter yang dipilih
                       </td>
                     </tr>
@@ -771,6 +801,24 @@ export default function LaporanPendapatan() {
                         </span>
                       </td>
                       <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{formatTanggal(row.tglBilling)}</td>
+                      <td className="px-3 py-2 text-gray-600 whitespace-nowrap">
+                        {row.tglBayarList.length === 0 ? (
+                          <span className="text-gray-300">—</span>
+                        ) : row.tglBayarList.length <= 3 ? (
+                          <div className="space-y-0.5">
+                            {formatTglBayarList(row.tglBayarList).map((label, idx) => (
+                              <div key={`${row.id}-bayar-${idx}`} className="text-[11px]">{label}</div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-[11px]" title={formatTglBayarList(row.tglBayarList).join(', ')}>
+                            {formatTanggal(row.tglBayarList[0])}
+                            <span className="text-gray-400"> → </span>
+                            {formatTanggal(row.tglBayarList[row.tglBayarList.length - 1])}
+                            <div className="text-[10px] text-gray-400">{row.tglBayarList.length}x bayar</div>
+                          </div>
+                        )}
+                      </td>
 
                       <td className="px-3 py-2">
                         <EditableCell
@@ -827,7 +875,7 @@ export default function LaporanPendapatan() {
                 {rows.length > 0 && (
                   <tfoot>
                     <tr className="border-t-2 bg-gray-50 font-semibold text-xs">
-                      <td colSpan={10} className="px-3 py-2.5 text-gray-700">Total ({rows.length} tagihan)</td>
+                      <td colSpan={11} className="px-3 py-2.5 text-gray-700">Total ({rows.length} tagihan)</td>
                       <td className="px-3 py-2.5 text-right"><CurrencyDisplay value={totalTagihan} size="sm" /></td>
                       <td className="px-3 py-2.5 text-right text-green-700"><CurrencyDisplay value={totalCashIn} size="sm" /></td>
                       <td className="px-3 py-2.5 text-right text-[#5B2C6F]"><CurrencyDisplay value={totalAkrual} size="sm" /></td>
