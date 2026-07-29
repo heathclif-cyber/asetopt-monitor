@@ -243,7 +243,7 @@ export default function MonitoringKompensasi() {
         description="Detail tagihan + rekap per mitra sesuai filter tahun, cakupan JT, mitra, proker, dan status."
         meta={`${filteredDetail.length} tagihan · ${groups.length} mitra · ${tahun} · ${horizon === 'jt_berjalan' ? 'JT berjalan' : 'Full year'} · sisa ${formatRupiah(summary.totalSisa)}`}
         fileNameHint={`Monitoring_Kompensasi_${tahun}.xlsx`}
-        onExport={() => exportMonitoringExcel(tahun, filteredDetail, groups, 'mitra')}
+        onExport={() => exportMonitoringExcel(tahun, filteredDetail, groups, 'mitra', { hideSp: !isAdmin })}
         disabled={filteredDetail.length === 0}
       />
 
@@ -375,6 +375,7 @@ export default function MonitoringKompensasi() {
               onDownloadWord={() => handleDownloadMitra(g)}
               downloading={exporting === g.key}
               showWord={isAdmin}
+              hideSpBadge={!isAdmin}
             />
           ))}
         </div>
@@ -402,6 +403,8 @@ function KpiCard({
   )
 }
 
+const KS_SP_STATUSES = new Set(['sp1', 'sp2', 'sp3', 'putus', 'SP1', 'SP2', 'SP3', 'PUTUS'])
+
 function MitraCard({
   group,
   open,
@@ -409,6 +412,7 @@ function MitraCard({
   onDownloadWord,
   downloading,
   showWord = true,
+  hideSpBadge = false,
 }: {
   group: MonitoringGroup
   open: boolean
@@ -416,9 +420,14 @@ function MitraCard({
   onDownloadWord: () => void
   downloading: boolean
   showWord?: boolean
+  /** Viewer: jangan tampilkan badge SP1/SP2/SP3/Putus */
+  hideSpBadge?: boolean
 }) {
   const hasIssue = group.nTerlambat > 0 || group.outstanding > 0.5
   const pct = group.pctTertagih != null ? `${group.pctTertagih.toFixed(0)}%` : '—'
+  const showKsBadge =
+    group.statusKs !== '-'
+    && !(hideSpBadge && KS_SP_STATUSES.has(String(group.statusKs)))
 
   return (
     <div className={cn(
@@ -437,7 +446,7 @@ function MitraCard({
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="text-sm font-semibold text-gray-900 truncate">{group.namaMitra}</span>
-              {group.statusKs !== '-' && (
+              {showKsBadge && (
                 <StatusBadge type="ks" value={group.statusKs as any} />
               )}
               {group.nTerlambat > 0 && (

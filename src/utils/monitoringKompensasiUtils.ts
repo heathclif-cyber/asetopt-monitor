@@ -470,34 +470,45 @@ const STATUS_LABEL: Record<MonitoringStatusBayar, string> = {
   terlambat: 'Terlambat',
 }
 
+const SP_KS = new Set(['sp1', 'sp2', 'sp3', 'putus'])
+
+function displayStatusKs(status: string, hideSp?: boolean): string {
+  if (!status || status === '-') return ''
+  if (hideSp && SP_KS.has(String(status).toLowerCase())) return ''
+  return status
+}
+
 export function exportMonitoringExcel(
   tahun: number,
   detail: MonitoringDetailRow[],
   groups: MonitoringGroup[],
   groupBy: 'mitra' | 'proker',
+  opts?: { hideSp?: boolean },
 ): void {
+  const hideSp = opts?.hideSp ?? false
   const wb = XLSX.utils.book_new()
   const today = new Date().toISOString().slice(0, 10)
 
+  const detailHeaders = [
+    'Mitra',
+    'No. Perjanjian',
+    'ID Monika',
+    'Proker / Aset',
+    'Periode',
+    'No. Invoice',
+    'Tgl Terbit',
+    'Tgl Jatuh Tempo',
+    'Total Tagihan',
+    'Cash In',
+    'Sisa',
+    'Tgl Bayar',
+    'Hari Telat',
+    'Denda',
+    'Status Bayar',
+    ...(hideSp ? [] : ['Status KS']),
+  ]
   const detailSheet = [
-    [
-      'Mitra',
-      'No. Perjanjian',
-      'ID Monika',
-      'Proker / Aset',
-      'Periode',
-      'No. Invoice',
-      'Tgl Terbit',
-      'Tgl Jatuh Tempo',
-      'Total Tagihan',
-      'Cash In',
-      'Sisa',
-      'Tgl Bayar',
-      'Hari Telat',
-      'Denda',
-      'Status Bayar',
-      'Status KS',
-    ],
+    detailHeaders,
     ...detail.map(r => [
       r.namaMitra,
       r.noPerjanjian,
@@ -514,7 +525,7 @@ export function exportMonitoringExcel(
       r.hariTerlambat,
       Math.round(r.nominalDenda),
       STATUS_LABEL[r.statusBayar],
-      r.statusKs,
+      ...(hideSp ? [] : [displayStatusKs(r.statusKs, false)]),
     ]),
   ]
   const ws1 = XLSX.utils.aoa_to_sheet(detailSheet)
