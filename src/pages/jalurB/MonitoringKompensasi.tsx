@@ -170,6 +170,20 @@ export default function MonitoringKompensasi() {
     [filteredDetail, horizon],
   )
 
+  /** Mitra aktif = status KS masih berjalan (aktif / SP), bukan putus/selesai */
+  const mitraStats = useMemo(() => {
+    const nonAktif = new Set(['putus', 'selesai'])
+    let nAktif = 0
+    for (const g of groups) {
+      const st = String(g.statusKs || '').toLowerCase()
+      if (!st || st === '-' || !nonAktif.has(st)) nAktif += 1
+    }
+    return {
+      nMitra: groups.length,
+      nAktif,
+    }
+  }, [groups])
+
   const toggleGroup = (key: string) => {
     setExpanded(prev => {
       const next = new Set(prev)
@@ -339,11 +353,18 @@ export default function MonitoringKompensasi() {
         </label>
 
         <span className="ml-auto text-xs text-gray-400">
-          {groups.length} mitra · {filteredDetail.length} tagihan
+          {mitraStats.nAktif} aktif / {mitraStats.nMitra} mitra · {filteredDetail.length} tagihan
         </span>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        <KpiCard
+          label="Mitra aktif"
+          value={mitraStats.nAktif}
+          format="count"
+          color="text-[#1B4F72]"
+          hint={`${mitraStats.nMitra} mitra di daftar`}
+        />
         <KpiCard
           label={horizon === 'jt_berjalan' ? 'Tagihan JT berjalan' : 'Total Tagihan'}
           value={summary.totalTagihan}
@@ -395,17 +416,28 @@ function KpiCard({
   label,
   value,
   color = 'text-gray-900',
+  format = 'currency',
+  hint,
 }: {
   label: string
   value: number
   color?: string
+  format?: 'currency' | 'count'
+  hint?: string
 }) {
   return (
     <div className="rounded-xl border bg-white px-4 py-3 shadow-sm">
       <p className="text-[10px] uppercase tracking-wide text-gray-400 font-medium">{label}</p>
-      <p className={cn('text-sm font-bold tabular-nums mt-0.5', color)}>
-        <CurrencyDisplay value={value} size="sm" className={color} />
-      </p>
+      {format === 'count' ? (
+        <p className={cn('text-2xl font-bold tabular-nums mt-0.5 leading-tight', color)}>
+          {value.toLocaleString('id-ID')}
+        </p>
+      ) : (
+        <p className={cn('text-sm font-bold tabular-nums mt-0.5', color)}>
+          <CurrencyDisplay value={value} size="sm" className={color} />
+        </p>
+      )}
+      {hint && <p className="text-[10px] text-gray-400 mt-0.5">{hint}</p>}
     </div>
   )
 }
