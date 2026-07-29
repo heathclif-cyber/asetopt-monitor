@@ -170,7 +170,7 @@ export function Sidebar() {
             <span className="text-blue-400"> · {user.role}</span>
           </p>
         )}
-        <p className="text-[11px] text-blue-400 leading-tight">© 2025 AsetOpt</p>
+        <p className="text-[11px] text-blue-400 leading-tight">Manajemen Aset PTPN I Regional 8</p>
       </div>
     </aside>
   )
