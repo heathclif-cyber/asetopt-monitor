@@ -42,6 +42,8 @@ export interface MonitoringDetailRow {
   statusBayar: MonitoringStatusBayar
   statusKs: string
   nPembayaran: number
+  /** JT sudah tiba/lewat s.d. asOf (untuk hitung outstanding JT berjalan) */
+  isDue: boolean
 }
 
 export interface MonitoringProkerRow {
@@ -86,7 +88,17 @@ export interface MonitoringGroup {
   pctTertagih: number | null
 }
 
-function summarizeDetailRows(rows: MonitoringDetailRow[]) {
+/**
+ * Agregasi baris detail.
+ * - nTagihan = semua baris (full year) agar mitra dengan JT mendatang tetap terhitung.
+ * - Uang (tagihan/cash/sisa/denda) & status telat: ikut horizon.
+ *   jt_berjalan → hanya isDue; full_year → semua.
+ */
+function summarizeDetailRows(
+  rows: MonitoringDetailRow[],
+  horizon: MonitoringHorizon = 'full_year',
+) {
+  const moneyRows = horizon === 'jt_berjalan' ? rows.filter(r => r.isDue) : rows
   let nLunas = 0
   let nTerlambat = 0
   let nSebagian = 0
@@ -95,7 +107,7 @@ function summarizeDetailRows(rows: MonitoringDetailRow[]) {
   let cashIn = 0
   let outstanding = 0
   let totalDenda = 0
-  for (const r of rows) {
+  for (const r of moneyRows) {
     totalTagihan += r.totalTagihan
     cashIn += r.cashIn
     outstanding += r.sisa
@@ -120,7 +132,10 @@ function summarizeDetailRows(rows: MonitoringDetailRow[]) {
 }
 
 /** Grup monitoring per mitra (kerja sama) — unit utama track collection */
-export function groupMonitoringByMitra(rows: MonitoringDetailRow[]): MonitoringGroup[] {
+export function groupMonitoringByMitra(
+  rows: MonitoringDetailRow[],
+  horizon: MonitoringHorizon = 'full_year',
+): MonitoringGroup[] {
   const map = new Map<string, MonitoringDetailRow[]>()
   for (const r of rows) {
     const key = r.ksId || `unknown-${r.id}`
@@ -133,7 +148,7 @@ export function groupMonitoringByMitra(rows: MonitoringDetailRow[]): MonitoringG
     .map(([key, groupRows]) => {
       const sorted = [...groupRows].sort((a, b) => a.tglJatuhTempo.localeCompare(b.tglJatuhTempo))
       const head = sorted[0]
-      const agg = summarizeDetailRows(sorted)
+      const agg = summarizeDetailRows(sorted, horizon)
       return {
         key,
         groupBy: 'mitra' as const,
@@ -149,20 +164,25 @@ export function groupMonitoringByMitra(rows: MonitoringDetailRow[]): MonitoringG
         noPerjanjian: head.noPerjanjian,
         statusKs: head.statusKs,
         namaAset: head.namaAset,
+        // Detail: selalu full year (semua tahap mitra di tahun itu)
         rows: sorted,
         ...agg,
       }
     })
     .sort((a, b) => {
-      // yang ada outstanding/denda dulu, lalu abjad mitra
-      if (a.nTerlambat !== b.nTerlambat) return b.nTerlambat - a.nTerlambat
+      // abjad mitra dulu agar semua mitra mudah dicari; outstanding tinggi tetap di atas bila sama nama
+      const byName = a.namaMitra.localeCompare(b.namaMitra, 'id')
+      if (byName !== 0) return byName
       if (a.outstanding !== b.outstanding) return b.outstanding - a.outstanding
-      return a.namaMitra.localeCompare(b.namaMitra, 'id')
+      return 0
     })
 }
 
 /** Grup monitoring per proker (ID Monika) */
-export function groupMonitoringByProker(rows: MonitoringDetailRow[]): MonitoringGroup[] {
+export function groupMonitoringByProker(
+  rows: MonitoringDetailRow[],
+  horizon: MonitoringHorizon = 'full_year',
+): MonitoringGroup[] {
   const map = new Map<string, MonitoringDetailRow[]>()
   for (const r of rows) {
     const key = r.monikaId?.trim() || '__tanpa_monika__'
@@ -179,7 +199,7 @@ export function groupMonitoringByProker(rows: MonitoringDetailRow[]): Monitoring
         return a.tglJatuhTempo.localeCompare(b.tglJatuhTempo)
       })
       const head = sorted[0]
-      const agg = summarizeDetailRows(sorted)
+      const agg = summarizeDetailRows(sorted, horizon)
       const mitraUnique = Array.from(new Set(sorted.map(r => r.namaMitra))).sort((a, b) => a.localeCompare(b, 'id'))
       const monikaId = key === '__tanpa_monika__' ? null : key
       return {
@@ -231,22 +251,20 @@ function dateKey(s: string): string {
 /** Cakupan tagihan di monitoring */
 export type MonitoringHorizon = 'jt_berjalan' | 'full_year'
 
-/**
- * JT berjalan = tgl jatuh tempo ≤ asOf (outstanding hanya tahap yang sudah waktunya).
- * Full year = semua JT di tahun tersebut (termasuk yang belum JT).
- */
-export function isJtInHorizon(
-  tglJatuhTempo: string,
-  tahun: number,
-  horizon: MonitoringHorizon,
-  asOf: Date = new Date(),
-): boolean {
-  if (yearOf(tglJatuhTempo) !== tahun) return false
-  if (horizon === 'full_year') return true
+/** JT sudah jatuh tempo s.d. asOf (lokal). */
+export function isJtDue(tglJatuhTempo: string, asOf: Date = new Date()): boolean {
   const asOfKey = dateKey(
     `${asOf.getFullYear()}-${String(asOf.getMonth() + 1).padStart(2, '0')}-${String(asOf.getDate()).padStart(2, '0')}`,
   )
   return dateKey(tglJatuhTempo) <= asOfKey
+}
+
+/**
+ * Tagihan masuk daftar jika JT di `tahun`.
+ * Horizon tidak menyaring daftar mitra — hanya memengaruhi agregasi uang (lihat summarize).
+ */
+export function isJtInYear(tglJatuhTempo: string, tahun: number): boolean {
+  return yearOf(tglJatuhTempo) === tahun
 }
 
 function resolveStatus(
@@ -269,6 +287,10 @@ function formatTglBayarLabel(list: string[]): string {
   return `${formatTanggal(first)} → ${formatTanggal(last)}`
 }
 
+/**
+ * Semua tagihan dengan JT di `tahun` (full year) — agar semua mitra muncul.
+ * Horizon di halaman hanya memengaruhi agregasi sisa/KPI, bukan daftar mitra.
+ */
 export function buildMonitoringDetailRows(opts: {
   allKompensasi: Kompensasi[]
   daftarKS: KerjaSama[]
@@ -276,15 +298,11 @@ export function buildMonitoringDetailRows(opts: {
   rkapByKode?: Map<string, string>
   tahun: number
   asOf?: Date
-  /**
-   * Default `jt_berjalan`: hanya tagihan JT ≤ hari ini (sisa/outstanding tidak
-   * memasukkan tahap full-year yang belum jatuh tempo).
-   */
+  /** @deprecated tidak menyaring baris; tetap di-accept agar call site lama aman */
   horizon?: MonitoringHorizon
 }): MonitoringDetailRow[] {
   const { allKompensasi, daftarKS, daftarAset = [], rkapByKode, tahun } = opts
   const asOf = opts.asOf ?? new Date()
-  const horizon: MonitoringHorizon = opts.horizon ?? 'jt_berjalan'
   const ksMap = new Map(daftarKS.map(k => [k.id, k]))
   const asetByKode = new Map(
     daftarAset.filter(a => a.kode_aset?.trim()).map(a => [a.kode_aset.trim(), a]),
@@ -294,7 +312,8 @@ export function buildMonitoringDetailRows(opts: {
 
   for (const k of allKompensasi) {
     if (!k.tgl_jatuh_tempo) continue
-    if (!isJtInHorizon(k.tgl_jatuh_tempo, tahun, horizon, asOf)) continue
+    // Selalu full year — jangan drop mitra yang JT-nya masih di depan
+    if (!isJtInYear(k.tgl_jatuh_tempo, tahun)) continue
 
     const ks = ksMap.get(k.ks_id) ?? k.kerja_sama
     const monikaId = resolveMonikaId(k, ks)
@@ -314,23 +333,29 @@ export function buildMonitoringDetailRows(opts: {
     const cashIn = pembayaran.reduce((s, p) => s + (p.nominal_bayar || 0), 0)
     const sisa = Math.max(0, efektif - cashIn)
     const isLunas = efektif > 0 && cashIn + 0.5 >= efektif
+    const isDue = isJtDue(k.tgl_jatuh_tempo, asOf)
 
     // Lunas: denda + telat membeku di tgl pelunasan. Belum lunas: s.d. hari ini.
+    // Belum JT: denda 0 / tidak telat.
     const tglAsOf = isLunas
       ? (findTglPelunasan(pembayaran, efektif) ?? dateKey(asOf.toISOString()))
-      : dateKey(asOf.toISOString())
+      : dateKey(
+          `${asOf.getFullYear()}-${String(asOf.getMonth() + 1).padStart(2, '0')}-${String(asOf.getDate()).padStart(2, '0')}`,
+        )
 
-    // Denda sejak lewat JT (grace 0). maks_hari_bayar tidak menunda denda —
-    // dulu default 14 membuat "telat 14 hari, denda —".
-    const denda = hitungDenda({
-      nominal: k.nominal ?? 0,
-      tglJatuhTempo: k.tgl_jatuh_tempo,
-      tglHariIni: tglAsOf,
-      persenDendaPerHari: (k.persen_denda_per_hari ?? 0) / 100,
-      maksHariBayar: 0,
-    })
+    const denda = isDue
+      ? hitungDenda({
+          nominal: k.nominal ?? 0,
+          tglJatuhTempo: k.tgl_jatuh_tempo,
+          tglHariIni: tglAsOf,
+          persenDendaPerHari: (k.persen_denda_per_hari ?? 0) / 100,
+          maksHariBayar: 0,
+        })
+      : { hariTerlambat: 0, nominalDenda: 0, persenAkumulasi: 0 }
 
-    const statusBayar = resolveStatus(cashIn, efektif, denda.hariTerlambat)
+    const statusBayar = !isDue
+      ? (isLunas ? 'lunas' : cashIn > 0 ? 'sebagian' : 'belum_bayar')
+      : resolveStatus(cashIn, efektif, denda.hariTerlambat)
     const tglBayarList = pembayaran.map(p => dateKey(p.tgl_bayar))
     const pembayaranDetail = pembayaran.map(p => ({
       tgl: dateKey(p.tgl_bayar),
@@ -374,6 +399,7 @@ export function buildMonitoringDetailRows(opts: {
       statusBayar,
       statusKs: ks?.status ?? '-',
       nPembayaran: pembayaran.length,
+      isDue,
     })
   }
 
@@ -450,22 +476,20 @@ export function aggregateMonitoringByProker(
     .sort((a, b) => a.monikaId.localeCompare(b.monikaId, 'id'))
 }
 
-export function summarizeMonitoringRows(rows: MonitoringDetailRow[]): MonitoringSummary {
-  const totalTagihan = rows.reduce((s, r) => s + r.totalTagihan, 0)
-  const totalCashIn = rows.reduce((s, r) => s + r.cashIn, 0)
-  const totalSisa = rows.reduce((s, r) => s + r.sisa, 0)
-  const totalDenda = rows.reduce((s, r) => s + r.nominalDenda, 0)
-  const nTerlambat = rows.filter(r => r.statusBayar === 'terlambat').length
-  const nLunas = rows.filter(r => r.statusBayar === 'lunas').length
+export function summarizeMonitoringRows(
+  rows: MonitoringDetailRow[],
+  horizon: MonitoringHorizon = 'full_year',
+): MonitoringSummary {
+  const agg = summarizeDetailRows(rows, horizon)
   return {
-    totalTagihan,
-    totalCashIn,
-    totalSisa,
-    totalDenda,
-    pctTertagih: totalTagihan > 0 ? (totalCashIn / totalTagihan) * 100 : 0,
-    nTerlambat,
-    nLunas,
-    nTagihan: rows.length,
+    totalTagihan: agg.totalTagihan,
+    totalCashIn: agg.cashIn,
+    totalSisa: agg.outstanding,
+    totalDenda: agg.totalDenda,
+    pctTertagih: agg.pctTertagih ?? 0,
+    nTerlambat: agg.nTerlambat,
+    nLunas: agg.nLunas,
+    nTagihan: agg.nTagihan,
   }
 }
 

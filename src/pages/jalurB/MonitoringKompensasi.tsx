@@ -106,6 +106,8 @@ export default function MonitoringKompensasi() {
     if (tahunList.length && !tahunList.includes(tahun)) setTahun(tahunList[0])
   }, [tahunList])
 
+  // Semua tagihan JT di tahun terpilih → semua mitra dengan tagihan tahun itu muncul.
+  // Horizon hanya memengaruhi KPI sisa (JT berjalan vs full year).
   const allDetail = useMemo(
     () =>
       buildMonitoringDetailRows({
@@ -114,9 +116,8 @@ export default function MonitoringKompensasi() {
         daftarAset,
         rkapByKode,
         tahun,
-        horizon,
       }),
-    [allKompensasi, daftarKS, daftarAset, rkapByKode, tahun, horizon],
+    [allKompensasi, daftarKS, daftarAset, rkapByKode, tahun],
   )
 
   const prokerOptions = useMemo(() => {
@@ -148,10 +149,10 @@ export default function MonitoringKompensasi() {
     return data
   }, [allDetail, filterProker, filterMitra, filterStatus, onlyDenda])
 
-  /** Satu unit laporan = per mitra (kerja sama) */
+  /** Satu unit laporan = per mitra (kerja sama) — daftar mitra = full year */
   const groups = useMemo(
-    () => groupMonitoringByMitra(filteredDetail),
-    [filteredDetail],
+    () => groupMonitoringByMitra(filteredDetail, horizon),
+    [filteredDetail, horizon],
   )
 
   // Tutup expand yang tidak lagi ada di daftar (filter berubah)
@@ -165,8 +166,8 @@ export default function MonitoringKompensasi() {
   }, [groups])
 
   const summary = useMemo(
-    () => summarizeMonitoringRows(filteredDetail),
-    [filteredDetail],
+    () => summarizeMonitoringRows(filteredDetail, horizon),
+    [filteredDetail, horizon],
   )
 
   const toggleGroup = (key: string) => {
@@ -217,11 +218,10 @@ export default function MonitoringKompensasi() {
         <div>
           <h1 className="text-lg font-bold text-gray-800">Monitoring Kompensasi — {tahun}</h1>
           <p className="text-xs text-gray-500 mt-1">
-            Laporan historikal <strong>per mitra</strong>: identitas, track record invoice &amp; pembayaran,
-            keterlambatan, dan denda.
+            Semua mitra dengan tagihan JT tahun <strong>{tahun}</strong> ditampilkan.
             {horizon === 'jt_berjalan'
-              ? ' Outstanding/sisa = tahap dengan JT ≤ hari ini (bukan full tahun).'
-              : ' Menampilkan seluruh JT di tahun terpilih (termasuk belum jatuh tempo).'}
+              ? ' KPI sisa/outstanding hanya tahap JT ≤ hari ini.'
+              : ' KPI uang memakai seluruh tahap full year.'}
           </p>
         </div>
 
@@ -280,8 +280,8 @@ export default function MonitoringKompensasi() {
             className="text-xs border rounded-md px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-[#1B4F72]"
             title="JT berjalan: outstanding hanya tahap yang sudah jatuh tempo"
           >
-            <option value="jt_berjalan">JT berjalan (s.d. hari ini)</option>
-            <option value="full_year">Full year {tahun}</option>
+            <option value="jt_berjalan">Sisa: JT berjalan (s.d. hari ini)</option>
+            <option value="full_year">Sisa: full year {tahun}</option>
           </select>
         </div>
 
@@ -358,15 +358,13 @@ export default function MonitoringKompensasi() {
       </div>
 
       <p className="text-[11px] text-gray-500 -mt-1">
+        Daftar mitra = semua yang punya tagihan di tahun {tahun}.{' '}
         {horizon === 'jt_berjalan' ? (
-          <>
-            Sisa/outstanding hanya dari tagihan dengan <strong>jatuh tempo ≤ hari ini</strong> di tahun {tahun}
-            (tahap mendatang tidak dihitung).{' '}
-          </>
+          <>Angka sisa/KPI hanya tahap <strong>JT ≤ hari ini</strong>.</>
         ) : (
-          <>Menampilkan semua tahap JT tahun {tahun}, termasuk yang belum jatuh tempo. </>
+          <>Angka sisa/KPI memakai <strong>semua tahap</strong> tahun {tahun}.</>
         )}
-        Daftar mitra ringkas — klik baris untuk detail. Unduh <strong>Word (A4)</strong> untuk laporan historikal.
+        {' '}Klik baris mitra untuk rincian tahap.
       </p>
 
       {groups.length === 0 ? (
