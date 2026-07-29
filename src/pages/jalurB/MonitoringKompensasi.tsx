@@ -253,22 +253,24 @@ export default function MonitoringKompensasi() {
         )}
       </div>
 
-      <ExportExcelPanel
-        title="Ekspor Monitoring Excel"
-        description="Detail tagihan + rekap per mitra sesuai filter tahun, cakupan JT, mitra, proker, dan status."
-        meta={`${filteredDetail.length} tagihan · ${groups.length} mitra · ${tahun} · ${horizon === 'jt_berjalan' ? 'JT berjalan' : 'Full year'} · sisa ${formatRupiah(summary.totalSisa)}`}
-        fileNameHint={`Monitoring_Kompensasi_${tahun}.xlsx`}
-        onExport={async () => {
-          setExportingExcel(true)
-          try {
-            await exportMonitoringExcel(tahun, filteredDetail, groups, 'mitra', { hideSp: !isAdmin })
-          } finally {
-            setExportingExcel(false)
-          }
-        }}
-        loading={exportingExcel}
-        disabled={filteredDetail.length === 0}
-      />
+      {isAdmin && (
+        <ExportExcelPanel
+          title="Ekspor Monitoring Excel"
+          description="Detail tagihan + rekap per mitra sesuai filter tahun, cakupan JT, mitra, proker, dan status."
+          meta={`${filteredDetail.length} tagihan · ${groups.length} mitra · ${tahun} · ${horizon === 'jt_berjalan' ? 'JT berjalan' : 'Full year'} · sisa ${formatRupiah(summary.totalSisa)}`}
+          fileNameHint={`Monitoring_Kompensasi_${tahun}.xlsx`}
+          onExport={async () => {
+            setExportingExcel(true)
+            try {
+              await exportMonitoringExcel(tahun, filteredDetail, groups, 'mitra', { hideSp: false })
+            } finally {
+              setExportingExcel(false)
+            }
+          }}
+          loading={exportingExcel}
+          disabled={filteredDetail.length === 0}
+        />
+      )}
 
       <div className="bg-white border rounded-xl px-4 py-3 flex flex-wrap items-center gap-3 shadow-sm">
         <Filter size={14} className="text-gray-400 shrink-0" />
