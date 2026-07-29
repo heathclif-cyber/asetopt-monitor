@@ -370,14 +370,9 @@ export default function Piutang() {
                         {r.hariDariJT < 0
                           ? `JT dalam ${Math.abs(r.hariDariJT)} hari`
                           : r.hariDariJT === 0
-                            ? 'JT hari ini'
-                            : `Terlambat ${r.hariDariJT} hari`}
+                            ? 'JT hari ini · denda mulai H+1'
+                            : `Terlambat ${r.hariDariJT} hari · denda berlaku`}
                       </div>
-                      {r.hariDariJT >= 0 && r.dalamGrace && r.maksHariBayar > 0 && (
-                        <div className="text-[10px] text-amber-600 mt-0.5">
-                          Denda mulai H+{r.maksHariBayar} JT
-                        </div>
-                      )}
                     </td>
                     <td className="px-3 py-2">
                       <span className={cn(
@@ -445,8 +440,8 @@ export default function Piutang() {
 
       <p className="text-[11px] text-gray-400">
         Definisi: sisa = (total tagihan − pengurang) − pembayaran. Masuk daftar jika sisa &gt; 0 dan
-        (ada nomor/tanggal invoice ATAU tgl jatuh tempo ≤ hari ini). Aging dihitung dari tgl JT
-        (bukan grace). Denda tetap memakai maks hari bayar sebagai toleransi sebelum denda mulai.
+        (ada nomor/tanggal invoice ATAU tgl jatuh tempo ≤ hari ini). Aging &amp; denda dihitung dari
+        tgl JT — denda mulai H+1 setelah jatuh tempo (tanpa grace).
       </p>
     </div>
   )

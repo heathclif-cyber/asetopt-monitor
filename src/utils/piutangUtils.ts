@@ -36,18 +36,16 @@ export interface PiutangRow {
   sisa: number
   /** Hari sejak JT (negatif = belum JT) */
   hariDariJT: number
-  /**
-   * Hari lewat grace denda (maks_hari_bayar setelah JT).
-   * Hanya untuk info denda — tidak dipakai grade aging.
-   */
+  /** @deprecated selalu 0 — denda tanpa grace setelah JT */
   hariLewatGrace: number
-  /** Masih dalam toleransi sebelum denda mulai (maks_hari_bayar) */
+  /** @deprecated selalu false — tidak ada masa grace denda */
   dalamGrace: boolean
   nominalDenda: number
   aging: PiutangAging
   alasan: PiutangAlasan
   statusKs: string
   spJenis: string | null
+  /** Selalu 0 — denda mulai H+1 lewat JT */
   maksHariBayar: number
 }
 
@@ -145,14 +143,7 @@ export function buildPiutangRows(opts: {
     // Hanya piutang "aktif" untuk collection: invoice terbit ATAU sudah waktunya (JT)
     if (!invoice && !sudahJT) continue
 
-    // Grace hanya untuk denda (maks_hari_bayar), bukan untuk bucket aging
-    const maksHari = k.maks_hari_bayar ?? 0
-    const graceEnd = new Date(jt)
-    graceEnd.setDate(graceEnd.getDate() + maksHari)
-    const hariLewatGrace = daysBetween(graceEnd, today)
-    const dalamGrace = sudahJT && hariLewatGrace <= 0
-
-    // Denda sejak lewat JT (grace 0). maks_hari_bayar tidak menunda denda.
+    // Denda sejak H+1 lewat JT — tanpa grace (abaikan maks_hari_bayar di data)
     const denda = hitungDenda({
       nominal: k.nominal ?? 0,
       tglJatuhTempo: k.tgl_jatuh_tempo,
@@ -184,14 +175,14 @@ export function buildPiutangRows(opts: {
       totalDibayar,
       sisa,
       hariDariJT,
-      hariLewatGrace: Math.max(0, hariLewatGrace),
-      dalamGrace,
+      hariLewatGrace: Math.max(0, hariDariJT),
+      dalamGrace: false,
       nominalDenda: denda.nominalDenda,
       aging,
       alasan,
       statusKs: ks?.status ?? '-',
       spJenis: spByKs.get(k.ks_id) ?? null,
-      maksHariBayar: maksHari,
+      maksHariBayar: 0,
     })
   }
 
