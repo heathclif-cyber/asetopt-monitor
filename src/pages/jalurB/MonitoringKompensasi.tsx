@@ -26,6 +26,7 @@ import {
   MONITORING_STATUS_LABEL,
   summarizeMonitoringRows,
   type MonitoringGroup,
+  type MonitoringHorizon,
   type MonitoringStatusBayar,
 } from '@/utils/monitoringKompensasiUtils'
 import {
@@ -54,6 +55,8 @@ export default function MonitoringKompensasi() {
   const { rows: rkapRows, fetchRKAP } = useRKAPStore()
 
   const [tahun, setTahun] = useState(new Date().getFullYear())
+  /** Default: JT berjalan — sisa/outstanding hanya tahap yang sudah jatuh tempo */
+  const [horizon, setHorizon] = useState<MonitoringHorizon>('jt_berjalan')
   const [filterProker, setFilterProker] = useState('all')
   const [filterMitra, setFilterMitra] = useState('all')
   const [filterStatus, setFilterStatus] = useState<StatusFilter>('all')
@@ -107,8 +110,9 @@ export default function MonitoringKompensasi() {
         daftarAset,
         rkapByKode,
         tahun,
+        horizon,
       }),
-    [allKompensasi, daftarKS, daftarAset, rkapByKode, tahun],
+    [allKompensasi, daftarKS, daftarAset, rkapByKode, tahun, horizon],
   )
 
   const prokerOptions = useMemo(() => {
@@ -210,7 +214,10 @@ export default function MonitoringKompensasi() {
           <h1 className="text-lg font-bold text-gray-800">Monitoring Kompensasi — {tahun}</h1>
           <p className="text-xs text-gray-500 mt-1">
             Laporan historikal <strong>per mitra</strong>: identitas, track record invoice &amp; pembayaran,
-            keterlambatan, dan denda — unduh format Word
+            keterlambatan, dan denda.
+            {horizon === 'jt_berjalan'
+              ? ' Outstanding/sisa = tahap dengan JT ≤ hari ini (bukan full tahun).'
+              : ' Menampilkan seluruh JT di tahun terpilih (termasuk belum jatuh tempo).'}
           </p>
         </div>
 
@@ -252,6 +259,19 @@ export default function MonitoringKompensasi() {
             {tahunList.map(y => (
               <option key={y} value={y}>{y}</option>
             ))}
+          </select>
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          <label className="text-xs text-gray-500 whitespace-nowrap">Cakupan</label>
+          <select
+            value={horizon}
+            onChange={e => setHorizon(e.target.value as MonitoringHorizon)}
+            className="text-xs border rounded-md px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-[#1B4F72]"
+            title="JT berjalan: outstanding hanya tahap yang sudah jatuh tempo"
+          >
+            <option value="jt_berjalan">JT berjalan (s.d. hari ini)</option>
+            <option value="full_year">Full year {tahun}</option>
           </select>
         </div>
 
@@ -314,14 +334,29 @@ export default function MonitoringKompensasi() {
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <KpiCard label="Total Tagihan" value={summary.totalTagihan} />
+        <KpiCard
+          label={horizon === 'jt_berjalan' ? 'Tagihan JT berjalan' : 'Total Tagihan'}
+          value={summary.totalTagihan}
+        />
         <KpiCard label="Cash In" value={summary.totalCashIn} color="text-emerald-700" />
-        <KpiCard label="Outstanding" value={summary.totalSisa} color="text-red-600" />
+        <KpiCard
+          label={horizon === 'jt_berjalan' ? 'Sisa (JT berjalan)' : 'Outstanding'}
+          value={summary.totalSisa}
+          color="text-red-600"
+        />
         <KpiCard label="Denda" value={summary.totalDenda} color="text-amber-700" />
       </div>
 
       <p className="text-[11px] text-gray-500 -mt-1">
-        Daftar mitra ringkas — klik baris untuk buka detail. Unduh <strong>Word (A4)</strong> untuk laporan historikal.
+        {horizon === 'jt_berjalan' ? (
+          <>
+            Sisa/outstanding hanya dari tagihan dengan <strong>jatuh tempo ≤ hari ini</strong> di tahun {tahun}
+            (tahap mendatang tidak dihitung).{' '}
+          </>
+        ) : (
+          <>Menampilkan semua tahap JT tahun {tahun}, termasuk yang belum jatuh tempo. </>
+        )}
+        Daftar mitra ringkas — klik baris untuk detail. Unduh <strong>Word (A4)</strong> untuk laporan historikal.
       </p>
 
       {groups.length === 0 ? (

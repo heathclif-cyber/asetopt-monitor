@@ -222,6 +222,27 @@ function dateKey(s: string): string {
   return s.slice(0, 10)
 }
 
+/** Cakupan tagihan di monitoring */
+export type MonitoringHorizon = 'jt_berjalan' | 'full_year'
+
+/**
+ * JT berjalan = tgl jatuh tempo ≤ asOf (outstanding hanya tahap yang sudah waktunya).
+ * Full year = semua JT di tahun tersebut (termasuk yang belum JT).
+ */
+export function isJtInHorizon(
+  tglJatuhTempo: string,
+  tahun: number,
+  horizon: MonitoringHorizon,
+  asOf: Date = new Date(),
+): boolean {
+  if (yearOf(tglJatuhTempo) !== tahun) return false
+  if (horizon === 'full_year') return true
+  const asOfKey = dateKey(
+    `${asOf.getFullYear()}-${String(asOf.getMonth() + 1).padStart(2, '0')}-${String(asOf.getDate()).padStart(2, '0')}`,
+  )
+  return dateKey(tglJatuhTempo) <= asOfKey
+}
+
 function resolveStatus(
   totalDibayar: number,
   efektif: number,
@@ -249,9 +270,15 @@ export function buildMonitoringDetailRows(opts: {
   rkapByKode?: Map<string, string>
   tahun: number
   asOf?: Date
+  /**
+   * Default `jt_berjalan`: hanya tagihan JT ≤ hari ini (sisa/outstanding tidak
+   * memasukkan tahap full-year yang belum jatuh tempo).
+   */
+  horizon?: MonitoringHorizon
 }): MonitoringDetailRow[] {
   const { allKompensasi, daftarKS, daftarAset = [], rkapByKode, tahun } = opts
   const asOf = opts.asOf ?? new Date()
+  const horizon: MonitoringHorizon = opts.horizon ?? 'jt_berjalan'
   const ksMap = new Map(daftarKS.map(k => [k.id, k]))
   const asetByKode = new Map(
     daftarAset.filter(a => a.kode_aset?.trim()).map(a => [a.kode_aset.trim(), a]),
@@ -260,7 +287,8 @@ export function buildMonitoringDetailRows(opts: {
   const rows: MonitoringDetailRow[] = []
 
   for (const k of allKompensasi) {
-    if (!k.tgl_jatuh_tempo || yearOf(k.tgl_jatuh_tempo) !== tahun) continue
+    if (!k.tgl_jatuh_tempo) continue
+    if (!isJtInHorizon(k.tgl_jatuh_tempo, tahun, horizon, asOf)) continue
 
     const ks = ksMap.get(k.ks_id) ?? k.kerja_sama
     const monikaId = resolveMonikaId(k, ks)
