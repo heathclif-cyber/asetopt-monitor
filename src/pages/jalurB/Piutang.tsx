@@ -10,10 +10,12 @@ import {
 import { useKompensasiStore } from '@/store/kompensasiStore'
 import { useKerjaSamaStore } from '@/store/kerjaSamaStore'
 import { useNotifikasiStore } from '@/store/notifikasiStore'
+import { useAuthStore } from '@/store/authStore'
 import { SearchableSelect } from '@/components/common/SearchableSelect'
 import { CurrencyDisplay } from '@/components/common/CurrencyDisplay'
 import { EmptyState } from '@/components/common/EmptyState'
 import { TableSkeleton } from '@/components/common/LoadingSkeleton'
+import { ExportExcelPanel } from '@/components/common/ExportExcelPanel'
 import { Button } from '@/components/ui/button'
 import { cn, formatTanggal, formatRupiah } from '@/lib/utils'
 import {
@@ -24,6 +26,7 @@ import {
   type PiutangAging,
   type PiutangRow,
 } from '@/utils/piutangUtils'
+import { exportPiutangExcel } from '@/utils/piutangExport'
 
 type AgingFilter = 'all' | PiutangAging
 type InvoiceFilter = 'all' | 'ada' | 'belum'
@@ -48,22 +51,26 @@ export default function Piutang() {
   const { allKompensasi, fetchAllKompensasi, isLoading } = useKompensasiStore()
   const { daftarKS, fetchKS } = useKerjaSamaStore()
   const { spAktif, fetchSPAktif } = useNotifikasiStore()
+  const user = useAuthStore(s => s.user)
+  const isViewer = user?.role === 'viewer'
+  const isAdmin = user?.role === 'admin'
 
   const [filterMitra, setFilterMitra] = useState('all')
   const [filterAging, setFilterAging] = useState<AgingFilter>('all')
   const [filterInvoice, setFilterInvoice] = useState<InvoiceFilter>('all')
   const [filterTahun, setFilterTahun] = useState<TahunFilter>('all')
   const [q, setQ] = useState('')
+  const [exporting, setExporting] = useState(false)
 
   useEffect(() => {
     fetchAllKompensasi()
     fetchKS()
-    fetchSPAktif()
-  }, [location.key])
+    if (!isViewer) fetchSPAktif()
+  }, [location.key, isViewer])
 
   const allRows = useMemo(
-    () => buildPiutangRows({ allKompensasi, daftarKS, spAktif }),
-    [allKompensasi, daftarKS, spAktif],
+    () => buildPiutangRows({ allKompensasi, daftarKS, spAktif: isViewer ? [] : spAktif }),
+    [allKompensasi, daftarKS, spAktif, isViewer],
   )
 
   const tahunList = useMemo(() => {
@@ -120,6 +127,16 @@ export default function Piutang() {
     || filterTahun !== 'all'
     || q.trim().length > 0
 
+  const handleExport = () => {
+    if (rows.length === 0) return
+    setExporting(true)
+    try {
+      exportPiutangExcel(rows, { includeSP: isAdmin })
+    } finally {
+      setExporting(false)
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -127,28 +144,42 @@ export default function Piutang() {
           <h1 className="text-lg font-bold text-gray-800">Piutang — Collection</h1>
           <p className="text-xs text-gray-500 mt-1 max-w-2xl">
             Tagihan dengan <strong>sisa &gt; 0</strong> yang sudah <strong>diterbitkan invoice</strong>
-            {' '}atau <strong>jatuh tempo</strong> (waktunya kompensasi). Terintegrasi ke Input Cash In,
-            Buat Invoice, dan Notifikasi &amp; SP.
+            {' '}atau <strong>jatuh tempo</strong> (waktunya kompensasi).
+            {isAdmin && (
+              <> Terintegrasi ke Input Cash In, Buat Invoice, dan Notifikasi &amp; SP.</>
+            )}
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button asChild size="sm" variant="outline" className="text-xs h-8">
-            <Link to="/jalur-b/pembayaran">
-              <Banknote size={13} className="mr-1" /> Input Cash In
-            </Link>
-          </Button>
-          <Button asChild size="sm" variant="outline" className="text-xs h-8">
-            <Link to="/jalur-b/invoice">
-              <FileText size={13} className="mr-1" /> Buat Invoice
-            </Link>
-          </Button>
-          <Button asChild size="sm" variant="outline" className="text-xs h-8">
-            <Link to="/jalur-b/notifikasi">
-              <MessageSquareWarning size={13} className="mr-1" /> Notifikasi &amp; SP
-            </Link>
-          </Button>
-        </div>
+        {isAdmin && (
+          <div className="flex flex-wrap gap-2">
+            <Button asChild size="sm" variant="outline" className="text-xs h-8">
+              <Link to="/jalur-b/pembayaran">
+                <Banknote size={13} className="mr-1" /> Input Cash In
+              </Link>
+            </Button>
+            <Button asChild size="sm" variant="outline" className="text-xs h-8">
+              <Link to="/jalur-b/invoice">
+                <FileText size={13} className="mr-1" /> Buat Invoice
+              </Link>
+            </Button>
+            <Button asChild size="sm" variant="outline" className="text-xs h-8">
+              <Link to="/jalur-b/notifikasi">
+                <MessageSquareWarning size={13} className="mr-1" /> Notifikasi &amp; SP
+              </Link>
+            </Button>
+          </div>
+        )}
       </div>
+
+      <ExportExcelPanel
+        title="Ekspor daftar piutang"
+        description="Unduh Excel sesuai filter aging, mitra, tahun, dan pencarian yang aktif."
+        meta={`${rows.length} baris · sisa ${formatRupiah(summary.totalSisa)}`}
+        fileNameHint="Piutang_YYYY-MM-DD.xlsx"
+        onExport={handleExport}
+        disabled={rows.length === 0}
+        loading={exporting}
+      />
 
       {/* Summary */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -170,9 +201,15 @@ export default function Piutang() {
           <p className="text-[11px] text-gray-400">{summary.nTanpaInvoice} belum invoice (sudah JT)</p>
         </div>
         <div className="bg-white rounded-xl border px-4 py-3">
-          <p className="text-xs text-gray-500">Est. denda + SP aktif</p>
+          <p className="text-xs text-gray-500">
+            {isViewer ? 'Est. denda' : 'Est. denda + SP aktif'}
+          </p>
           <p className="text-lg font-bold text-red-600 mt-0.5">{formatRupiah(summary.totalDenda)}</p>
-          <p className="text-[11px] text-gray-400">{summary.nSP} baris dengan SP KS</p>
+          <p className="text-[11px] text-gray-400">
+            {isViewer
+              ? 'Akumulasi denda estimasi'
+              : `${summary.nSP} baris dengan SP KS`}
+          </p>
         </div>
       </div>
 
@@ -367,12 +404,16 @@ export default function Piutang() {
                       )}
                     </td>
                     <td className="px-3 py-2 text-right">
-                      <Link
-                        to={`/jalur-b/pembayaran?kompensasi_id=${r.id}`}
-                        className="text-[11px] font-medium text-green-700 hover:underline whitespace-nowrap"
-                      >
-                        Catat bayar
-                      </Link>
+                      {isAdmin ? (
+                        <Link
+                          to={`/jalur-b/pembayaran?kompensasi_id=${r.id}`}
+                          className="text-[11px] font-medium text-green-700 hover:underline whitespace-nowrap"
+                        >
+                          Catat bayar
+                        </Link>
+                      ) : (
+                        <span className="text-[11px] text-gray-300">—</span>
+                      )}
                     </td>
                   </tr>
                 ))}

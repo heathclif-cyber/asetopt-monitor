@@ -17,6 +17,11 @@ import {
   type ProgramHorizon,
   type ProgramLaporanRow,
 } from '@/utils/laporanProgramUtils'
+import {
+  exportLaporanDetailExcel,
+  exportLaporanProgramExcel,
+} from '@/utils/laporanExport'
+import { ExportExcelPanel } from '@/components/common/ExportExcelPanel'
 
 type ViewMode = 'detail' | 'program'
 type SortKey = 'namaMitra' | 'namaAset' | 'periodeLabel' | 'tglJatuhTempo' | 'totalTagihan' | 'cashIn' | 'sisa' | 'status' | 'pendapatanAkrual'
@@ -446,6 +451,29 @@ export default function LaporanPendapatan() {
     setSaving(false)
   }
 
+  const monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des']
+  const monthsLabel =
+    selectedMonths.length === 12
+      ? 'Semua bulan'
+      : selectedMonths.map(m => monthLabels[m]).join(', ')
+
+  const handleExportExcel = () => {
+    if (viewMode === 'detail') {
+      if (rows.length === 0) return
+      exportLaporanDetailExcel(rows, {
+        tahun,
+        bulanBasis,
+        monthsLabel,
+      })
+    } else {
+      if (programRows.length === 0) return
+      exportLaporanProgramExcel(programRows, {
+        tahun,
+        horizon: programHorizon,
+      })
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -486,6 +514,27 @@ export default function LaporanPendapatan() {
           </button>
         </div>
       </div>
+
+      <ExportExcelPanel
+        title={viewMode === 'detail' ? 'Ekspor Detail Tagihan' : 'Ekspor Per Proker'}
+        description={
+          viewMode === 'detail'
+            ? 'Excel berisi mitra, periode, JT, tgl pembayaran, tagihan, cash in, akrual, dan sisa — sesuai filter tahun/bulan/status.'
+            : 'Excel rekap Optimalisasi Aset per ID Monika: RKAP, pendapatan, cash in, dan capaian.'
+        }
+        meta={
+          viewMode === 'detail'
+            ? `${rows.length} baris · ${tahun} · ${monthsLabel}`
+            : `${programRows.length} program · ${tahun} · ${programHorizon === 'ytd' ? 'YTD' : 'Full year'}`
+        }
+        fileNameHint={
+          viewMode === 'detail'
+            ? `Laporan_Pendapatan_Detail_${tahun}.xlsx`
+            : `Laporan_Pendapatan_Proker_${tahun}.xlsx`
+        }
+        onExport={handleExportExcel}
+        disabled={viewMode === 'detail' ? rows.length === 0 : programRows.length === 0}
+      />
 
       {/* ── Shared: Tahun ─────────────────────────────────────────────────── */}
       <div className="bg-white border rounded-xl px-4 py-3 flex flex-wrap items-center gap-3">

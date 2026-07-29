@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import {
   Filter,
-  FileSpreadsheet,
   FileText,
   AlertTriangle,
   CheckCircle2,
@@ -14,11 +13,13 @@ import { useKompensasiStore } from '@/store/kompensasiStore'
 import { useKerjaSamaStore } from '@/store/kerjaSamaStore'
 import { useAsetStore } from '@/store/asetStore'
 import { useRKAPStore } from '@/store/rkapStore'
+import { useAuthStore } from '@/store/authStore'
 import { SearchableSelect } from '@/components/common/SearchableSelect'
 import { CurrencyDisplay } from '@/components/common/CurrencyDisplay'
 import { StatusBadge } from '@/components/common/StatusBadge'
+import { ExportExcelPanel } from '@/components/common/ExportExcelPanel'
 import { Button } from '@/components/ui/button'
-import { cn, formatTanggal } from '@/lib/utils'
+import { cn, formatTanggal, formatRupiah } from '@/lib/utils'
 import {
   buildMonitoringDetailRows,
   exportMonitoringExcel,
@@ -64,6 +65,8 @@ export default function MonitoringKompensasi() {
   /** Default tertutup — detail tidak langsung ditampilkan */
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [exporting, setExporting] = useState<string | null>(null)
+  const user = useAuthStore(s => s.user)
+  const isAdmin = user?.role === 'admin'
 
   useEffect(() => {
     fetchAllKompensasi()
@@ -221,7 +224,7 @@ export default function MonitoringKompensasi() {
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        {isAdmin && (
           <Button
             type="button"
             size="sm"
@@ -232,19 +235,17 @@ export default function MonitoringKompensasi() {
             <FileText size={14} />
             {exporting === 'all' ? 'Menyusun Word...' : 'Unduh Word semua mitra'}
           </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-8 text-xs"
-            onClick={() => exportMonitoringExcel(tahun, filteredDetail, groups, 'mitra')}
-            disabled={filteredDetail.length === 0}
-          >
-            <FileSpreadsheet size={14} />
-            Export Excel
-          </Button>
-        </div>
+        )}
       </div>
+
+      <ExportExcelPanel
+        title="Ekspor Monitoring Excel"
+        description="Detail tagihan + rekap per mitra sesuai filter tahun, cakupan JT, mitra, proker, dan status."
+        meta={`${filteredDetail.length} tagihan · ${groups.length} mitra · ${tahun} · ${horizon === 'jt_berjalan' ? 'JT berjalan' : 'Full year'} · sisa ${formatRupiah(summary.totalSisa)}`}
+        fileNameHint={`Monitoring_Kompensasi_${tahun}.xlsx`}
+        onExport={() => exportMonitoringExcel(tahun, filteredDetail, groups, 'mitra')}
+        disabled={filteredDetail.length === 0}
+      />
 
       <div className="bg-white border rounded-xl px-4 py-3 flex flex-wrap items-center gap-3 shadow-sm">
         <Filter size={14} className="text-gray-400 shrink-0" />
@@ -373,6 +374,7 @@ export default function MonitoringKompensasi() {
               onToggle={() => toggleGroup(g.key)}
               onDownloadWord={() => handleDownloadMitra(g)}
               downloading={exporting === g.key}
+              showWord={isAdmin}
             />
           ))}
         </div>
@@ -406,12 +408,14 @@ function MitraCard({
   onToggle,
   onDownloadWord,
   downloading,
+  showWord = true,
 }: {
   group: MonitoringGroup
   open: boolean
   onToggle: () => void
   onDownloadWord: () => void
   downloading: boolean
+  showWord?: boolean
 }) {
   const hasIssue = group.nTerlambat > 0 || group.outstanding > 0.5
   const pct = group.pctTertagih != null ? `${group.pctTertagih.toFixed(0)}%` : '—'
@@ -475,18 +479,20 @@ function MitraCard({
           </div>
         </button>
 
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-8 text-xs shrink-0 border-[#1B4F72]/30 text-[#1B4F72]"
-          onClick={onDownloadWord}
-          disabled={downloading}
-          title="Unduh Word A4 portrait"
-        >
-          <Download size={13} />
-          {downloading ? '...' : 'Word'}
-        </Button>
+        {showWord && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs shrink-0 border-[#1B4F72]/30 text-[#1B4F72]"
+            onClick={onDownloadWord}
+            disabled={downloading}
+            title="Unduh Word A4 portrait"
+          >
+            <Download size={13} />
+            {downloading ? '...' : 'Word'}
+          </Button>
+        )}
       </div>
 
       {open && (
