@@ -33,7 +33,6 @@ type TahunFilter = 'all' | number
 
 const AGING_COLOR: Record<PiutangAging, string> = {
   invoice_belum_jt: 'bg-blue-100 text-blue-800 border-blue-200',
-  dalam_grace: 'bg-amber-100 text-amber-800 border-amber-200',
   '1_30': 'bg-orange-100 text-orange-800 border-orange-200',
   '31_60': 'bg-red-100 text-red-700 border-red-200',
   '61_90': 'bg-red-200 text-red-900 border-red-300',
@@ -333,14 +332,19 @@ export default function Piutang() {
                       <div>{formatTanggal(r.tglJatuhTempo)}</div>
                       <div className={cn(
                         'text-[10px] font-medium mt-0.5',
-                        r.hariDariJT < 0 ? 'text-blue-600' : r.dalamGrace ? 'text-amber-600' : 'text-red-600',
+                        r.hariDariJT < 0 ? 'text-blue-600' : 'text-red-600',
                       )}>
                         {r.hariDariJT < 0
                           ? `JT dalam ${Math.abs(r.hariDariJT)} hari`
-                          : r.dalamGrace
-                            ? `Hari ke-${r.hariDariJT} (grace ${r.maksHariBayar}h)`
-                            : `+${r.hariLewatGrace} hari lewat grace`}
+                          : r.hariDariJT === 0
+                            ? 'JT hari ini'
+                            : `Terlambat ${r.hariDariJT} hari`}
                       </div>
+                      {r.hariDariJT >= 0 && r.dalamGrace && r.maksHariBayar > 0 && (
+                        <div className="text-[10px] text-amber-600 mt-0.5">
+                          Denda mulai H+{r.maksHariBayar} JT
+                        </div>
+                      )}
                     </td>
                     <td className="px-3 py-2">
                       <span className={cn(
@@ -458,8 +462,8 @@ export default function Piutang() {
 
       <p className="text-[11px] text-gray-400">
         Definisi: sisa = (total tagihan − pengurang) − pembayaran. Masuk daftar jika sisa &gt; 0 dan
-        (ada nomor/tanggal invoice ATAU tgl jatuh tempo ≤ hari ini). Aging dihitung setelah masa
-        bayar (grace = maks hari bayar).
+        (ada nomor/tanggal invoice ATAU tgl jatuh tempo ≤ hari ini). Aging dihitung dari tgl JT
+        (bukan grace). Denda tetap memakai maks hari bayar sebagai toleransi sebelum denda mulai.
       </p>
     </div>
   )

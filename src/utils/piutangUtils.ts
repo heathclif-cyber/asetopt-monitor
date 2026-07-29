@@ -2,11 +2,14 @@ import type { KerjaSama, Kompensasi, SuratPeringatan } from '@/types'
 import { hitungDenda } from '@/utils/taxUtils'
 import { formatTanggal } from '@/lib/utils'
 
-/** Bucket aging piutang untuk collection */
+/**
+ * Bucket aging piutang untuk collection.
+ * Dihitung dari tgl jatuh tempo (bukan dari grace / maks_hari_bayar).
+ * Grace hanya mempengaruhi perhitungan denda, bukan grade aging.
+ */
 export type PiutangAging =
   | 'invoice_belum_jt' // invoice terbit, JT masih di depan
-  | 'dalam_grace' // lewat JT, masih maks hari bayar
-  | '1_30' // 1–30 hari lewat grace
+  | '1_30' // 0–30 hari lewat JT
   | '31_60'
   | '61_90'
   | '90_plus'
@@ -31,8 +34,14 @@ export interface PiutangRow {
   efektifTagihan: number
   totalDibayar: number
   sisa: number
+  /** Hari sejak JT (negatif = belum JT) */
   hariDariJT: number
+  /**
+   * Hari lewat grace denda (maks_hari_bayar setelah JT).
+   * Hanya untuk info denda — tidak dipakai grade aging.
+   */
   hariLewatGrace: number
+  /** Masih dalam toleransi sebelum denda mulai (maks_hari_bayar) */
   dalamGrace: boolean
   nominalDenda: number
   aging: PiutangAging
@@ -44,7 +53,6 @@ export interface PiutangRow {
 
 export const PIUTANG_AGING_LABEL: Record<PiutangAging, string> = {
   invoice_belum_jt: 'Invoice · belum JT',
-  dalam_grace: 'Dalam masa bayar',
   '1_30': 'Overdue 1–30 hari',
   '31_60': 'Overdue 31–60 hari',
   '61_90': 'Overdue 61–90 hari',
@@ -56,7 +64,6 @@ export const PIUTANG_AGING_ORDER: PiutangAging[] = [
   '61_90',
   '31_60',
   '1_30',
-  'dalam_grace',
   'invoice_belum_jt',
 ]
 
@@ -84,17 +91,15 @@ export function hasInvoiceIssued(k: Kompensasi): boolean {
   )
 }
 
-export function resolvePiutangAging(
-  hariDariJT: number,
-  hariLewatGrace: number,
-  dalamGrace: boolean,
-  hasInvoice: boolean,
-): PiutangAging {
+/**
+ * Aging collection dari hari lewat JT.
+ * Tidak memakai grace 14 hari (maks_hari_bayar) — itu khusus denda.
+ */
+export function resolvePiutangAging(hariDariJT: number): PiutangAging {
   if (hariDariJT < 0) return 'invoice_belum_jt'
-  if (dalamGrace || hariLewatGrace <= 0) return 'dalam_grace'
-  if (hariLewatGrace <= 30) return '1_30'
-  if (hariLewatGrace <= 60) return '31_60'
-  if (hariLewatGrace <= 90) return '61_90'
+  if (hariDariJT <= 30) return '1_30'
+  if (hariDariJT <= 60) return '31_60'
+  if (hariDariJT <= 90) return '61_90'
   return '90_plus'
 }
 
@@ -140,6 +145,7 @@ export function buildPiutangRows(opts: {
     // Hanya piutang "aktif" untuk collection: invoice terbit ATAU sudah waktunya (JT)
     if (!invoice && !sudahJT) continue
 
+    // Grace hanya untuk denda (maks_hari_bayar), bukan untuk bucket aging
     const maksHari = k.maks_hari_bayar ?? 0
     const graceEnd = new Date(jt)
     graceEnd.setDate(graceEnd.getDate() + maksHari)
@@ -155,7 +161,7 @@ export function buildPiutangRows(opts: {
     })
 
     const ks = ksMap.get(k.ks_id) ?? k.kerja_sama
-    const aging = resolvePiutangAging(hariDariJT, hariLewatGrace, dalamGrace, invoice)
+    const aging = resolvePiutangAging(hariDariJT)
     const alasan: PiutangAlasan =
       invoice && sudahJT ? 'keduanya' : invoice ? 'invoice' : 'jatuh_tempo'
 
