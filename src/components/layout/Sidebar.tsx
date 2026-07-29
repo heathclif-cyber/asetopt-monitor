@@ -1,10 +1,12 @@
 import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard, GitBranch, Handshake, Database,
-  Building2, ChevronDown, ChevronRight, Target, Library, BookOpen
+  Building2, ChevronDown, ChevronRight, Target, BookOpen
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
+import { useAuthStore } from '@/store/authStore'
+import { canAccessPath, type AppRole } from '@/lib/auth'
 
 interface NavItem {
   label: string
@@ -58,6 +60,25 @@ const navItems: NavItem[] = [
   },
 ]
 
+function filterNav(items: NavItem[], role: AppRole | null | undefined): NavItem[] {
+  if (!role) return []
+  if (role === 'admin') return items
+
+  return items
+    .map(item => {
+      if (item.to) {
+        return canAccessPath(role, item.to) ? item : null
+      }
+      if (item.children) {
+        const children = item.children.filter(c => c.to && canAccessPath(role, c.to))
+        if (children.length === 0) return null
+        return { ...item, children }
+      }
+      return null
+    })
+    .filter((x): x is NavItem => x != null)
+}
+
 function NavGroup({ item }: { item: NavItem }) {
   const [open, setOpen] = useState(true)
 
@@ -84,6 +105,7 @@ function NavGroup({ item }: { item: NavItem }) {
   return (
     <div>
       <button
+        type="button"
         onClick={() => setOpen(!open)}
         className="w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-[13px] font-medium text-blue-200 hover:bg-white/8 hover:text-white transition-all duration-150"
       >
@@ -118,9 +140,11 @@ function NavGroup({ item }: { item: NavItem }) {
 }
 
 export function Sidebar() {
+  const user = useAuthStore(s => s.user)
+  const items = useMemo(() => filterNav(navItems, user?.role), [user?.role])
+
   return (
     <aside className="fixed left-0 top-0 h-full w-56 bg-gradient-to-b from-[#1a4f73] to-[#0f3352] flex flex-col z-40 shadow-lg">
-      {/* Logo */}
       <div className="px-4 py-4 border-b border-white/10">
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-lg bg-white/15 flex items-center justify-center flex-shrink-0">
@@ -133,15 +157,19 @@ export function Sidebar() {
         </div>
       </div>
 
-      {/* Nav */}
       <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-0.5">
-        {navItems.map((item, i) => (
+        {items.map((item, i) => (
           <NavGroup key={i} item={item} />
         ))}
       </nav>
 
-      {/* Footer */}
       <div className="px-4 py-3 border-t border-white/10">
+        {user && (
+          <p className="text-[10px] text-blue-300 mb-1 truncate" title={user.username}>
+            {user.full_name}
+            <span className="text-blue-400"> · {user.role}</span>
+          </p>
+        )}
         <p className="text-[11px] text-blue-400 leading-tight">© 2025 AsetOpt</p>
       </div>
     </aside>

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 
 from database import get_db
+from services.auth_deps import get_current_user, require_admin
 from services.rest_query import (
     ALLOWED_TABLES,
     delete_rows,
@@ -43,6 +44,7 @@ def rest_select(
     request: Request,
     response: Response,
     db: Session = Depends(get_db),
+    _user: dict[str, Any] = Depends(get_current_user),
     accept: str | None = Header(default=None),
     prefer: str | None = Header(default=None),
 ):
@@ -60,6 +62,7 @@ async def rest_insert(
     request: Request,
     response: Response,
     db: Session = Depends(get_db),
+    _admin: dict[str, Any] = Depends(require_admin),
     prefer: str | None = Header(default=None),
 ):
     _table_or_404(table)
@@ -88,6 +91,7 @@ async def rest_update(
     table: str,
     request: Request,
     db: Session = Depends(get_db),
+    _admin: dict[str, Any] = Depends(require_admin),
     prefer: str | None = Header(default=None),
 ):
     _table_or_404(table)
@@ -100,7 +104,12 @@ async def rest_update(
 
 
 @router.delete("/{table}")
-def rest_delete(table: str, request: Request, db: Session = Depends(get_db)):
+def rest_delete(
+    table: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    _admin: dict[str, Any] = Depends(require_admin),
+):
     _table_or_404(table)
     params = dict(request.query_params)
     delete_rows(db, table, params)

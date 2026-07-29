@@ -15,7 +15,8 @@ if (API_PROXY_URL) {
   const proxy = createProxyMiddleware({
     target: API_PROXY_URL,
     changeOrigin: true,
-    pathFilter: (pathname) => pathname.startsWith('/api') || pathname.startsWith('/rest/v1'),
+    pathFilter: (pathname) =>
+      pathname.startsWith('/api') || pathname.startsWith('/rest/v1') || pathname.startsWith('/health'),
     on: {
       error: (err, _req, res) => {
         console.error('API proxy error:', err.message)

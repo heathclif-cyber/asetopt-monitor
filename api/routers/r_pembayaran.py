@@ -8,10 +8,15 @@ from sqlalchemy.orm import Session, joinedload
 import models
 import schemas
 from database import get_db
+from services.auth_deps import require_admin
 from services.superman.documents import superman_doc_requirements_for_kompensasi
 from services.superman.runner import start_deklarasi_job
 
-router = APIRouter(prefix="/api/pembayaran", tags=["Pembayaran"])
+router = APIRouter(
+    prefix="/api/pembayaran",
+    tags=["Pembayaran"],
+    dependencies=[Depends(require_admin)],
+)
 
 
 def _kompensasi_has_superman(kompensasi: models.Kompensasi | None) -> bool:

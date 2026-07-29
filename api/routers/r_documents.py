@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 import models
 import schemas
 from database import get_db
+from services.auth_deps import get_current_user, require_admin
 from services.storage import (
     StorageError,
     delete_file,
@@ -18,7 +19,11 @@ from services.storage import (
 )
 from services.superman.documents import superman_doc_requirements_for_kompensasi
 
-router = APIRouter(prefix="/api/documents", tags=["Documents"])
+router = APIRouter(
+    prefix="/api/documents",
+    tags=["Documents"],
+    dependencies=[Depends(get_current_user)],
+)
 
 VALID_ENTITY_TYPES = {"kerja_sama", "kompensasi", "pembayaran"}
 VALID_DOC_TYPES = {"kontrak", "invoice", "rekening_koran", "kuitansi"}
@@ -234,7 +239,7 @@ def download_document(document_id: UUID, db: Session = Depends(get_db)):
     )
 
 
-@router.post("/upload", response_model=schemas.DocumentUploadOut)
+@router.post("/upload", response_model=schemas.DocumentUploadOut, dependencies=[Depends(require_admin)])
 async def upload_document(
     entity_type: str = Form(...),
     entity_id: str = Form(...),
@@ -308,7 +313,7 @@ async def upload_document(
     return _upload_to_out(record)
 
 
-@router.delete("/{document_id}")
+@router.delete("/{document_id}", dependencies=[Depends(require_admin)])
 def delete_document(document_id: UUID, db: Session = Depends(get_db)):
     record = db.query(models.DocumentUpload).filter(models.DocumentUpload.id == document_id).first()
     if not record:

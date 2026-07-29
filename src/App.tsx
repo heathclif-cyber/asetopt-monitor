@@ -1,5 +1,7 @@
-import { Routes, Route } from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router-dom'
 import { AppLayout } from './components/layout/AppLayout'
+import { RequireAuth } from './components/auth/RequireAuth'
+import Login from './pages/Login'
 import { Dashboard } from './pages/Dashboard'
 import { TimelineProgram } from './pages/jalurA/TimelineProgram'
 import { PotensiPendapatan } from './pages/jalurA/PotensiPendapatan'
@@ -22,26 +24,32 @@ import KatalogFactsheetPage from './pages/KatalogAset'
 function App() {
   return (
     <Routes>
-      <Route element={<AppLayout />}>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/jalur-a/timeline" element={<TimelineProgram />} />
-        <Route path="/jalur-a/potensi" element={<PotensiPendapatan />} />
-        <Route path="/jalur-b/kerja-sama" element={<KerjaSama />} />
-        <Route path="/jalur-b/kompensasi" element={<Kompensasi />} />
-        <Route path="/jalur-b/invoice" element={<BuatInvoice />} />
-        <Route path="/jalur-b/pembayaran" element={<InputPembayaran />} />
-        <Route path="/jalur-b/pbb" element={<PembayaranPBB />} />
-        <Route path="/jalur-b/notifikasi" element={<NotifikasiSP />} />
-        <Route path="/jalur-b/laporan" element={<LaporanPendapatan />} />
-        <Route path="/jalur-b/monitoring-kompensasi" element={<MonitoringKompensasi />} />
-        <Route path="/jalur-b/piutang" element={<Piutang />} />
-        <Route path="/master/aset" element={<DataAset />} />
-        <Route path="/master/njop" element={<DataNJOP />} />
-        <Route path="/master/kjpp" element={<PenilaianKJPP />} />
-        <Route path="/rkap" element={<RKAPMonitor />} />
-        <Route path="/katalog" element={<KatalogAset />} />
-        <Route path="/katalog/factsheet" element={<KatalogFactsheetPage />} />
+      <Route path="/login" element={<Login />} />
+
+      <Route element={<RequireAuth />}>
+        <Route element={<AppLayout />}>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/jalur-a/timeline" element={<TimelineProgram />} />
+          <Route path="/jalur-a/potensi" element={<PotensiPendapatan />} />
+          <Route path="/jalur-b/kerja-sama" element={<KerjaSama />} />
+          <Route path="/jalur-b/kompensasi" element={<Kompensasi />} />
+          <Route path="/jalur-b/invoice" element={<BuatInvoice />} />
+          <Route path="/jalur-b/pembayaran" element={<InputPembayaran />} />
+          <Route path="/jalur-b/pbb" element={<PembayaranPBB />} />
+          <Route path="/jalur-b/notifikasi" element={<NotifikasiSP />} />
+          <Route path="/jalur-b/laporan" element={<LaporanPendapatan />} />
+          <Route path="/jalur-b/monitoring-kompensasi" element={<MonitoringKompensasi />} />
+          <Route path="/jalur-b/piutang" element={<Piutang />} />
+          <Route path="/master/aset" element={<DataAset />} />
+          <Route path="/master/njop" element={<DataNJOP />} />
+          <Route path="/master/kjpp" element={<PenilaianKJPP />} />
+          <Route path="/rkap" element={<RKAPMonitor />} />
+          <Route path="/katalog" element={<KatalogAset />} />
+          <Route path="/katalog/factsheet" element={<KatalogFactsheetPage />} />
+        </Route>
       </Route>
+
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )
 }

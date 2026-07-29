@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 import schemas
 from database import get_db
+from services.auth_deps import require_admin
 from services.superman.auth import SupermanCaptchaError, SupermanCaptchaRequired
 from services.superman.documents import superman_doc_requirements_for_kompensasi
 from services.superman.runner import (
@@ -20,7 +21,11 @@ from services.superman.runner import (
     verify_captcha,
 )
 
-router = APIRouter(prefix="/api/superman", tags=["Superman"])
+router = APIRouter(
+    prefix="/api/superman",
+    tags=["Superman"],
+    dependencies=[Depends(require_admin)],
+)
 
 
 def _map_deklarasi_error(exc: Exception) -> HTTPException:
