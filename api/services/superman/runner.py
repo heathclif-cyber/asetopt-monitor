@@ -10,6 +10,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
+from services.superman.agent_registry import agent_status_summary, is_agent_online
 from services.superman.auth import (
     SupermanCaptchaError,
     SupermanCaptchaRequired,
@@ -25,7 +26,7 @@ from services.superman.captcha_challenge import (
 from services.superman.config import SupermanConfig
 from services.superman.documents import resolve_support_docs_from_kompensasi
 from services.superman.filler import fill_sppn_draft, submit_sppn_draft
-from services.superman.payload import build_payload_from_kompensasi
+from services.superman.payload import DeklarasiPayload, build_payload_from_kompensasi
 from services.superman.persist import (
     assert_kompensasi_not_submitted,
     format_superman_ref,
@@ -34,10 +35,12 @@ from services.superman.persist import (
 )
 from services.superman.progress import (
     ProgressCallback,
+    claim_next_agent_job,
     complete_job,
     create_job,
     fail_job,
     get_job,
+    job_to_public,
     make_progress_callback,
     update_job,
 )
@@ -45,6 +48,68 @@ from services.superman.progress import (
 
 class SupermanNotConfiguredError(RuntimeError):
     pass
+
+
+class SupermanAgentRequired(RuntimeError):
+    """Server tidak bisa reach Superman — butuh agent lokal."""
+
+
+AGENT_HELP_MESSAGE = (
+    "Captcha di Railway tidak tersedia saat ini karena server app tidak bisa membuka portal Superman.\n\n"
+    "Solusi yang berhasil: agent di PC Anda\n\n"
+    "Jalankan di PC (bukan di server Railway):\n\n"
+    "python scripts/superman/commands/agent.py watch "
+    "--api https://monitoringpemasaran-production.up.railway.app "
+    "--username <user_app> --password <pass>\n\n"
+    "Atau double-click: scripts/superman/Mulai-Superman-Agent.bat\n\n"
+    "Biarkan jendela itu terbuka, lalu di web klik lagi «Kirim ke Superman». "
+    "Captcha & Playwright jalan di PC Anda — app tetap di Railway.\n"
+    "Mengulang captcha di web tidak akan berhasil sampai jaringan Railway→Superman pulih.\n\n"
+    "ConnectTimeout/ReadTimeout dari Railway ke Superman = jaringan datacenter, bukan bug UI captcha. "
+    "Pakai agent lokal atau coba lagi saat rute pulih."
+)
+
+
+_reach_cache: dict[str, Any] = {"ts": 0.0, "ok": False, "err": "not-probed"}
+_REACH_TTL = float(os.getenv("SUPERMAN_REACH_CACHE_SECONDS", "60"))
+
+
+def probe_superman_reachable(
+    *,
+    timeout: float = 5.0,
+    force: bool = False,
+) -> tuple[bool, str | None]:
+    """Cek apakah host API bisa membuka portal Superman (di-cache)."""
+    import time
+    import urllib.request
+
+    now = time.time()
+    if not force and now - float(_reach_cache["ts"]) < _REACH_TTL:
+        err = _reach_cache.get("err")
+        return bool(_reach_cache["ok"]), None if _reach_cache["ok"] else str(err or "unreachable")
+
+    cfg = SupermanConfig.from_env()
+    url = cfg.base_url.rstrip("/") + "/"
+    try:
+        req = urllib.request.Request(url, method="GET", headers={"User-Agent": "AsetOpt-Monitor/1.0"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            code = getattr(resp, "status", 200) or 200
+            if int(code) >= 500:
+                _reach_cache.update({"ts": now, "ok": False, "err": f"HTTP {code}"})
+                return False, f"HTTP {code}"
+            _reach_cache.update({"ts": now, "ok": True, "err": None})
+            return True, None
+    except Exception as exc:
+        _reach_cache.update({"ts": now, "ok": False, "err": str(exc)})
+        return False, str(exc)
+
+
+def prefer_agent_executor() -> bool:
+    force = os.getenv("SUPERMAN_FORCE_AGENT", "").lower() in ("1", "true", "yes")
+    if force:
+        return True
+    reachable, _ = probe_superman_reachable(force=True)
+    return not reachable
 
 
 def is_configured() -> bool:
@@ -81,9 +146,15 @@ def check_playwright_ready() -> tuple[bool, str | None]:
 def get_status() -> dict[str, Any]:
     cfg = SupermanConfig.from_env()
     state = Path(cfg.state_path)
-    session_valid = is_session_valid(cfg, state) if state.is_file() else False
+    session_valid = False
+    reachable, reach_error = probe_superman_reachable()
+    if state.is_file() and reachable:
+        session_valid = is_session_valid(cfg, state)
     using_b64 = bool(os.getenv("SUPERMAN_PASSWORD_B64", "").strip())
     playwright_ready, playwright_error = check_playwright_ready()
+    agent = agent_status_summary()
+    force_agent = os.getenv("SUPERMAN_FORCE_AGENT", "").lower() in ("1", "true", "yes")
+    needs_agent = force_agent or not reachable
     return {
         "configured": is_configured(),
         "session_exists": state.is_file(),
@@ -93,6 +164,19 @@ def get_status() -> dict[str, Any]:
         "headless": cfg.headless,
         "playwright_ready": playwright_ready,
         "playwright_error": playwright_error,
+        "superman_reachable": reachable,
+        "superman_reach_error": reach_error,
+        "needs_local_agent": needs_agent,
+        "agent_online": agent["agent_online"],
+        "agent_count": agent["agent_count"],
+        "agents": agent["agents"],
+        "can_start_deklarasi": bool(
+            is_configured()
+            and (
+                (reachable and session_valid and playwright_ready)
+                or agent["agent_online"]
+            )
+        ),
         "credential_hint": {
             "username": cfg.username,
             "password_length": len(cfg.password),
@@ -100,9 +184,18 @@ def get_status() -> dict[str, Any]:
         },
         "captcha_hint": (
             None
-            if session_valid
-            else "Isi captcha login Superman melalui dialog di Input Pembayaran."
+            if session_valid and reachable
+            else (
+                AGENT_HELP_MESSAGE
+                if needs_agent and not agent["agent_online"]
+                else (
+                    "Agent lokal online — session captcha dijalankan di PC agent."
+                    if agent["agent_online"]
+                    else "Isi captcha login Superman melalui dialog di Input Pembayaran."
+                )
+            )
         ),
+        "agent_help": AGENT_HELP_MESSAGE if needs_agent else None,
     }
 
 
@@ -632,22 +725,17 @@ def verify_captcha(challenge_id: str, answer: str) -> dict[str, Any]:
     return verify_captcha_challenge(challenge_id.strip(), answer.strip())
 
 
-def submit_deklarasi_kompensasi(
-    kompensasi_id: str,
+def run_browser_deklarasi(
+    cfg: SupermanConfig,
+    payload: DeklarasiPayload,
+    support_paths: list[Path],
+    *,
     on_progress: ProgressCallback | None = None,
+    support_labels: list[str] | None = None,
+    persist: bool = True,
 ) -> dict[str, Any]:
-    kompensasi_id = kompensasi_id.strip()
-    assert_kompensasi_not_submitted(kompensasi_id)
-
+    """Isi form Superman via Playwright. Dipakai server dan agent lokal."""
     report = on_progress or (lambda _percent, _stage: None)
-    report(5, "Memuat data kompensasi dan dokumen")
-    cfg = _api_config()
-    report(10, "Memvalidasi session Superman")
-    ensure_session(cfg)
-
-    payload = build_payload_from_kompensasi(kompensasi_id)
-    supports = resolve_support_docs_from_kompensasi(kompensasi_id)
-
     report(20, "Membuka browser Superman")
     store_sppb: str | None = None
     store_sppn: str | None = None
@@ -662,7 +750,7 @@ def submit_deklarasi_kompensasi(
             page,
             cfg,
             payload,
-            support_docs=[doc.path for doc in supports],
+            support_docs=support_paths,
             on_progress=on_progress,
         )
         store_body = submit_sppn_draft(page, on_progress=on_progress)
@@ -673,7 +761,6 @@ def submit_deklarasi_kompensasi(
             store_sppb = store_sppb or page_sppb
             store_sppn = store_sppn or page_sppn
 
-        # Jika response /spp/store sudah memuat nomor, To Do cukup singkat
         has_store_numbers = bool(store_sppb or store_sppn)
         try:
             match = _find_todo_match(
@@ -687,12 +774,8 @@ def submit_deklarasi_kompensasi(
                 min_score=40 if has_store_numbers else 50,
             )
         except Exception as todo_exc:
-            # Jangan gagalkan seluruh job hanya karena To Do List lambat/error
-            result_todo_error = str(todo_exc)
             match = None
-            todo_debug.append({"error": result_todo_error})
-        else:
-            result_todo_error = None
+            todo_debug.append({"error": str(todo_exc)})
 
         if not match:
             try:
@@ -723,16 +806,17 @@ def submit_deklarasi_kompensasi(
         except Exception:
             pass
 
+    labels = support_labels or [str(p) for p in support_paths]
     result: dict[str, Any] = {
         "ok": True,
-        "kompensasi_id": kompensasi_id,
+        "kompensasi_id": payload.kompensasi_id,
         "no_invoice": payload.no_invoice,
         "no_pembayaran": payload.no_pembayaran,
         "no_kontrak": payload.no_kontrak,
         "jenis_form": payload.jenis_form,
         "pph_nominal": payload.pph_nominal,
         "total_sppn": payload.dpp_pokok + payload.pajak_ppn,
-        "support_docs": [doc.describe() for doc in supports],
+        "support_docs": labels,
         "superman_url": f"{cfg.base_url.rstrip('/')}/sppd#tab-to-do-list-petugas",
         "message": "Draft SPPn/SPPb berhasil masuk To Do List Superman.",
     }
@@ -743,44 +827,81 @@ def submit_deklarasi_kompensasi(
         store_body=store_body,
     )
     if match:
-        result.update(
-            {
-                "sppb_no": sppb_no,
-                "sppn_no": sppn_no,
-                "todo_matched": True,
-            }
-        )
+        result.update({"sppb_no": sppb_no, "sppn_no": sppn_no, "todo_matched": True})
     elif sppb_no or sppn_no:
         result.update({"sppb_no": sppb_no, "sppn_no": sppn_no, "todo_matched": False})
 
-    saved = save_superman_to_kompensasi(kompensasi_id, sppb_no, sppn_no)
-    if saved:
-        result["superman_saved"] = saved
-        result["message"] = f"Berhasil. Nomor Superman tersimpan: {saved}"
-    elif sppb_no or sppn_no:
-        result["message"] = (
-            f"Draft SPPn/SPPb berhasil, namun nomor belum tersimpan otomatis ke kompensasi. "
-            f"Salin manual: {format_superman_ref(sppb_no, sppn_no)}"
-        )
+    if persist:
+        saved = save_superman_to_kompensasi(payload.kompensasi_id, sppb_no, sppn_no)
+        if saved:
+            result["superman_saved"] = saved
+            result["message"] = f"Berhasil. Nomor Superman tersimpan: {saved}"
+        elif sppb_no or sppn_no:
+            result["message"] = (
+                f"Draft SPPn/SPPb berhasil, namun nomor belum tersimpan otomatis ke kompensasi. "
+                f"Salin manual: {format_superman_ref(sppb_no, sppn_no)}"
+            )
+        else:
+            result["ok"] = True
+            result["needs_recover"] = True
+            result["message"] = (
+                "Draft berhasil dikirim ke Superman, tetapi nomor SPPn/SPPb belum terbaca dari To Do List. "
+                "Gunakan tombol Pulihkan nomor Superman, atau salin manual dari To Do List."
+            )
+            result["extract_debug"] = {
+                "store_extract": {"sppb": store_sppb, "sppn": store_sppn},
+                "todo_top": todo_debug,
+                "match_found": match is not None,
+                "store_body_preview": (
+                    str(store_body)[:500] if store_body is not None else None
+                ),
+            }
     else:
-        # Draft sudah masuk Superman; nomor belum terbaca — UI bisa recover
-        result["ok"] = True
-        result["needs_recover"] = True
-        result["message"] = (
-            "Draft berhasil dikirim ke Superman, tetapi nomor SPPn/SPPb belum terbaca dari To Do List. "
-            "Gunakan tombol Pulihkan nomor Superman, atau salin manual dari To Do List."
-        )
-        result["extract_debug"] = {
-            "store_extract": {"sppb": store_sppb, "sppn": store_sppn},
-            "todo_top": todo_debug,
-            "match_found": match is not None,
-            "store_body_preview": (
-                str(store_body)[:500] if store_body is not None else None
-            ),
-        }
+        # Agent: server yang akan persist
+        if sppb_no or sppn_no:
+            result["sppb_no"] = sppb_no
+            result["sppn_no"] = sppn_no
+            result["message"] = (
+                f"Draft berhasil. Nomor: {format_superman_ref(sppb_no, sppn_no)}"
+            )
+        else:
+            result["needs_recover"] = True
+            result["message"] = (
+                "Draft berhasil dikirim ke Superman, tetapi nomor SPPn/SPPb belum terbaca."
+            )
+            result["extract_debug"] = {
+                "store_extract": {"sppb": store_sppb, "sppn": store_sppn},
+                "todo_top": todo_debug,
+                "match_found": match is not None,
+            }
 
     report(100, "Selesai")
     return result
+
+
+def submit_deklarasi_kompensasi(
+    kompensasi_id: str,
+    on_progress: ProgressCallback | None = None,
+) -> dict[str, Any]:
+    kompensasi_id = kompensasi_id.strip()
+    assert_kompensasi_not_submitted(kompensasi_id)
+
+    report = on_progress or (lambda _percent, _stage: None)
+    report(5, "Memuat data kompensasi dan dokumen")
+    cfg = _api_config()
+    report(10, "Memvalidasi session Superman")
+    ensure_session(cfg)
+
+    payload = build_payload_from_kompensasi(kompensasi_id)
+    supports = resolve_support_docs_from_kompensasi(kompensasi_id)
+    return run_browser_deklarasi(
+        cfg,
+        payload,
+        [doc.path for doc in supports],
+        on_progress=on_progress,
+        support_labels=[doc.describe() for doc in supports],
+        persist=True,
+    )
 
 
 def _run_deklarasi_job(job_id: str, kompensasi_id: str) -> None:
@@ -797,28 +918,139 @@ def _run_deklarasi_job(job_id: str, kompensasi_id: str) -> None:
 def start_deklarasi_job(*, kompensasi_id: str) -> dict[str, Any]:
     ref = kompensasi_id.strip()
     assert_kompensasi_not_submitted(ref)
+    _api_config()  # pastikan credential server terkonfigurasi
+
+    if prefer_agent_executor():
+        if not is_agent_online():
+            raise SupermanAgentRequired(AGENT_HELP_MESSAGE)
+        job_id = create_job(ref, executor="agent")
+        return {
+            "job_id": job_id,
+            "kompensasi_id": ref,
+            "executor": "agent",
+            "message": "Job diantrekan untuk agent lokal. Pastikan agent.py watch berjalan di PC.",
+        }
+
     cfg = _api_config()
     ensure_session(cfg)
-    job_id = create_job(ref)
+    job_id = create_job(ref, executor="server")
     update_job(job_id, 0, "Memulai proses...")
     thread = threading.Thread(target=_run_deklarasi_job, args=(job_id, ref), daemon=True)
     thread.start()
-    return {"job_id": job_id, "kompensasi_id": ref}
+    return {"job_id": job_id, "kompensasi_id": ref, "executor": "server"}
 
 
 def get_deklarasi_progress(job_id: str) -> dict[str, Any]:
     job = get_job(job_id.strip())
     if not job:
         raise ValueError("Job deklarasi tidak ditemukan atau sudah kedaluwarsa.")
-    payload: dict[str, Any] = {
+    return job_to_public(job)
+
+
+def build_agent_job_bundle(job_id: str) -> dict[str, Any]:
+    job = get_job(job_id.strip())
+    if not job:
+        raise ValueError("Job tidak ditemukan atau kedaluwarsa.")
+    if job.executor != "agent":
+        raise ValueError("Job ini bukan untuk agent lokal.")
+    assert_kompensasi_not_submitted(job.kompensasi_id)
+    payload = build_payload_from_kompensasi(job.kompensasi_id)
+    supports = resolve_support_docs_from_kompensasi(job.kompensasi_id)
+    docs = []
+    for idx, doc in enumerate(supports):
+        docs.append(
+            {
+                "index": idx,
+                "label": doc.label,
+                "file_name": doc.file_name,
+                "entity_type": doc.entity_type,
+                "entity_id": doc.entity_id,
+                "doc_type": doc.doc_type,
+                "path": str(doc.path),
+            }
+        )
+    cfg = SupermanConfig.from_env()
+    return {
         "job_id": job.job_id,
         "kompensasi_id": job.kompensasi_id,
-        "status": job.status,
-        "percent": job.percent,
-        "stage": job.stage,
+        "payload": payload.to_dict(),
+        "docs": docs,
+        "superman": {
+            "base_url": cfg.base_url.rstrip("/"),
+            "flow_id": cfg.flow_id,
+            "bagian": cfg.bagian,
+            "gl_pendapatan": cfg.gl_pendapatan,
+            "gl_ppn": cfg.gl_ppn,
+            "profit_center": cfg.profit_center,
+            "profit_center_ppn": cfg.profit_center_ppn,
+            "cash_flow": cfg.cash_flow,
+        },
     }
-    if job.status == "completed" and job.result:
-        payload["result"] = job.result
-    if job.status == "failed" and job.error:
-        payload["error"] = job.error
-    return payload
+
+
+def agent_claim_next(agent_id: str) -> dict[str, Any] | None:
+    job = claim_next_agent_job(agent_id)
+    if not job:
+        return None
+    return job_to_public(job)
+
+
+def agent_report_progress(job_id: str, percent: int, stage: str) -> dict[str, Any]:
+    job = get_job(job_id.strip())
+    if not job:
+        raise ValueError("Job tidak ditemukan.")
+    if job.executor != "agent":
+        raise ValueError("Bukan job agent.")
+    update_job(job_id, percent, stage)
+    return job_to_public(get_job(job_id))  # type: ignore[arg-type]
+
+
+def agent_complete_job(job_id: str, result: dict[str, Any]) -> dict[str, Any]:
+    job = get_job(job_id.strip())
+    if not job:
+        raise ValueError("Job tidak ditemukan.")
+    if job.executor != "agent":
+        raise ValueError("Bukan job agent.")
+
+    payload = dict(result or {})
+    sppb_no = payload.get("sppb_no")
+    sppn_no = payload.get("sppn_no")
+    # Normalisasi string kosong
+    sppb_no = str(sppb_no).strip() if sppb_no else None
+    sppn_no = str(sppn_no).strip() if sppn_no else None
+
+    saved = None
+    if sppb_no or sppn_no:
+        try:
+            saved = save_superman_to_kompensasi(job.kompensasi_id, sppb_no, sppn_no)
+        except Exception as exc:
+            payload["persist_error"] = str(exc)
+    if saved:
+        payload["superman_saved"] = saved
+        payload["message"] = payload.get("message") or f"Berhasil. Nomor Superman tersimpan: {saved}"
+    payload.setdefault("ok", True)
+    payload["kompensasi_id"] = job.kompensasi_id
+    payload["executor"] = "agent"
+    complete_job(job_id, payload)
+    return job_to_public(get_job(job_id))  # type: ignore[arg-type]
+
+
+def agent_fail_job(job_id: str, error: str) -> dict[str, Any]:
+    job = get_job(job_id.strip())
+    if not job:
+        raise ValueError("Job tidak ditemukan.")
+    if job.executor != "agent":
+        raise ValueError("Bukan job agent.")
+    fail_job(job_id, error or "Agent gagal tanpa detail")
+    return job_to_public(get_job(job_id))  # type: ignore[arg-type]
+
+
+def resolve_agent_doc_path(job_id: str, index: int) -> Path:
+    bundle = build_agent_job_bundle(job_id)
+    docs = bundle.get("docs") or []
+    if index < 0 or index >= len(docs):
+        raise FileNotFoundError(f"Dokumen index {index} tidak ada")
+    path = Path(docs[index]["path"])
+    if not path.is_file():
+        raise FileNotFoundError(f"File dokumen tidak ditemukan: {path.name}")
+    return path

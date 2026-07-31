@@ -104,7 +104,13 @@ export function InputPembayaran() {
   useEffect(() => {
     fetchAllKompensasi()
     fetchKS()
-    api.get<SupermanStatus>('/api/superman/status').then(setSupermanStatus).catch(() => {})
+    const loadStatus = () => {
+      api.get<SupermanStatus>('/api/superman/status').then(setSupermanStatus).catch(() => {})
+    }
+    loadStatus()
+    // agent heartbeat ~15s — refresh agar tombol ikut hidup
+    const t = window.setInterval(loadStatus, 20000)
+    return () => window.clearInterval(t)
   }, [])
 
   useEffect(() => {
@@ -286,16 +292,28 @@ export function InputPembayaran() {
     }
   }, [selected?.ks_id])
 
+  const isCaptchaSessionError = (msg: string) => {
+    const m = msg.toLowerCase()
+    // Bukan error jaringan/agent — hanya session captcha di server
+    if (m.includes('agent') || m.includes('railway') || m.includes('connecttimeout') || m.includes('readtimeout')) {
+      return false
+    }
+    return m.includes('session superman') || m.includes('isi captcha login')
+  }
+
   const startSuperman = async (kompensasiId: string) => {
     try {
-      const res = await api.post<{ job_id: string }>(`/api/superman/deklarasi/start?kompensasi_id=${kompensasiId}`)
+      const res = await api.post<{ job_id: string; executor?: string; message?: string }>(
+        `/api/superman/deklarasi/start?kompensasi_id=${kompensasiId}`,
+      )
       setJobId(res.job_id)
       setProgressOpen(true)
     } catch (e: any) {
-      if (e.message?.includes('captcha') || e.message?.includes('Captcha')) {
+      const msg = String(e.message ?? '')
+      if (isCaptchaSessionError(msg)) {
         setCaptchaOpen(true)
       } else {
-        alert(e.message ?? 'Gagal memulai Superman')
+        alert(msg || 'Gagal memulai Superman')
       }
     }
   }
@@ -314,10 +332,11 @@ export function InputPembayaran() {
         alert(res.message ?? 'Gagal memulihkan nomor dari To Do List Superman')
       }
     } catch (e: any) {
-      if (e.message?.includes('captcha') || e.message?.includes('Captcha')) {
+      const msg = String(e.message ?? '')
+      if (isCaptchaSessionError(msg)) {
         setCaptchaOpen(true)
       } else {
-        alert(e.message ?? 'Gagal pulihkan nomor Superman')
+        alert(msg || 'Gagal pulihkan nomor Superman')
       }
     }
   }
@@ -451,11 +470,16 @@ export function InputPembayaran() {
 
   const selectedTahap = tahapOptions.find(t => t.id === selectedId)
   const isLunas = ws?.statusBayar === 'lunas'
-  const supermanReady = !!(
+  /** Server punya session valid + Playwright */
+  const serverReady = !!(
     supermanStatus?.configured
     && supermanStatus.playwright_ready
     && supermanStatus.session_valid
+    && supermanStatus.superman_reachable !== false
   )
+  /** Agent PC online (jaringan Superman lewat PC) */
+  const agentReady = !!(supermanStatus?.configured && supermanStatus.agent_online)
+  const supermanReady = !!(serverReady || agentReady || supermanStatus?.can_start_deklarasi)
   const canAutoSuperman = !!(
     selected
     && !selected.superman
@@ -789,19 +813,31 @@ export function InputPembayaran() {
               <div className="px-4 pb-4 space-y-3 border-t pt-3">
                 {supermanStatus && (
                   <div className={cn(
-                    'text-xs rounded-lg border px-3 py-2',
+                    'text-xs rounded-lg border px-3 py-2 space-y-1',
                     supermanReady
                       ? 'bg-green-50 border-green-200 text-green-800'
                       : 'bg-amber-50 border-amber-200 text-amber-800',
                   )}>
                     {!supermanStatus.configured && <p>Superman belum dikonfigurasi di API.</p>}
-                    {supermanStatus.configured && !supermanStatus.playwright_ready && (
+                    {supermanStatus.configured && supermanStatus.needs_local_agent && (
+                      <p>
+                        {supermanStatus.agent_online
+                          ? `Agent lokal online (${supermanStatus.agent_count ?? 1}) — deklarasi dijalankan di PC.`
+                          : 'Server Railway tidak bisa membuka portal Superman. Jalankan agent di PC: scripts/superman/Mulai-Superman-Agent.bat'}
+                      </p>
+                    )}
+                    {supermanStatus.configured && !supermanStatus.needs_local_agent && !supermanStatus.playwright_ready && (
                       <p>Playwright belum siap: {supermanStatus.playwright_error ?? 'periksa deploy API'}</p>
                     )}
-                    {supermanStatus.configured && supermanStatus.playwright_ready && !supermanStatus.session_valid && (
+                    {supermanStatus.configured && !supermanStatus.needs_local_agent && supermanStatus.playwright_ready && !supermanStatus.session_valid && (
                       <p>Session kedaluwarsa — verifikasi captcha saat diminta.</p>
                     )}
-                    {supermanReady && <p>Session Superman valid.</p>}
+                    {serverReady && !supermanStatus.needs_local_agent && <p>Session Superman valid (server).</p>}
+                    {agentReady && (
+                      <p className="text-[11px] opacity-90">
+                        Agent PC siap. Biarkan jendela agent tetap terbuka saat mengirim.
+                      </p>
+                    )}
                   </div>
                 )}
                 {selected.superman && (

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 from typing import Any
 
 from sqlalchemy.orm import joinedload
@@ -85,6 +85,16 @@ class DeklarasiPayload:
         if self.sppb_item:
             data["sppb_item"] = asdict(self.sppb_item)
         return data
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "DeklarasiPayload":
+        raw = dict(data or {})
+        line_items = [LineItem(**item) for item in (raw.pop("line_items", None) or [])]
+        sppb_raw = raw.pop("sppb_item", None)
+        sppb_item = SppbLineItem(**sppb_raw) if sppb_raw else None
+        allowed = {f.name for f in fields(cls)}
+        cleaned = {k: v for k, v in raw.items() if k in allowed and k not in ("line_items", "sppb_item")}
+        return cls(line_items=line_items, sppb_item=sppb_item, **cleaned)
 
 
 def _efektif_tagihan(kompensasi: models.Kompensasi) -> float:

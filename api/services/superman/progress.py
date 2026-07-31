@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Literal
 
 JobStatus = Literal["pending", "running", "completed", "failed"]
+JobExecutor = Literal["server", "agent"]
 
 ProgressCallback = Callable[[int, str], None]
 
@@ -24,6 +25,8 @@ class SupermanJob:
     stage: str = "Menunggu..."
     result: dict[str, Any] | None = None
     error: str | None = None
+    executor: JobExecutor = "server"
+    claimed_by: str | None = None
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
 
@@ -40,13 +43,16 @@ def _cleanup_expired() -> None:
             _jobs.pop(job_id, None)
 
 
-def create_job(kompensasi_id: str) -> str:
+def create_job(kompensasi_id: str, *, executor: JobExecutor = "server") -> str:
     _cleanup_expired()
     job_id = str(uuid.uuid4())
+    stage = "Menunggu agent lokal..." if executor == "agent" else "Menunggu..."
     with _lock:
         _jobs[job_id] = SupermanJob(
             job_id=job_id,
             kompensasi_id=kompensasi_id.strip(),
+            executor=executor,
+            stage=stage,
         )
     return job_id
 
@@ -71,6 +77,7 @@ def complete_job(job_id: str, result: dict[str, Any]) -> None:
         job.percent = 100
         job.stage = "Selesai"
         job.result = result
+        job.error = None
         job.updated_at = time.time()
 
 
@@ -90,8 +97,47 @@ def get_job(job_id: str) -> SupermanJob | None:
         return _jobs.get(job_id)
 
 
+def claim_next_agent_job(agent_id: str) -> SupermanJob | None:
+    """Ambil job agent tertua yang masih pending."""
+    _cleanup_expired()
+    aid = (agent_id or "").strip() or "agent"
+    with _lock:
+        candidates = [
+            j
+            for j in _jobs.values()
+            if j.executor == "agent" and j.status == "pending" and not j.claimed_by
+        ]
+        if not candidates:
+            return None
+        candidates.sort(key=lambda j: j.created_at)
+        job = candidates[0]
+        job.claimed_by = aid
+        job.status = "running"
+        job.percent = 1
+        job.stage = f"Agent {aid} mengambil job..."
+        job.updated_at = time.time()
+        return job
+
+
 def make_progress_callback(job_id: str) -> ProgressCallback:
     def _report(percent: int, stage: str) -> None:
         update_job(job_id, percent, stage)
 
     return _report
+
+
+def job_to_public(job: SupermanJob) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "job_id": job.job_id,
+        "kompensasi_id": job.kompensasi_id,
+        "status": job.status,
+        "percent": job.percent,
+        "stage": job.stage,
+        "executor": job.executor,
+        "claimed_by": job.claimed_by,
+    }
+    if job.status == "completed" and job.result:
+        payload["result"] = job.result
+    if job.status == "failed" and job.error:
+        payload["error"] = job.error
+    return payload

@@ -109,7 +109,8 @@ export function SupermanProgressDialog({ open, jobId, onDone, onError, onClose }
           <DialogTitle>Otomasi Superman (Playwright)</DialogTitle>
         </DialogHeader>
         <p className="text-sm text-gray-600">
-          Browser headless sedang login, mengisi form SPPn/SPPb, dan mengunggah dokumen pendukung.
+          Otomasi Playwright sedang login, mengisi form SPPn/SPPb, dan mengunggah dokumen.
+          Jika memakai agent lokal, proses berjalan di PC (bukan di Railway) — biarkan jendela agent tetap terbuka.
         </p>
         <p className="text-xs text-gray-500 mt-1">{stage}</p>
         <div className="h-2 bg-gray-100 rounded overflow-hidden mt-3">

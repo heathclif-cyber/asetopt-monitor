@@ -188,6 +188,15 @@ export interface SupermanStatus {
   playwright_error?: string | null
   base_url: string
   captcha_hint?: string | null
+  /** Server bisa membuka portal Superman */
+  superman_reachable?: boolean
+  superman_reach_error?: string | null
+  /** Railway timeout → butuh agent PC */
+  needs_local_agent?: boolean
+  agent_online?: boolean
+  agent_count?: number
+  can_start_deklarasi?: boolean
+  agent_help?: string | null
 }
 
 export interface SuratPeringatan {
