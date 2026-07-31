@@ -649,6 +649,7 @@ export function Kompensasi() {
                 <th className="text-left px-4 py-3">Mitra / Aset</th>
                 <th className="text-left px-4 py-3 hidden md:table-cell">Periode</th>
                 <th className="text-right px-4 py-3">Total Tagihan</th>
+                <th className="text-right px-4 py-3 hidden md:table-cell text-[#5B2C6F]">Pendapatan Akrual</th>
                 <th className="text-right px-4 py-3 hidden lg:table-cell">Sudah Dibayar</th>
                 <th className="text-right px-4 py-3 hidden lg:table-cell">Sisa</th>
                 <th className="text-left px-4 py-3 hidden lg:table-cell">Cetak Tagihan</th>
@@ -698,6 +699,9 @@ export function Kompensasi() {
                           </p>
                         )}
                       </td>
+                      <td className="px-4 py-3 text-right hidden md:table-cell">
+                        <CurrencyDisplay value={k.nominal ?? 0} size="sm" className="text-[#5B2C6F]" />
+                      </td>
                       <td className="px-4 py-3 text-right hidden lg:table-cell text-green-700">
                         <CurrencyDisplay value={ws.totalDibayar} size="sm" />
                       </td>
@@ -740,7 +744,7 @@ export function Kompensasi() {
                     </tr>
                     {expanded && (
                       <tr key={`${k.id}-detail`} className="bg-gray-50/60">
-                        <td colSpan={8} className="px-6 py-4">
+                        <td colSpan={9} className="px-6 py-4">
                           <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 text-xs">
 
                             {/* ── Rincian Tagihan + Denda ───────────────────── */}
