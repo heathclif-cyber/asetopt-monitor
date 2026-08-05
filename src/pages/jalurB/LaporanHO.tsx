@@ -22,6 +22,7 @@ import {
   buildLaporanHO,
   summarizeHO,
   type HOMasterRow,
+  type HOSummary,
 } from '@/utils/laporanHOUtils'
 import { exportLaporanHOExcel } from '@/utils/laporanHOExport'
 
@@ -186,8 +187,8 @@ export default function LaporanHO() {
 
       <ExportExcelPanel
         title="Ekspor Excel Format HO"
-        description={`2 sheet: Pendapatan · Piutang · ${bulanLabel} ${tahun}. Semua nilai uang dalam Rp 000 (÷1.000).`}
-        meta={`${filtered.length} proker · satuan Rp 000`}
+        description={`3 sheet: Ringkasan TOTAL · Pendapatan · Piutang · ${bulanLabel} ${tahun}. Uang di detail: Rp 000.`}
+        meta={`${filtered.length} proker · total pendapatan ${formatShort(summary.realisasiPendapatan)}`}
         fileNameHint={`Laporan_HO_Proker_${tahun}_….xlsx`}
         onExport={handleExport}
         loading={exporting}
@@ -257,33 +258,13 @@ export default function LaporanHO() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-        <SummaryCard
-          icon={<Banknote size={16} />}
-          label={`Pendapatan · ${bulanLabel}`}
-          sub={`Thn ${formatShort(summaryYear.realisasiPendapatan)} · Target bln ${formatShort(summary.targetPendapatan)}`}
-          value={summary.realisasiPendapatan}
-          accent="navy"
-        />
-        <SummaryCard
-          icon={<Landmark size={16} />}
-          label={`Piutang · ${bulanLabel}`}
-          sub="Snapshot akhir bulan"
-          value={summary.saldoPiutang}
-          accent="amber"
-        />
-        <div className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
-          <p className="text-[11px] text-gray-500 font-medium">Proker · Capaian Pendapatan</p>
-          <p className="text-xl font-bold text-gray-900 mt-1">{summary.nProker}</p>
-          <p className="text-[11px] text-gray-400 mt-0.5">
-            {summary.targetPendapatan > 0
-              ? `${((summary.realisasiPendapatan / summary.targetPendapatan) * 100).toFixed(1)}% vs target ${bulanLabel}`
-              : summaryYear.realisasiPendapatan > 0
-                ? `Ada pendapatan di bulan lain — pilih chip ber-titik`
-                : '—'}
-          </p>
-        </div>
-      </div>
+      {/* TOTAL — selalu terlihat di atas tabel */}
+      <TotalBar
+        bulanLabel={bulanLabel}
+        tahun={tahun}
+        summary={summary}
+        summaryYear={summaryYear}
+      />
 
       <div className="flex flex-wrap gap-1 rounded-lg border border-gray-200 bg-gray-50 p-1 w-fit">
         {([
@@ -315,9 +296,9 @@ export default function LaporanHO() {
           description="Pastikan RKAP tahun ini sudah diisi dan ID Monika terhubung ke tagihan."
         />
       ) : tab === 'pendapatan' ? (
-        <PendapatanTable rows={filtered} bulan={bulanAktif} tahun={tahun} />
+        <PendapatanTable rows={filtered} bulan={bulanAktif} tahun={tahun} totals={summary} />
       ) : (
-        <PiutangTable rows={filtered} bulan={bulanAktif} tahun={tahun} />
+        <PiutangTable rows={filtered} bulan={bulanAktif} tahun={tahun} totals={summary} />
       )}
 
       <p className="text-[11px] text-gray-400 flex items-start gap-1.5 pb-4">
@@ -337,34 +318,82 @@ function formatShort(n: number): string {
   return `Rp ${Math.round(n).toLocaleString('id-ID')}`
 }
 
-function SummaryCard({
-  icon,
+function TotalBar({
+  bulanLabel,
+  tahun,
+  summary,
+  summaryYear,
+}: {
+  bulanLabel: string
+  tahun: number
+  summary: HOSummary
+  summaryYear: HOSummary
+}) {
+  const capaian =
+    summary.targetPendapatan > 0
+      ? (summary.realisasiPendapatan / summary.targetPendapatan) * 100
+      : null
+
+  return (
+    <div className="rounded-xl border-2 border-[#1B4F72]/25 bg-gradient-to-r from-slate-50 via-white to-blue-50 shadow-sm overflow-hidden">
+      <div className="px-4 py-2 border-b border-gray-100 flex flex-wrap items-center justify-between gap-2 bg-[#1B4F72] text-white">
+        <p className="text-sm font-bold tracking-tight">
+          TOTAL · {bulanLabel} {tahun}
+        </p>
+        <p className="text-[11px] text-white/80">
+          {summary.nProker} proker · Σ RKAP thn {formatShort(summary.totalRkapTahun)}
+          {capaian != null ? ` · Capaian ${capaian.toFixed(1)}%` : ''}
+        </p>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-px bg-gray-200">
+        <TotalCell label="Target RKAP bln" value={summary.targetPendapatan} />
+        <TotalCell label="Pokok" value={summary.pendapatanPokok} accent="navy" />
+        <TotalCell label="PPN" value={summary.pendapatanPpn} />
+        <TotalCell label="PPH (−)" value={summary.pendapatanPph} accent="danger" />
+        <TotalCell label="PBB" value={summary.pendapatanPbb} accent="amber" />
+        <TotalCell label="Total Pendapatan" value={summary.realisasiPendapatan} accent="strong" />
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-gray-200 border-t border-gray-200">
+        <TotalCell label="Saldo Piutang" value={summary.saldoPiutang} accent="amber" />
+        <TotalCell label="Piutang 1–30" value={summary.piutang1_30} compact />
+        <TotalCell label="Piutang >90" value={summary.piutang91_180 + summary.piutang181_360 + summary.piutang361} compact />
+        <TotalCell
+          label={`Pendapatan thn ${tahun}`}
+          value={summaryYear.realisasiPendapatan}
+          compact
+        />
+      </div>
+    </div>
+  )
+}
+
+function TotalCell({
   label,
-  sub,
   value,
   accent,
+  compact,
 }: {
-  icon: React.ReactNode
   label: string
-  sub: string
   value: number
-  accent: 'teal' | 'navy' | 'amber'
+  accent?: 'navy' | 'amber' | 'danger' | 'strong'
+  compact?: boolean
 }) {
-  const colors = {
-    teal: 'text-teal-700 bg-teal-50 border-teal-100',
-    navy: 'text-[#1B4F72] bg-blue-50 border-blue-100',
-    amber: 'text-amber-800 bg-amber-50 border-amber-100',
-  }
   return (
-    <div className={cn('rounded-xl border p-3 shadow-sm', colors[accent])}>
-      <div className="flex items-center gap-1.5 text-[11px] font-medium opacity-80">
-        {icon}
-        {label}
-      </div>
-      <div className="mt-1">
-        <CurrencyDisplay value={value} size="md" />
-      </div>
-      <p className="text-[11px] opacity-70 mt-0.5">{sub}</p>
+    <div className={cn('bg-white px-3 py-2.5', compact && 'py-2')}>
+      <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">{label}</p>
+      <p
+        className={cn(
+          'font-bold tabular-nums mt-0.5',
+          compact ? 'text-sm' : 'text-base',
+          accent === 'navy' && 'text-[#1B4F72]',
+          accent === 'amber' && 'text-amber-800',
+          accent === 'danger' && 'text-red-600',
+          accent === 'strong' && 'text-emerald-800 text-lg',
+          !accent && 'text-gray-900',
+        )}
+      >
+        <CurrencyDisplay value={value} size={compact ? 'sm' : 'md'} />
+      </p>
     </div>
   )
 }
@@ -432,31 +461,42 @@ function MasterCells({ r, zebra }: { r: HOMasterRow; zebra: boolean }) {
   )
 }
 
-function PendapatanTable({ rows, bulan, tahun }: { rows: HOMasterRow[]; bulan: number; tahun: number }) {
+function PendapatanTable({
+  rows,
+  bulan,
+  tahun,
+  totals,
+}: {
+  rows: HOMasterRow[]
+  bulan: number
+  tahun: number
+  totals: HOSummary
+}) {
   const label = BULAN_LABELS_HO[bulan]
-  let tTarget = 0, tPend = 0, tPpn = 0, tPph = 0, tPbb = 0, tTotal = 0
-  rows.forEach(r => {
-    const p = r.pendapatanByMonth[bulan]
-    tTarget += p.target
-    tPend += p.pendapatan
-    tPpn += p.ppn
-    tPph += p.pph
-    tPbb += p.pbb
-    tTotal += p.total
-  })
+  const tTarget = totals.targetPendapatan
+  const tPend = totals.pendapatanPokok
+  const tPpn = totals.pendapatanPpn
+  const tPph = totals.pendapatanPph
+  const tPbb = totals.pendapatanPbb
+  const tTotal = totals.realisasiPendapatan
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
-      <div className="px-3 py-2 border-b bg-gray-50 flex items-center justify-between gap-2">
+      <div className="px-3 py-2 border-b bg-gray-50 flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-sm font-semibold text-gray-800">Monitoring Penerimaan Pendapatan</p>
           <p className="text-[11px] text-gray-500">
             PROGRAM KERJA OPTIMALISASI ASET · Regional 8 · {label} {tahun}
           </p>
         </div>
-        <span className="text-[11px] font-medium text-blue-800 bg-blue-50 border border-blue-100 rounded-full px-2.5 py-0.5">
-          {label} saja
-        </span>
+        <div className="flex flex-wrap items-center gap-2 text-[11px]">
+          <span className="font-semibold text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-full px-2.5 py-0.5">
+            TOTAL {formatShort(tTotal)}
+          </span>
+          <span className="font-medium text-blue-800 bg-blue-50 border border-blue-100 rounded-full px-2.5 py-0.5">
+            {label}
+          </span>
+        </div>
       </div>
       <div className="overflow-auto max-h-[min(72vh,760px)]">
         <table className="text-[11px] w-max min-w-full border-separate border-spacing-0">
@@ -508,17 +548,21 @@ function PendapatanTable({ rows, bulan, tahun }: { rows: HOMasterRow[]; bulan: n
               )
             })}
           </tbody>
-          <tfoot>
-            <tr className="bg-amber-50 font-semibold text-gray-800 border-t-2 border-amber-200">
-              <td colSpan={18} className="px-2 py-2 sticky left-0 bg-amber-50">TOTAL · {label}</td>
-              <td className="px-2 py-2 text-right border-l border-amber-100"><CellRp value={tTarget} /></td>
-              <td className="px-2 py-2 text-right"><CellRp value={tPend} /></td>
-              <td className="px-2 py-2 text-right"><CellRp value={tPpn} /></td>
-              <td className="px-2 py-2 text-right"><CellRp value={tPph} /></td>
-              <td className="px-2 py-2 text-right text-amber-900"><CellRp value={tPbb} /></td>
-              <td className="px-2 py-2 text-right"><CellRp value={tTotal} /></td>
-              <td className="px-2 py-2" />
-              <td className="px-2 py-2 text-center">
+          <tfoot className="sticky bottom-0 z-20">
+            <tr className="bg-[#FEF3C7] font-bold text-gray-900 border-t-2 border-amber-400 shadow-[0_-2px_6px_rgba(0,0,0,0.06)]">
+              <td colSpan={18} className="px-2 py-2.5 sticky left-0 bg-[#FEF3C7]">
+                TOTAL · {label} · {rows.length} proker
+              </td>
+              <td className="px-2 py-2.5 text-right border-l border-amber-200"><CellRp value={tTarget} /></td>
+              <td className="px-2 py-2.5 text-right text-[#5B2C6F]"><CellRp value={tPend} /></td>
+              <td className="px-2 py-2.5 text-right"><CellRp value={tPpn} /></td>
+              <td className="px-2 py-2.5 text-right"><CellRp value={tPph} /></td>
+              <td className="px-2 py-2.5 text-right text-amber-900"><CellRp value={tPbb} /></td>
+              <td className="px-2 py-2.5 text-right text-emerald-800 text-sm">
+                <CellRp value={tTotal} />
+              </td>
+              <td className="px-2 py-2.5" />
+              <td className="px-2 py-2.5 text-center">
                 {tTarget > 0 ? pctLabel((tTotal / tTarget) * 100) : '—'}
               </td>
             </tr>
@@ -529,33 +573,44 @@ function PendapatanTable({ rows, bulan, tahun }: { rows: HOMasterRow[]; bulan: n
   )
 }
 
-function PiutangTable({ rows, bulan, tahun }: { rows: HOMasterRow[]; bulan: number; tahun: number }) {
+function PiutangTable({
+  rows,
+  bulan,
+  tahun,
+  totals,
+}: {
+  rows: HOMasterRow[]
+  bulan: number
+  tahun: number
+  totals: HOSummary
+}) {
   const label = BULAN_LABELS_HO[bulan]
-  let t1 = 0, t2 = 0, t3 = 0, t4 = 0, t5 = 0, t6 = 0, tSaldo = 0
-  rows.forEach(r => {
-    const p = r.piutangByMonth[bulan]
-    t1 += p.aging1_30
-    t2 += p.aging31_60
-    t3 += p.aging61_90
-    t4 += p.aging91_180
-    t5 += p.aging181_360
-    t6 += p.aging361
-    tSaldo += p.saldo
-  })
+  const t1 = totals.piutang1_30
+  const t2 = totals.piutang31_60
+  const t3 = totals.piutang61_90
+  const t4 = totals.piutang91_180
+  const t5 = totals.piutang181_360
+  const t6 = totals.piutang361
+  const tSaldo = totals.saldoPiutang
   const withSaldo = rows.filter(r => (r.piutangByMonth[bulan]?.saldo ?? 0) > 0.5).length
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
-      <div className="px-3 py-2 border-b bg-gray-50 flex items-center justify-between gap-2">
+      <div className="px-3 py-2 border-b bg-gray-50 flex flex-wrap items-center justify-between gap-2">
         <div>
           <p className="text-sm font-semibold text-gray-800">Monitoring Piutang</p>
           <p className="text-[11px] text-gray-500">
             Aging snapshot akhir {label} {tahun} · {withSaldo} proker punya saldo
           </p>
         </div>
-        <span className="text-[11px] font-medium text-amber-900 bg-amber-50 border border-amber-100 rounded-full px-2.5 py-0.5">
-          {label} saja
-        </span>
+        <div className="flex flex-wrap items-center gap-2 text-[11px]">
+          <span className="font-semibold text-amber-900 bg-amber-50 border border-amber-100 rounded-full px-2.5 py-0.5">
+            TOTAL SALDO {formatShort(tSaldo)}
+          </span>
+          <span className="font-medium text-amber-900 bg-amber-50 border border-amber-100 rounded-full px-2.5 py-0.5">
+            {label}
+          </span>
+        </div>
       </div>
       <div className="overflow-auto max-h-[min(72vh,760px)]">
         <table className="text-[11px] w-max min-w-full border-separate border-spacing-0">
@@ -601,16 +656,18 @@ function PiutangTable({ rows, bulan, tahun }: { rows: HOMasterRow[]; bulan: numb
               )
             })}
           </tbody>
-          <tfoot>
-            <tr className="bg-amber-50 font-semibold text-gray-800 border-t-2 border-amber-200">
-              <td colSpan={18} className="px-2 py-2 sticky left-0 bg-amber-50">TOTAL · {label}</td>
-              <td className="px-2 py-2 text-right border-l border-amber-100"><CellRp value={t1} /></td>
-              <td className="px-2 py-2 text-right"><CellRp value={t2} /></td>
-              <td className="px-2 py-2 text-right"><CellRp value={t3} /></td>
-              <td className="px-2 py-2 text-right"><CellRp value={t4} /></td>
-              <td className="px-2 py-2 text-right"><CellRp value={t5} /></td>
-              <td className="px-2 py-2 text-right"><CellRp value={t6} /></td>
-              <td className="px-2 py-2 text-right"><CellRp value={tSaldo} /></td>
+          <tfoot className="sticky bottom-0 z-20">
+            <tr className="bg-[#FEF3C7] font-bold text-gray-900 border-t-2 border-amber-400 shadow-[0_-2px_6px_rgba(0,0,0,0.06)]">
+              <td colSpan={18} className="px-2 py-2.5 sticky left-0 bg-[#FEF3C7]">
+                TOTAL · {label} · saldo outstanding
+              </td>
+              <td className="px-2 py-2.5 text-right border-l border-amber-200"><CellRp value={t1} /></td>
+              <td className="px-2 py-2.5 text-right"><CellRp value={t2} /></td>
+              <td className="px-2 py-2.5 text-right"><CellRp value={t3} /></td>
+              <td className="px-2 py-2.5 text-right"><CellRp value={t4} /></td>
+              <td className="px-2 py-2.5 text-right"><CellRp value={t5} /></td>
+              <td className="px-2 py-2.5 text-right"><CellRp value={t6} /></td>
+              <td className="px-2 py-2.5 text-right text-amber-900 text-sm"><CellRp value={tSaldo} /></td>
             </tr>
           </tfoot>
         </table>

@@ -92,9 +92,25 @@ export interface HOSummary {
   targetCash: number
   realisasiCash: number
   targetPendapatan: number
+  /** Total realisasi pendapatan (pokok+PPN+PPH+PBB) bulan terpilih */
   realisasiPendapatan: number
+  /** Breakdown pendapatan bulan terpilih */
+  pendapatanPokok: number
+  pendapatanPpn: number
+  pendapatanPph: number
+  pendapatanPbb: number
   saldoPiutang: number
+  /** Breakdown aging piutang bulan terakhir di filter */
+  piutang1_30: number
+  piutang31_60: number
+  piutang61_90: number
+  piutang91_180: number
+  piutang181_360: number
+  piutang361: number
   nProker: number
+  /** Σ target tahun / RKAP proker (bukan per bulan) */
+  totalRkapTahun: number
+  totalTargetTahun: number
 }
 
 function dateKey(s: string | null | undefined): string {
@@ -679,18 +695,44 @@ export function summarizeHO(rows: HOMasterRow[], months: number[]): HOSummary {
   let realisasiCash = 0
   let targetPendapatan = 0
   let realisasiPendapatan = 0
+  let pendapatanPokok = 0
+  let pendapatanPpn = 0
+  let pendapatanPph = 0
+  let pendapatanPbb = 0
   let saldoPiutang = 0
+  let piutang1_30 = 0
+  let piutang31_60 = 0
+  let piutang61_90 = 0
+  let piutang91_180 = 0
+  let piutang181_360 = 0
+  let piutang361 = 0
+  let totalRkapTahun = 0
+  let totalTargetTahun = 0
+
+  const lastM = months.length ? months[months.length - 1] : 11
 
   rows.forEach(r => {
+    totalRkapTahun += r.rkapEksisting ?? 0
+    totalTargetTahun += r.targetTahun ?? 0
     months.forEach(m => {
       targetCash += r.cashByMonth[m]?.target ?? 0
       realisasiCash += r.cashByMonth[m]?.totalDiluarJaminan ?? 0
-      targetPendapatan += r.pendapatanByMonth[m]?.target ?? 0
-      realisasiPendapatan += r.pendapatanByMonth[m]?.total ?? 0
+      const p = r.pendapatanByMonth[m]
+      targetPendapatan += p?.target ?? 0
+      realisasiPendapatan += p?.total ?? 0
+      pendapatanPokok += p?.pendapatan ?? 0
+      pendapatanPpn += p?.ppn ?? 0
+      pendapatanPph += p?.pph ?? 0
+      pendapatanPbb += p?.pbb ?? 0
     })
-    // Piutang: ambil snapshot bulan terakhir yang dipilih
-    const lastM = months.length ? months[months.length - 1] : 11
-    saldoPiutang += r.piutangByMonth[lastM]?.saldo ?? 0
+    const pi = r.piutangByMonth[lastM]
+    saldoPiutang += pi?.saldo ?? 0
+    piutang1_30 += pi?.aging1_30 ?? 0
+    piutang31_60 += pi?.aging31_60 ?? 0
+    piutang61_90 += pi?.aging61_90 ?? 0
+    piutang91_180 += pi?.aging91_180 ?? 0
+    piutang181_360 += pi?.aging181_360 ?? 0
+    piutang361 += pi?.aging361 ?? 0
   })
 
   return {
@@ -698,8 +740,20 @@ export function summarizeHO(rows: HOMasterRow[], months: number[]): HOSummary {
     realisasiCash,
     targetPendapatan,
     realisasiPendapatan,
+    pendapatanPokok,
+    pendapatanPpn,
+    pendapatanPph,
+    pendapatanPbb,
     saldoPiutang,
+    piutang1_30,
+    piutang31_60,
+    piutang61_90,
+    piutang91_180,
+    piutang181_360,
+    piutang361,
     nProker: rows.length,
+    totalRkapTahun,
+    totalTargetTahun,
   }
 }
 

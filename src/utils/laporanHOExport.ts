@@ -8,6 +8,7 @@
 import ExcelJS from 'exceljs'
 import {
   BULAN_LABELS_HO,
+  summarizeHO,
   toRp000,
   type HOMasterRow,
 } from '@/utils/laporanHOUtils'
@@ -454,6 +455,179 @@ function buildPiutangSheet(
   return ws
 }
 
+function buildRingkasanSheet(
+  wb: ExcelJS.Workbook,
+  rows: HOMasterRow[],
+  tahun: number,
+  months: number[],
+) {
+  const ws = wb.addWorksheet('Ringkasan TOTAL', {
+    views: [{ showGridLines: false }],
+  })
+  ;[28, 18, 18, 36].forEach((w, i) => { ws.getColumn(i + 1).width = w })
+
+  const s = summarizeHO(rows, months)
+  const sYear = summarizeHO(rows, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
+  const bulanLabel = months.map(m => BULAN_LABELS_HO[m]).join(', ')
+
+  ws.mergeCells(1, 1, 1, 4)
+  const t1 = ws.getCell(1, 1)
+  t1.value = 'PROGRAM KERJA OPTIMALISASI ASET PTPN I — REGIONAL 8'
+  t1.font = { name: 'Calibri', size: 12, bold: true, color: { argb: NAVY } }
+
+  ws.mergeCells(2, 1, 2, 4)
+  const t2 = ws.getCell(2, 1)
+  t2.value = `RINGKASAN TOTAL · ${bulanLabel} ${tahun}`
+  t2.font = { name: 'Calibri', size: 14, bold: true, color: { argb: NAVY } }
+
+  ws.mergeCells(3, 1, 3, 4)
+  const t3 = ws.getCell(3, 1)
+  t3.value = `Dalam Rp 000 (nilai asli ÷ 1.000) · ${rows.length} proker · Diekspor: ${todayKey()}`
+  t3.font = { name: 'Calibri', size: 9, italic: true, color: { argb: 'FF64748B' } }
+
+  // Header
+  const headers = ['Uraian', 'Nilai (Rp 000)', 'Nilai (Rp penuh)', 'Keterangan']
+  headers.forEach((h, i) => {
+    const cell = ws.getCell(5, i + 1)
+    cell.value = h
+    styleHeader(cell)
+  })
+  ws.getRow(5).height = 20
+
+  type Row = { uraian: string; value: number; ket: string; bold?: boolean; danger?: boolean }
+  const lines: Row[] = [
+    { uraian: 'Jumlah proker', value: rows.length, ket: 'Baris di laporan', bold: true },
+    { uraian: 'Σ RKAP Eksisting (tahun)', value: s.totalRkapTahun, ket: 'Total target RKAP proker' },
+    { uraian: 'Σ Target Tahun', value: s.totalTargetTahun, ket: 'RKAP + Non-RKAP' },
+    { uraian: '', value: 0, ket: '' },
+    { uraian: `PENDAPATAN · ${bulanLabel}`, value: 0, ket: '', bold: true },
+    { uraian: '  Target RKAP bulan', value: s.targetPendapatan, ket: 'Target bulanan terpilih' },
+    { uraian: '  Pokok (Pendapatan)', value: s.pendapatanPokok, ket: 'DPP / nominal' },
+    { uraian: '  PPN', value: s.pendapatanPpn, ket: 'Positif' },
+    { uraian: '  PPH', value: s.pendapatanPph, ket: 'Minus (mengurangi total)', danger: true },
+    { uraian: '  PBB', value: s.pendapatanPbb, ket: 'Pajak bumi & bangunan' },
+    {
+      uraian: 'TOTAL PENDAPATAN',
+      value: s.realisasiPendapatan,
+      ket: 'Pokok + PPN + PPH(−) + PBB',
+      bold: true,
+    },
+    {
+      uraian: 'Capaian vs Target (%)',
+      value: s.targetPendapatan > 0 ? (s.realisasiPendapatan / s.targetPendapatan) * 100 : 0,
+      ket: s.targetPendapatan > 0 ? 'Realisasi / Target × 100' : 'Tidak ada target',
+      bold: true,
+    },
+    { uraian: '', value: 0, ket: '' },
+    { uraian: `PIUTANG · ${bulanLabel}`, value: 0, ket: '', bold: true },
+    { uraian: '  1 – 30 hari', value: s.piutang1_30, ket: 'Aging' },
+    { uraian: '  31 – 60 hari', value: s.piutang31_60, ket: 'Aging' },
+    { uraian: '  61 – 90 hari', value: s.piutang61_90, ket: 'Aging' },
+    { uraian: '  91 – 180 hari', value: s.piutang91_180, ket: 'Aging' },
+    { uraian: '  181 – 360 hari', value: s.piutang181_360, ket: 'Aging' },
+    { uraian: '  > 361 hari', value: s.piutang361, ket: 'Aging' },
+    {
+      uraian: 'TOTAL SALDO PIUTANG',
+      value: s.saldoPiutang,
+      ket: 'Snapshot outstanding akhir bulan',
+      bold: true,
+    },
+    { uraian: '', value: 0, ket: '' },
+    {
+      uraian: `Pendapatan full year ${tahun}`,
+      value: sYear.realisasiPendapatan,
+      ket: 'Jumlah 12 bulan',
+      bold: true,
+    },
+  ]
+
+  let r = 6
+  lines.forEach(line => {
+    if (!line.uraian && line.value === 0 && !line.ket) {
+      r += 1
+      return
+    }
+    const isPct = line.uraian.includes('Capaian')
+    const isCount = line.uraian === 'Jumlah proker'
+    const isSection = line.uraian === line.uraian.toUpperCase() && line.value === 0 && line.bold
+
+    ws.getCell(r, 1).value = line.uraian
+    ws.getCell(r, 1).font = {
+      name: 'Calibri',
+      size: 10,
+      bold: !!line.bold,
+      color: { argb: line.danger ? 'FFB91C1C' : NAVY },
+    }
+    ws.getCell(r, 1).border = thin()
+
+    if (isSection) {
+      ws.getCell(r, 2).value = ''
+      ws.getCell(r, 3).value = ''
+    } else if (isCount) {
+      ws.getCell(r, 2).value = line.value
+      ws.getCell(r, 2).numFmt = '0'
+      ws.getCell(r, 3).value = line.value
+      ws.getCell(r, 3).numFmt = '0'
+    } else if (isPct) {
+      ws.getCell(r, 2).value = line.value
+      ws.getCell(r, 2).numFmt = '0.0"%"'
+      ws.getCell(r, 3).value = line.value
+      ws.getCell(r, 3).numFmt = '0.0"%"'
+    } else {
+      moneyCell(ws.getCell(r, 2), toRp000(line.value), false)
+      // Kolom Rp penuh (bukan ÷1000)
+      const full = ws.getCell(r, 3)
+      full.value = Math.round(line.value || 0)
+      full.numFmt = '#,##0'
+      full.alignment = { horizontal: 'right', vertical: 'middle' }
+      full.border = thin()
+      full.font = {
+        name: 'Calibri',
+        size: 9,
+        bold: !!line.bold,
+        color: { argb: line.danger ? 'FFB91C1C' : 'FF000000' },
+      }
+    }
+
+    if (line.bold && !isSection) {
+      ;[1, 2, 3, 4].forEach(c => {
+        const cell = ws.getCell(r, c)
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TOTAL_BG } }
+        cell.font = {
+          name: 'Calibri',
+          size: 10,
+          bold: true,
+          color: { argb: line.danger ? 'FFB91C1C' : 'FF78350F' },
+        }
+        cell.border = thin()
+      })
+      if (!isCount && !isPct) {
+        moneyCell(ws.getCell(r, 2), toRp000(line.value), false)
+        ws.getCell(r, 2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TOTAL_BG } }
+        ws.getCell(r, 2).font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF78350F' } }
+        ws.getCell(r, 3).value = Math.round(line.value || 0)
+        ws.getCell(r, 3).numFmt = '#,##0'
+        ws.getCell(r, 3).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TOTAL_BG } }
+        ws.getCell(r, 3).font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF78350F' } }
+        ws.getCell(r, 3).border = thin()
+      }
+    }
+
+    ws.getCell(r, 4).value = line.ket
+    ws.getCell(r, 4).font = { name: 'Calibri', size: 9, color: { argb: 'FF64748B' } }
+    ws.getCell(r, 4).border = thin()
+    r += 1
+  })
+
+  r += 1
+  ws.mergeCells(r, 1, r, 4)
+  ws.getCell(r, 1).value =
+    'Catatan: Kolom B = Rp 000 (÷1.000). Kolom C = Rupiah penuh. TOTAL PENDAPATAN & TOTAL SALDO PIUTANG = angka utama untuk pelaporan.'
+  ws.getCell(r, 1).font = { name: 'Calibri', size: 8, italic: true, color: { argb: 'FF64748B' } }
+
+  return ws
+}
+
 export async function exportLaporanHOExcel(
   rows: HOMasterRow[],
   opts: { tahun: number; months: number[] },
@@ -461,6 +635,7 @@ export async function exportLaporanHOExcel(
   const { tahun, months } = opts
   const sortedMonths = [...months].sort((a, b) => a - b)
   const wb = newWorkbook()
+  buildRingkasanSheet(wb, rows, tahun, sortedMonths)
   buildPendapatanSheet(wb, rows, tahun, sortedMonths)
   buildPiutangSheet(wb, rows, tahun, sortedMonths)
 
