@@ -107,7 +107,7 @@ export default function Login() {
           </Button>
 
           <p className="text-[10px] text-gray-400 text-center leading-relaxed">
-            Admin: akses penuh · Viewer: Laporan, Piutang, Monitoring
+            Admin: akses penuh · Viewer: Laporan, Laporan HO, Piutang, Monitoring
           </p>
         </form>
       </div>

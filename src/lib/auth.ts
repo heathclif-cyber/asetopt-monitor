@@ -15,6 +15,7 @@ export const AUTH_USER_KEY = 'asetopt_auth_user'
 /** Viewer: hanya 3 halaman collection/laporan */
 export const VIEWER_ALLOWED_PATHS = [
   '/jalur-b/laporan',
+  '/jalur-b/laporan-ho',
   '/jalur-b/piutang',
   '/jalur-b/monitoring-kompensasi',
 ] as const

@@ -46,6 +46,7 @@ const navItems: NavItem[] = [
       { label: 'Pembayaran PBB', to: '/jalur-b/pbb' },
       { label: 'Notifikasi & SP', to: '/jalur-b/notifikasi' },
       { label: 'Laporan Pendapatan', to: '/jalur-b/laporan' },
+      { label: 'Laporan Format HO', to: '/jalur-b/laporan-ho' },
       { label: 'Monitoring Kompensasi', to: '/jalur-b/monitoring-kompensasi' },
     ],
   },
