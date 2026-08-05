@@ -37,11 +37,11 @@ function pctLabel(v: number | null): string {
 }
 
 function CellRp({ value, className }: { value: number; className?: string }) {
-  if (!value || Math.abs(value) < 0.5) {
+  if (value == null || Math.abs(value) < 0.5) {
     return <span className={cn('text-gray-300', className)}>—</span>
   }
   return (
-    <span className={className}>
+    <span className={cn(value < 0 && 'text-red-600', className)}>
       <CurrencyDisplay value={value} size="sm" />
     </span>
   )
@@ -64,8 +64,9 @@ export default function LaporanHO() {
 
   const [tab, setTab] = useState<TabMode>('cash')
   const [tahun, setTahun] = useState(new Date().getFullYear())
-  /** Satu bulan aktif — klik chip = ganti bulan, hanya bulan itu yang ditampilkan */
-  const [bulan, setBulan] = useState(() => new Date().getMonth())
+  /** Satu bulan aktif — null sampai data load (auto pilih bulan ber-realisasi) */
+  const [bulan, setBulan] = useState<number | null>(null)
+  const [bulanTouched, setBulanTouched] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [q, setQ] = useState('')
 
@@ -99,8 +100,6 @@ export default function LaporanHO() {
     if (tahunList.length && !tahunList.includes(tahun)) setTahun(tahunList[0])
   }, [tahunList])
 
-  const months = useMemo(() => [bulan], [bulan])
-
   const rows = useMemo(
     () =>
       buildLaporanHO({
@@ -113,10 +112,39 @@ export default function LaporanHO() {
         allPBB,
         daftarPDDM,
         allPengakuan,
-        months: ALL_MONTHS, // hitung semua bulan; tampilan filter di UI
+        months: ALL_MONTHS,
       }),
     [tahun, rkapRows, daftarAset, daftarKS, allKompensasi, allCashIn, allPBB, daftarPDDM, allPengakuan],
   )
+
+  // Auto-pilih bulan terakhir yang punya cash in / pendapatan (kecuali user sudah klik)
+  useEffect(() => {
+    if (bulanTouched) return
+    if (rows.length === 0) {
+      if (bulan == null) setBulan(new Date().getMonth())
+      return
+    }
+    const now = new Date().getMonth()
+    let best = now
+    for (let m = 11; m >= 0; m--) {
+      const has = rows.some(r => {
+        const c = r.cashByMonth[m]
+        const p = r.pendapatanByMonth[m]
+        return Math.abs(c?.totalDiluarJaminan ?? 0) > 0.5
+          || Math.abs(p?.total ?? 0) > 0.5
+          || Math.abs(c?.kompensasi ?? 0) > 0.5
+          || Math.abs(p?.pendapatan ?? 0) > 0.5
+      })
+      if (has) {
+        best = m
+        break
+      }
+    }
+    setBulan(best)
+  }, [rows, tahun, bulanTouched])
+
+  const bulanAktif = bulan ?? new Date().getMonth()
+  const months = useMemo(() => [bulanAktif], [bulanAktif])
 
   const filtered = useMemo(() => {
     if (!q.trim()) return rows
@@ -133,20 +161,26 @@ export default function LaporanHO() {
   }, [rows, q])
 
   const summary = useMemo(() => summarizeHO(filtered, months), [filtered, months])
+  // Ringkasan full year (bukti ada data cash/pendapatan di sistem)
+  const summaryYear = useMemo(() => summarizeHO(filtered, ALL_MONTHS), [filtered])
   const loading = loadKomp && rows.length === 0
 
   const handleExport = async () => {
     if (filtered.length === 0) return
     setExporting(true)
     try {
-      // Export hanya bulan yang sedang ditampilkan
       await exportLaporanHOExcel(filtered, { tahun, months })
     } finally {
       setExporting(false)
     }
   }
 
-  const bulanLabel = BULAN_LABELS_HO[bulan]
+  const selectBulan = (m: number) => {
+    setBulanTouched(true)
+    setBulan(m)
+  }
+
+  const bulanLabel = BULAN_LABELS_HO[bulanAktif]
 
   return (
     <div className="space-y-4">
@@ -205,20 +239,27 @@ export default function LaporanHO() {
           <p className="text-[11px] text-gray-400 mb-1.5">Pilih bulan (satu saja)</p>
           <div className="flex flex-wrap gap-1.5">
             {ALL_MONTHS.map(m => {
-              const on = bulan === m
+              const on = bulanAktif === m
+              const hasAct = rows.some(r =>
+                Math.abs(r.cashByMonth[m]?.totalDiluarJaminan ?? 0) > 0.5
+                || Math.abs(r.pendapatanByMonth[m]?.pendapatan ?? 0) > 0.5,
+              )
               return (
                 <button
                   key={m}
                   type="button"
-                  onClick={() => setBulan(m)}
+                  onClick={() => selectBulan(m)}
                   className={cn(
                     'h-8 rounded-full px-3 text-[11px] font-medium border transition-colors',
                     on
                       ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'
-                      : 'bg-white text-gray-500 border-gray-200 hover:border-[#1B4F72]/40 hover:text-[#1B4F72]',
+                      : hasAct
+                        ? 'bg-white text-[#1B4F72] border-[#1B4F72]/30 hover:bg-blue-50'
+                        : 'bg-white text-gray-400 border-gray-200 hover:border-gray-300',
                   )}
                 >
                   {BULAN_LABELS_HO[m]}
+                  {hasAct && !on && <span className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-teal-500" />}
                 </button>
               )
             })}
@@ -226,19 +267,19 @@ export default function LaporanHO() {
         </div>
       </div>
 
-      {/* Summary cards — hanya bulan terpilih */}
+      {/* Summary — bulan aktif + full year agar cash/pendapatan terlihat */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <SummaryCard
           icon={<Wallet size={16} />}
           label={`Cash In · ${bulanLabel}`}
-          sub={`Target ${formatShort(summary.targetCash)}`}
+          sub={`YTD/thn ${formatShort(summaryYear.realisasiCash)} · Target bln ${formatShort(summary.targetCash)}`}
           value={summary.realisasiCash}
           accent="teal"
         />
         <SummaryCard
           icon={<Banknote size={16} />}
           label={`Pendapatan · ${bulanLabel}`}
-          sub={`Target ${formatShort(summary.targetPendapatan)}`}
+          sub={`YTD/thn ${formatShort(summaryYear.realisasiPendapatan)} · Target bln ${formatShort(summary.targetPendapatan)}`}
           value={summary.realisasiPendapatan}
           accent="navy"
         />
@@ -250,12 +291,14 @@ export default function LaporanHO() {
           accent="amber"
         />
         <div className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
-          <p className="text-[11px] text-gray-500 font-medium">Proker · Capaian Cash</p>
+          <p className="text-[11px] text-gray-500 font-medium">Proker · Capaian Cash bln</p>
           <p className="text-xl font-bold text-gray-900 mt-1">{summary.nProker}</p>
           <p className="text-[11px] text-gray-400 mt-0.5">
             {summary.targetCash > 0
               ? `${((summary.realisasiCash / summary.targetCash) * 100).toFixed(1)}% vs target ${bulanLabel}`
-              : '—'}
+              : summaryYear.realisasiCash > 0
+                ? `Ada cash ${formatShort(summaryYear.realisasiCash)} di bulan lain — pilih chip ber-titik`
+                : '—'}
           </p>
         </div>
       </div>
@@ -292,18 +335,19 @@ export default function LaporanHO() {
           description="Pastikan RKAP tahun ini sudah diisi dan ID Monika terhubung ke tagihan/pembayaran."
         />
       ) : tab === 'cash' ? (
-        <CashTable rows={filtered} bulan={bulan} tahun={tahun} />
+        <CashTable rows={filtered} bulan={bulanAktif} tahun={tahun} />
       ) : tab === 'pendapatan' ? (
-        <PendapatanTable rows={filtered} bulan={bulan} tahun={tahun} />
+        <PendapatanTable rows={filtered} bulan={bulanAktif} tahun={tahun} />
       ) : (
-        <PiutangTable rows={filtered} bulan={bulan} tahun={tahun} />
+        <PiutangTable rows={filtered} bulan={bulanAktif} tahun={tahun} />
       )}
 
       <p className="text-[11px] text-gray-400 flex items-start gap-1.5 pb-4">
         <FileSpreadsheet size={12} className="mt-0.5 shrink-0" />
         <span>
-          <strong>Kompensasi = Pokok</strong> (kolom <code className="text-[10px]">nominal</code> / DPP),
-          terpisah dari PPN · PPH · PBB · Denda. Bukan total tagihan / total bayar.
+          <strong>Kompensasi = Pokok</strong> · <strong>PPH dicatat minus</strong> (mengurangi total) ·
+          Cash In by tgl bayar · Pendapatan by JT tagihan (pokok) / akrual jika ada.
+          Titik hijau di chip = bulan ada realisasi.
         </span>
       </p>
     </div>
@@ -458,7 +502,7 @@ function CashTable({ rows, bulan, tahun }: { rows: HOMasterRow[]; bulan: number;
               </th>
               <th className="px-2 py-1.5 text-right font-normal min-w-[72px]">Denda</th>
               <th className="px-2 py-1.5 text-right font-normal min-w-[72px]">PPN</th>
-              <th className="px-2 py-1.5 text-right font-normal min-w-[72px]">PPH</th>
+              <th className="px-2 py-1.5 text-right font-normal min-w-[80px] text-red-200">PPH (−)</th>
               <th className="px-2 py-1.5 text-right font-normal min-w-[72px] bg-amber-900/40">PBB</th>
               <th className="px-2 py-1.5 text-right font-normal min-w-[72px]">Jaminan</th>
               <th className="px-2 py-1.5 text-left font-normal min-w-[100px]">No Dok (SAP)</th>
@@ -560,9 +604,9 @@ function PendapatanTable({ rows, bulan, tahun }: { rows: HOMasterRow[]; bulan: n
                 <th key={i} className={cn(i < 2 && 'sticky z-20 bg-[#163f5c]', i === 0 && 'left-0', i === 1 && 'left-9')} />
               ))}
               <th className="px-2 py-1.5 text-right border-l border-white/15 font-normal min-w-[88px]">Target</th>
-              <th className="px-2 py-1.5 text-right font-normal min-w-[100px]">Pendapatan</th>
+              <th className="px-2 py-1.5 text-right font-normal min-w-[100px]">Pendapatan (Pokok)</th>
               <th className="px-2 py-1.5 text-right font-normal min-w-[72px]">PPN</th>
-              <th className="px-2 py-1.5 text-right font-normal min-w-[72px]">PPH</th>
+              <th className="px-2 py-1.5 text-right font-normal min-w-[80px] text-red-200">PPH (−)</th>
               <th className="px-2 py-1.5 text-right font-normal min-w-[72px] bg-amber-900/40">PBB</th>
               <th className="px-2 py-1.5 text-right font-normal min-w-[88px]">Total</th>
               <th className="px-2 py-1.5 text-left font-normal min-w-[100px]">No Dok (SAP)</th>

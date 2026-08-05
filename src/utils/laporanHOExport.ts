@@ -216,7 +216,7 @@ function buildCashSheet(
     for (let c = start; c <= end; c++) styleHeader(ws.getCell(h1, c))
 
     const subs = [
-      'Target', 'Kompensasi (Pokok)', 'Denda', 'PPN', 'PPH', 'PBB', 'Jaminan', 'No Dok (SAP)', 'Total Diluar Jaminan', '%',
+      'Target', 'Kompensasi (Pokok)', 'Denda', 'PPN', 'PPH (−)', 'PBB', 'Jaminan', 'No Dok (SAP)', 'Total Diluar Jaminan', '%',
     ]
     subs.forEach((s, j) => {
       const cell = ws.getCell(h2, start + j)
@@ -299,7 +299,7 @@ function buildCashSheet(
   rIdx += 2
   ws.mergeCells(rIdx, 1, rIdx, Math.min(8, colCount))
   ws.getCell(rIdx, 1).value =
-    'Catatan: Kompensasi = Pokok (DPP/nominal), bukan total bayar. PPN/PPH proporsional ke tagihan; PPH bukti potong tidak dihitung cash Regional. Denda dari cash_in. Satuan Rp 000.'
+    'Catatan: Kompensasi = Pokok (DPP). PPH dicatat NEGATIF (mengurangi total). Cash In by tgl bayar. Denda dari cash_in. Satuan Rp 000.'
   ws.getCell(rIdx, 1).font = { name: 'Calibri', size: 8, italic: true, color: { argb: 'FF64748B' } }
 
   return ws
@@ -350,7 +350,7 @@ function buildPendapatanSheet(
     styleHeader(top)
     for (let c = start; c <= end; c++) styleHeader(ws.getCell(h1, c))
 
-    ;['Target', 'Pendapatan', 'PPN', 'PPH', 'PBB', 'Total', 'No Dok (SAP)', '%'].forEach((s, j) => {
+    ;['Target', 'Pendapatan (Pokok)', 'PPN', 'PPH (−)', 'PBB', 'Total', 'No Dok (SAP)', '%'].forEach((s, j) => {
       const cell = ws.getCell(h2, start + j)
       cell.value = s
       styleHeader(cell)
