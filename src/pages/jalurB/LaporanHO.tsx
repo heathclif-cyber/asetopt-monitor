@@ -20,6 +20,9 @@ import { cn, formatTanggal } from '@/lib/utils'
 import {
   BULAN_LABELS_HO,
   buildLaporanHO,
+  monthsThrough,
+  piutangAsOf,
+  sumPendapatanMonths,
   summarizeHO,
   type HOMasterRow,
   type HOSummary,
@@ -27,6 +30,8 @@ import {
 import { exportLaporanHOExcel } from '@/utils/laporanHOExport'
 
 type TabMode = 'pendapatan' | 'piutang'
+/** bulan = hanya bulan terpilih · sd = Januari s.d. bulan terpilih */
+type PeriodMode = 'bulan' | 'sd'
 
 const ALL_MONTHS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
 
@@ -65,6 +70,8 @@ export default function LaporanHO() {
   /** Satu bulan aktif — null sampai data load (auto pilih bulan ber-realisasi) */
   const [bulan, setBulan] = useState<number | null>(null)
   const [bulanTouched, setBulanTouched] = useState(false)
+  /** bulan = hanya bulan X · sd = Jan s.d. X */
+  const [periodMode, setPeriodMode] = useState<PeriodMode>('sd')
   const [exporting, setExporting] = useState(false)
   const [q, setQ] = useState('')
 
@@ -135,7 +142,11 @@ export default function LaporanHO() {
   }, [rows, tahun, bulanTouched])
 
   const bulanAktif = bulan ?? new Date().getMonth()
-  const months = useMemo(() => [bulanAktif], [bulanAktif])
+  /** Rentang bulan untuk agregasi / export */
+  const months = useMemo(
+    () => (periodMode === 'sd' ? monthsThrough(bulanAktif) : [bulanAktif]),
+    [periodMode, bulanAktif],
+  )
 
   const filtered = useMemo(() => {
     if (!q.trim()) return rows
@@ -152,7 +163,6 @@ export default function LaporanHO() {
   }, [rows, q])
 
   const summary = useMemo(() => summarizeHO(filtered, months), [filtered, months])
-  // Ringkasan full year (bukti ada data cash/pendapatan di sistem)
   const summaryYear = useMemo(() => summarizeHO(filtered, ALL_MONTHS), [filtered])
   const loading = loadKomp && rows.length === 0
 
@@ -172,6 +182,10 @@ export default function LaporanHO() {
   }
 
   const bulanLabel = BULAN_LABELS_HO[bulanAktif]
+  const periodLabel =
+    periodMode === 'sd'
+      ? (bulanAktif === 0 ? `Januari ${tahun}` : `s.d. ${bulanLabel} ${tahun}`)
+      : `${bulanLabel} ${tahun}`
 
   return (
     <div className="space-y-4">
@@ -180,14 +194,14 @@ export default function LaporanHO() {
           <h1 className="text-lg font-bold text-gray-800">Laporan Format HO</h1>
           <p className="text-xs text-gray-500 mt-1 max-w-2xl">
             Format HO: <strong>Pendapatan</strong> &amp; <strong>Piutang</strong> per proker.
-            Klik satu bulan untuk menampilkan realisasi bulan tersebut saja.
+            Pilih <strong>Bulan saja</strong> atau <strong>s.d. bulan</strong> (Januari–bulan terpilih).
           </p>
         </div>
       </div>
 
       <ExportExcelPanel
         title="Ekspor Excel Format HO"
-        description={`3 sheet: Ringkasan TOTAL · Pendapatan · Piutang · ${bulanLabel} ${tahun}. Uang di detail: Rp 000.`}
+        description={`3 sheet: Ringkasan TOTAL · Pendapatan · Piutang · ${periodLabel}. Detail: Rp 000.`}
         meta={`${filtered.length} proker · total pendapatan ${formatShort(summary.realisasiPendapatan)}`}
         fileNameHint={`Laporan_HO_Proker_${tahun}_….xlsx`}
         onExport={handleExport}
@@ -214,23 +228,58 @@ export default function LaporanHO() {
               ))}
             </select>
           </label>
+
+          {/* Mode periode */}
+          <div className="flex rounded-lg border border-gray-200 bg-gray-50 p-0.5">
+            <button
+              type="button"
+              onClick={() => setPeriodMode('bulan')}
+              className={cn(
+                'h-8 rounded-md px-3 text-[11px] font-semibold transition-colors',
+                periodMode === 'bulan'
+                  ? 'bg-white text-[#1B4F72] shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700',
+              )}
+            >
+              Bulan saja
+            </button>
+            <button
+              type="button"
+              onClick={() => setPeriodMode('sd')}
+              className={cn(
+                'h-8 rounded-md px-3 text-[11px] font-semibold transition-colors',
+                periodMode === 'sd'
+                  ? 'bg-white text-[#1B4F72] shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700',
+              )}
+              title="Akumulasi Januari sampai bulan yang ditunjuk"
+            >
+              s.d. bulan
+            </button>
+          </div>
+
           <input
             type="search"
             placeholder="Cari proker / Monika / mitra / PKS…"
             value={q}
             onChange={e => setQ(e.target.value)}
-            className="h-8 min-w-[200px] flex-1 rounded-md border border-gray-200 px-2.5 text-xs"
+            className="h-8 min-w-[160px] flex-1 rounded-md border border-gray-200 px-2.5 text-xs"
           />
           <span className="text-xs font-semibold text-[#1B4F72] bg-blue-50 border border-blue-100 rounded-md px-2.5 py-1">
-            {bulanLabel} {tahun}
+            {periodLabel}
           </span>
         </div>
 
         <div>
-          <p className="text-[11px] text-gray-400 mb-1.5">Pilih bulan (satu saja)</p>
+          <p className="text-[11px] text-gray-400 mb-1.5">
+            {periodMode === 'sd'
+              ? `Pilih bulan akhir — data dijumlah dari Januari s.d. bulan ini (${months.length} bulan)`
+              : 'Pilih bulan — hanya data bulan tersebut'}
+          </p>
           <div className="flex flex-wrap gap-1.5">
             {ALL_MONTHS.map(m => {
               const on = bulanAktif === m
+              const inRange = periodMode === 'sd' && m <= bulanAktif
               const hasAct = rows.some(r =>
                 Math.abs(r.pendapatanByMonth[m]?.pendapatan ?? 0) > 0.5
                 || Math.abs(r.pendapatanByMonth[m]?.total ?? 0) > 0.5,
@@ -244,13 +293,17 @@ export default function LaporanHO() {
                     'h-8 rounded-full px-3 text-[11px] font-medium border transition-colors',
                     on
                       ? 'bg-[#1B4F72] text-white border-[#1B4F72] shadow-sm'
-                      : hasAct
-                        ? 'bg-white text-[#1B4F72] border-[#1B4F72]/30 hover:bg-blue-50'
-                        : 'bg-white text-gray-400 border-gray-200 hover:border-gray-300',
+                      : inRange
+                        ? 'bg-blue-50 text-[#1B4F72] border-[#1B4F72]/25'
+                        : hasAct
+                          ? 'bg-white text-[#1B4F72] border-[#1B4F72]/30 hover:bg-blue-50'
+                          : 'bg-white text-gray-400 border-gray-200 hover:border-gray-300',
                   )}
                 >
                   {BULAN_LABELS_HO[m]}
-                  {hasAct && !on && <span className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-teal-500" />}
+                  {hasAct && !on && (
+                    <span className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-teal-500" />
+                  )}
                 </button>
               )
             })}
@@ -258,12 +311,12 @@ export default function LaporanHO() {
         </div>
       </div>
 
-      {/* TOTAL — selalu terlihat di atas tabel */}
       <TotalBar
-        bulanLabel={bulanLabel}
+        periodLabel={periodLabel}
         tahun={tahun}
         summary={summary}
         summaryYear={summaryYear}
+        periodMode={periodMode}
       />
 
       <div className="flex flex-wrap gap-1 rounded-lg border border-gray-200 bg-gray-50 p-1 w-fit">
@@ -296,16 +349,29 @@ export default function LaporanHO() {
           description="Pastikan RKAP tahun ini sudah diisi dan ID Monika terhubung ke tagihan."
         />
       ) : tab === 'pendapatan' ? (
-        <PendapatanTable rows={filtered} bulan={bulanAktif} tahun={tahun} totals={summary} />
+        <PendapatanTable
+          rows={filtered}
+          months={months}
+          periodLabel={periodLabel}
+          tahun={tahun}
+          totals={summary}
+        />
       ) : (
-        <PiutangTable rows={filtered} bulan={bulanAktif} tahun={tahun} totals={summary} />
+        <PiutangTable
+          rows={filtered}
+          endMonth={bulanAktif}
+          periodLabel={periodLabel}
+          tahun={tahun}
+          totals={summary}
+        />
       )}
 
       <p className="text-[11px] text-gray-400 flex items-start gap-1.5 pb-4">
         <FileSpreadsheet size={12} className="mt-0.5 shrink-0" />
         <span>
-          Pendapatan = pokok tagihan by JT (atau akrual jika ada) · PPN · <strong>PPH (−)</strong> · PBB.
-          Titik hijau di chip = bulan ada realisasi pendapatan.
+          <strong>Bulan saja</strong> = realisasi bulan terpilih.
+          <strong> s.d. bulan</strong> = akumulasi Januari–bulan terpilih (pendapatan dijumlah; piutang = snapshot akhir bulan).
+          PPH (−). Excel ikut mode periode.
         </span>
       </p>
     </div>
@@ -319,15 +385,17 @@ function formatShort(n: number): string {
 }
 
 function TotalBar({
-  bulanLabel,
+  periodLabel,
   tahun,
   summary,
   summaryYear,
+  periodMode,
 }: {
-  bulanLabel: string
+  periodLabel: string
   tahun: number
   summary: HOSummary
   summaryYear: HOSummary
+  periodMode: PeriodMode
 }) {
   const capaian =
     summary.targetPendapatan > 0
@@ -338,7 +406,10 @@ function TotalBar({
     <div className="rounded-xl border-2 border-[#1B4F72]/25 bg-gradient-to-r from-slate-50 via-white to-blue-50 shadow-sm overflow-hidden">
       <div className="px-4 py-2 border-b border-gray-100 flex flex-wrap items-center justify-between gap-2 bg-[#1B4F72] text-white">
         <p className="text-sm font-bold tracking-tight">
-          TOTAL · {bulanLabel} {tahun}
+          TOTAL · {periodLabel}
+          {periodMode === 'sd' && (
+            <span className="ml-2 text-[11px] font-normal text-white/75">akumulasi</span>
+          )}
         </p>
         <p className="text-[11px] text-white/80">
           {summary.nProker} proker · Σ RKAP thn {formatShort(summary.totalRkapTahun)}
@@ -463,16 +534,17 @@ function MasterCells({ r, zebra }: { r: HOMasterRow; zebra: boolean }) {
 
 function PendapatanTable({
   rows,
-  bulan,
+  months,
+  periodLabel,
   tahun,
   totals,
 }: {
   rows: HOMasterRow[]
-  bulan: number
+  months: number[]
+  periodLabel: string
   tahun: number
   totals: HOSummary
 }) {
-  const label = BULAN_LABELS_HO[bulan]
   const tTarget = totals.targetPendapatan
   const tPend = totals.pendapatanPokok
   const tPpn = totals.pendapatanPpn
@@ -486,7 +558,8 @@ function PendapatanTable({
         <div>
           <p className="text-sm font-semibold text-gray-800">Monitoring Penerimaan Pendapatan</p>
           <p className="text-[11px] text-gray-500">
-            PROGRAM KERJA OPTIMALISASI ASET · Regional 8 · {label} {tahun}
+            PROGRAM KERJA OPTIMALISASI ASET · Regional 8 · {periodLabel}
+            {months.length > 1 ? ` · ${months.length} bulan` : ''}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-[11px]">
@@ -494,7 +567,7 @@ function PendapatanTable({
             TOTAL {formatShort(tTotal)}
           </span>
           <span className="font-medium text-blue-800 bg-blue-50 border border-blue-100 rounded-full px-2.5 py-0.5">
-            {label}
+            {periodLabel}
           </span>
         </div>
       </div>
@@ -504,7 +577,7 @@ function PendapatanTable({
             <tr className="bg-[#1B4F72] text-white">
               <MasterHead />
               <th colSpan={8} className="px-2 py-2 text-center border-l border-white/25 font-semibold bg-[#5B2C6F]">
-                Realisasi Pendapatan · {label}
+                Realisasi Pendapatan · {periodLabel}
               </th>
             </tr>
             <tr className="bg-[#163f5c] text-white/95">
@@ -524,7 +597,7 @@ function PendapatanTable({
           <tbody>
             {rows.map((r, i) => {
               const zebra = i % 2 === 1
-              const p = r.pendapatanByMonth[bulan]
+              const p = sumPendapatanMonths(r, months)
               return (
                 <tr key={r.kodeMonika} className={zebra ? 'bg-slate-50/80' : 'bg-white'}>
                   <MasterCells r={r} zebra={zebra} />
@@ -551,7 +624,7 @@ function PendapatanTable({
           <tfoot className="sticky bottom-0 z-20">
             <tr className="bg-[#FEF3C7] font-bold text-gray-900 border-t-2 border-amber-400 shadow-[0_-2px_6px_rgba(0,0,0,0.06)]">
               <td colSpan={18} className="px-2 py-2.5 sticky left-0 bg-[#FEF3C7]">
-                TOTAL · {label} · {rows.length} proker
+                TOTAL · {periodLabel} · {rows.length} proker
               </td>
               <td className="px-2 py-2.5 text-right border-l border-amber-200"><CellRp value={tTarget} /></td>
               <td className="px-2 py-2.5 text-right text-[#5B2C6F]"><CellRp value={tPend} /></td>
@@ -575,16 +648,17 @@ function PendapatanTable({
 
 function PiutangTable({
   rows,
-  bulan,
+  endMonth,
+  periodLabel,
   tahun,
   totals,
 }: {
   rows: HOMasterRow[]
-  bulan: number
+  endMonth: number
+  periodLabel: string
   tahun: number
   totals: HOSummary
 }) {
-  const label = BULAN_LABELS_HO[bulan]
   const t1 = totals.piutang1_30
   const t2 = totals.piutang31_60
   const t3 = totals.piutang61_90
@@ -592,7 +666,7 @@ function PiutangTable({
   const t5 = totals.piutang181_360
   const t6 = totals.piutang361
   const tSaldo = totals.saldoPiutang
-  const withSaldo = rows.filter(r => (r.piutangByMonth[bulan]?.saldo ?? 0) > 0.5).length
+  const withSaldo = rows.filter(r => (piutangAsOf(r, endMonth).saldo ?? 0) > 0.5).length
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
@@ -600,7 +674,7 @@ function PiutangTable({
         <div>
           <p className="text-sm font-semibold text-gray-800">Monitoring Piutang</p>
           <p className="text-[11px] text-gray-500">
-            Aging snapshot akhir {label} {tahun} · {withSaldo} proker punya saldo
+            Aging snapshot akhir {BULAN_LABELS_HO[endMonth]} {tahun} · {withSaldo} proker punya saldo
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-[11px]">
@@ -608,7 +682,7 @@ function PiutangTable({
             TOTAL SALDO {formatShort(tSaldo)}
           </span>
           <span className="font-medium text-amber-900 bg-amber-50 border border-amber-100 rounded-full px-2.5 py-0.5">
-            {label}
+            {periodLabel}
           </span>
         </div>
       </div>
@@ -618,7 +692,7 @@ function PiutangTable({
             <tr className="bg-[#1B4F72] text-white">
               <MasterHead />
               <th colSpan={7} className="px-2 py-2 text-center border-l border-white/25 font-semibold bg-amber-800">
-                Umur Piutang · {label} (Rp)
+                Umur Piutang · s.d. {BULAN_LABELS_HO[endMonth]} (Rp)
               </th>
             </tr>
             <tr className="bg-[#163f5c] text-white/95">
@@ -637,7 +711,7 @@ function PiutangTable({
           <tbody>
             {rows.map((r, i) => {
               const zebra = i % 2 === 1
-              const p = r.piutangByMonth[bulan]
+              const p = piutangAsOf(r, endMonth)
               return (
                 <tr key={r.kodeMonika} className={zebra ? 'bg-slate-50/80' : 'bg-white'}>
                   <MasterCells r={r} zebra={zebra} />
@@ -659,7 +733,7 @@ function PiutangTable({
           <tfoot className="sticky bottom-0 z-20">
             <tr className="bg-[#FEF3C7] font-bold text-gray-900 border-t-2 border-amber-400 shadow-[0_-2px_6px_rgba(0,0,0,0.06)]">
               <td colSpan={18} className="px-2 py-2.5 sticky left-0 bg-[#FEF3C7]">
-                TOTAL · {label} · saldo outstanding
+                TOTAL · {periodLabel} · saldo outstanding
               </td>
               <td className="px-2 py-2.5 text-right border-l border-amber-200"><CellRp value={t1} /></td>
               <td className="px-2 py-2.5 text-right"><CellRp value={t2} /></td>

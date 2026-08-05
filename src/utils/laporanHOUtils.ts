@@ -767,6 +767,56 @@ export function toRp000(value: number): number {
   return Math.round(value / 1000)
 }
 
+/** Bulan 0..end inclusive → array [0,1,...,end] */
+export function monthsThrough(endMonth: number): number[] {
+  const end = Math.max(0, Math.min(11, endMonth))
+  return Array.from({ length: end + 1 }, (_, i) => i)
+}
+
+/** Agregasi pendapatan beberapa bulan (untuk mode s.d. bulan) */
+export function sumPendapatanMonths(r: HOMasterRow, months: number[]): HOPendapatanMonth {
+  const out: HOPendapatanMonth = {
+    target: 0,
+    pendapatan: 0,
+    ppn: 0,
+    pph: 0,
+    pbb: 0,
+    total: 0,
+    noDokSap: '',
+    pct: null,
+  }
+  const doks = new Set<string>()
+  months.forEach(m => {
+    const p = r.pendapatanByMonth[m]
+    if (!p) return
+    out.target += p.target
+    out.pendapatan += p.pendapatan
+    out.ppn += p.ppn
+    out.pph += p.pph
+    out.pbb += p.pbb
+    out.total += p.total
+    if (p.noDokSap) {
+      p.noDokSap.split('; ').forEach(d => { if (d.trim()) doks.add(d.trim()) })
+    }
+  })
+  out.noDokSap = Array.from(doks).join('; ')
+  out.pct = out.target > 0 ? (out.total / out.target) * 100 : null
+  return out
+}
+
+/** Piutang s.d. bulan = snapshot akhir bulan terakhir (bukan jumlah aging) */
+export function piutangAsOf(r: HOMasterRow, endMonth: number): HOPiutangMonth {
+  return r.piutangByMonth[endMonth] ?? {
+    aging1_30: 0,
+    aging31_60: 0,
+    aging61_90: 0,
+    aging91_180: 0,
+    aging181_360: 0,
+    aging361: 0,
+    saldo: 0,
+  }
+}
+
 /** Bulan terakhir (0–11) yang punya realisasi cash/pendapatan */
 export function findLatestActiveMonth(rows: HOMasterRow[]): number {
   for (let m = 11; m >= 0; m--) {
