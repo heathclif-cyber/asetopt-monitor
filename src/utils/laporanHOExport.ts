@@ -225,7 +225,14 @@ function buildPendapatanSheet(
     })
   }
 
-  writeTitleBlock(ws, 'MONITORING PENERIMAAN PENDAPATAN', 'Format HO — Realisasi Pendapatan (pokok / akrual)', tahun, months, colCount)
+  writeTitleBlock(
+    ws,
+    'MONITORING PENERIMAAN PENDAPATAN',
+    `Pendapatan ${months.map(m => BULAN_LABELS_HO[m]).join(', ')} ${tahun}`,
+    tahun,
+    months,
+    colCount,
+  )
 
   // Header mulai baris 7 (setelah banner satuan di baris 6)
   const h1 = 7
@@ -247,7 +254,7 @@ function buildPendapatanSheet(
     styleHeader(top)
     for (let c = start; c <= end; c++) styleHeader(ws.getCell(h1, c))
 
-    ;['Target', 'Pendapatan (= Pokok)', 'PPN', 'PPH (−)', 'PBB', 'Total s.d. pajak', 'No Dok (SAP)', '%'].forEach((s, j) => {
+    ;['Target RKAP', 'Pendapatan', 'PPN', 'PPH', 'PBB', 'Jumlah + pajak', 'No Dok (SAP)', '%'].forEach((s, j) => {
       const cell = ws.getCell(h2, start + j)
       cell.value = s
       styleHeader(cell)
@@ -324,7 +331,7 @@ function buildPendapatanSheet(
   rIdx += 2
   ws.mergeCells(rIdx, 1, rIdx, Math.min(8, colCount))
   ws.getCell(rIdx, 1).value =
-    'Catatan: Rp 000. Pendapatan = Pokok (DPP). Total s.d. pajak = Pendapatan+PPN+PPH(−)+PBB. % = Pendapatan/Target. PPH negatif.'
+    'Catatan: Semua nilai uang dalam Rp 000. Pendapatan = nilai sewa/tagihan utama. Jumlah + pajak = pendapatan + PPN + PPH + PBB. PPH dikurangi (minus). % = pendapatan dibanding target.'
   ws.getCell(rIdx, 1).font = { name: 'Calibri', size: 8, italic: true, color: { argb: 'FF64748B' } }
 
   return ws
@@ -469,7 +476,15 @@ function buildRingkasanSheet(
 
   const s = summarizeHO(rows, months)
   const sYear = summarizeHO(rows, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
-  const bulanLabel = months.map(m => BULAN_LABELS_HO[m]).join(', ')
+  const sorted = [...months].sort((a, b) => a - b)
+  const endM = sorted[sorted.length - 1] ?? 0
+  const startM = sorted[0] ?? 0
+  const continuousFromJan = sorted.length > 1 && startM === 0 && sorted.every((m, i) => m === i)
+  const periodLabel = continuousFromJan
+    ? (endM === 0 ? `Januari ${tahun}` : `Januari s.d. ${BULAN_LABELS_HO[endM]} ${tahun}`)
+    : sorted.length === 1
+      ? `${BULAN_LABELS_HO[endM]} ${tahun}`
+      : `${sorted.map(m => BULAN_LABELS_HO[m]).join(', ')} ${tahun}`
 
   ws.mergeCells(1, 1, 1, 4)
   const t1 = ws.getCell(1, 1)
@@ -478,12 +493,12 @@ function buildRingkasanSheet(
 
   ws.mergeCells(2, 1, 2, 4)
   const t2 = ws.getCell(2, 1)
-  t2.value = `RINGKASAN TOTAL · ${bulanLabel} ${tahun}`
+  t2.value = `RINGKASAN · Periode: ${periodLabel}`
   t2.font = { name: 'Calibri', size: 14, bold: true, color: { argb: NAVY } }
 
   ws.mergeCells(3, 1, 3, 4)
   const t3 = ws.getCell(3, 1)
-  t3.value = `Dalam Rp 000 (nilai asli ÷ 1.000) · ${rows.length} proker · Diekspor: ${todayKey()}`
+  t3.value = `${rows.length} proker · Kolom B dalam Rp 000 · Diekspor: ${todayKey()}`
   t3.font = { name: 'Calibri', size: 9, italic: true, color: { argb: 'FF64748B' } }
 
   // Header
@@ -501,48 +516,46 @@ function buildRingkasanSheet(
     { uraian: 'Σ RKAP Eksisting (tahun)', value: s.totalRkapTahun, ket: 'Total target RKAP proker' },
     { uraian: 'Σ Target Tahun', value: s.totalTargetTahun, ket: 'RKAP + Non-RKAP' },
     { uraian: '', value: 0, ket: '' },
-    { uraian: `PENDAPATAN · ${bulanLabel}`, value: 0, ket: '', bold: true },
-    { uraian: '  Target RKAP', value: s.targetPendapatan, ket: 'Target periode terpilih' },
+    { uraian: `Target RKAP ${periodLabel}`, value: s.targetPendapatan, ket: 'Target di periode ini' },
     {
-      uraian: 'PENDAPATAN (= Pokok / DPP)',
+      uraian: `Pendapatan ${periodLabel}`,
       value: s.realisasiPendapatan,
-      ket: 'Ini yang disebut pendapatan',
+      ket: 'Nilai sewa/tagihan utama di periode ini',
       bold: true,
     },
-    { uraian: '  PPN', value: s.pendapatanPpn, ket: 'Positif — di luar pendapatan' },
-    { uraian: '  PPH', value: s.pendapatanPph, ket: 'Minus — di luar pendapatan', danger: true },
-    { uraian: '  PBB', value: s.pendapatanPbb, ket: 'Di luar pendapatan' },
+    { uraian: '  PPN', value: s.pendapatanPpn, ket: 'Pajak — terpisah dari pendapatan' },
+    { uraian: '  PPH', value: s.pendapatanPph, ket: 'Dikurangi — terpisah dari pendapatan', danger: true },
+    { uraian: '  PBB', value: s.pendapatanPbb, ket: 'Pajak — terpisah dari pendapatan' },
     {
-      uraian: 'Total s.d. pajak',
+      uraian: `Jumlah + PPN + PPH + PBB · ${periodLabel}`,
       value: s.totalSdPajak,
-      ket: 'Pendapatan + PPN + PPH(−) + PBB',
+      ket: 'Pendapatan ditambah pajak',
       bold: true,
     },
     {
-      uraian: 'Capaian vs Target (%)',
+      uraian: 'Capaian vs target (%)',
       value: s.targetPendapatan > 0 ? (s.realisasiPendapatan / s.targetPendapatan) * 100 : 0,
-      ket: s.targetPendapatan > 0 ? 'Pendapatan (pokok) / Target × 100' : 'Tidak ada target',
+      ket: 'Pendapatan dibagi target RKAP',
       bold: true,
     },
     { uraian: '', value: 0, ket: '' },
-    { uraian: `PIUTANG · ${bulanLabel}`, value: 0, ket: '', bold: true },
-    { uraian: '  1 – 30 hari', value: s.piutang1_30, ket: 'Aging' },
-    { uraian: '  31 – 60 hari', value: s.piutang31_60, ket: 'Aging' },
-    { uraian: '  61 – 90 hari', value: s.piutang61_90, ket: 'Aging' },
-    { uraian: '  91 – 180 hari', value: s.piutang91_180, ket: 'Aging' },
-    { uraian: '  181 – 360 hari', value: s.piutang181_360, ket: 'Aging' },
-    { uraian: '  > 361 hari', value: s.piutang361, ket: 'Aging' },
     {
-      uraian: 'TOTAL SALDO PIUTANG',
+      uraian: `Piutang per akhir ${BULAN_LABELS_HO[endM]} ${tahun}`,
       value: s.saldoPiutang,
-      ket: 'Snapshot outstanding akhir bulan',
+      ket: 'Sisa tagihan yang belum lunas (bukan pendapatan)',
       bold: true,
     },
+    { uraian: '  1 – 30 hari', value: s.piutang1_30, ket: 'Umur piutang' },
+    { uraian: '  31 – 60 hari', value: s.piutang31_60, ket: 'Umur piutang' },
+    { uraian: '  61 – 90 hari', value: s.piutang61_90, ket: 'Umur piutang' },
+    { uraian: '  91 – 180 hari', value: s.piutang91_180, ket: 'Umur piutang' },
+    { uraian: '  181 – 360 hari', value: s.piutang181_360, ket: 'Umur piutang' },
+    { uraian: '  lebih dari 361 hari', value: s.piutang361, ket: 'Umur piutang' },
     { uraian: '', value: 0, ket: '' },
     {
-      uraian: `Pendapatan (= pokok) full year ${tahun}`,
+      uraian: `Pendapatan Januari s.d. Desember ${tahun}`,
       value: sYear.realisasiPendapatan,
-      ket: 'Σ pokok 12 bulan',
+      ket: 'Pendapatan sepanjang tahun (12 bulan)',
       bold: true,
     },
   ]
@@ -628,7 +641,7 @@ function buildRingkasanSheet(
   r += 1
   ws.mergeCells(r, 1, r, 4)
   ws.getCell(r, 1).value =
-    'Catatan: Pendapatan = Pokok (DPP). Total s.d. pajak = pendapatan+pajak. Kolom B = Rp 000. Kolom C = Rupiah penuh.'
+    'Catatan: Baca label baris — selalu ada periode (mis. Januari s.d. Maret 2026). Kolom B = Rp 000. Kolom C = Rupiah penuh.'
   ws.getCell(r, 1).font = { name: 'Calibri', size: 8, italic: true, color: { argb: 'FF64748B' } }
 
   return ws
