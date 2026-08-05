@@ -92,13 +92,18 @@ export interface HOSummary {
   targetCash: number
   realisasiCash: number
   targetPendapatan: number
-  /** Total realisasi pendapatan (pokok+PPN+PPH+PBB) bulan terpilih */
+  /**
+   * Realisasi **Pendapatan** = pokok (DPP / nominal).
+   * Bukan termasuk PPN/PPH/PBB.
+   */
   realisasiPendapatan: number
-  /** Breakdown pendapatan bulan terpilih */
+  /** Alias eksplisit = realisasiPendapatan (pokok) */
   pendapatanPokok: number
   pendapatanPpn: number
   pendapatanPph: number
   pendapatanPbb: number
+  /** Pokok + PPN + PPH(−) + PBB — label UI: Total s.d. pajak */
+  totalSdPajak: number
   saldoPiutang: number
   /** Breakdown aging piutang bulan terakhir di filter */
   piutang1_30: number
@@ -694,11 +699,11 @@ export function summarizeHO(rows: HOMasterRow[], months: number[]): HOSummary {
   let targetCash = 0
   let realisasiCash = 0
   let targetPendapatan = 0
-  let realisasiPendapatan = 0
   let pendapatanPokok = 0
   let pendapatanPpn = 0
   let pendapatanPph = 0
   let pendapatanPbb = 0
+  let totalSdPajak = 0
   let saldoPiutang = 0
   let piutang1_30 = 0
   let piutang31_60 = 0
@@ -719,11 +724,12 @@ export function summarizeHO(rows: HOMasterRow[], months: number[]): HOSummary {
       realisasiCash += r.cashByMonth[m]?.totalDiluarJaminan ?? 0
       const p = r.pendapatanByMonth[m]
       targetPendapatan += p?.target ?? 0
-      realisasiPendapatan += p?.total ?? 0
+      // Pendapatan = pokok (DPP)
       pendapatanPokok += p?.pendapatan ?? 0
       pendapatanPpn += p?.ppn ?? 0
       pendapatanPph += p?.pph ?? 0
       pendapatanPbb += p?.pbb ?? 0
+      totalSdPajak += p?.total ?? 0
     })
     const pi = r.piutangByMonth[lastM]
     saldoPiutang += pi?.saldo ?? 0
@@ -739,11 +745,12 @@ export function summarizeHO(rows: HOMasterRow[], months: number[]): HOSummary {
     targetCash,
     realisasiCash,
     targetPendapatan,
-    realisasiPendapatan,
+    realisasiPendapatan: pendapatanPokok,
     pendapatanPokok,
     pendapatanPpn,
     pendapatanPph,
     pendapatanPbb,
+    totalSdPajak,
     saldoPiutang,
     piutang1_30,
     piutang31_60,
