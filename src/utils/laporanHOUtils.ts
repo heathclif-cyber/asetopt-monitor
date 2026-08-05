@@ -32,6 +32,7 @@ export interface HOCashMonth {
   pph: number
   pbb: number
   jaminan: number
+  /** No Billing SAP saja — kosong jika belum ada (bukan invoice/kontrak) */
   noDokSap: string
   totalDiluarJaminan: number
   pct: number | null
@@ -44,6 +45,7 @@ export interface HOPendapatanMonth {
   pph: number
   pbb: number
   total: number
+  /** No Billing SAP saja — kosong jika belum ada (bukan invoice/kontrak) */
   noDokSap: string
   pct: number | null
 }
@@ -229,8 +231,12 @@ function finalizeCash(m: HOCashMonth): HOCashMonth {
 }
 
 function finalizePendapatan(m: HOPendapatanMonth): HOPendapatanMonth {
-  m.total = m.pendapatan + m.ppn + m.pph + m.pbb
-  m.pct = m.target > 0 ? (m.total / m.target) * 100 : null
+  // Pendapatan HO = DPP saja; PPN/PPH/PBB tidak diisi di sheet Pendapatan
+  m.ppn = 0
+  m.pph = 0
+  m.pbb = 0
+  m.total = m.pendapatan
+  m.pct = m.target > 0 ? (m.pendapatan / m.target) * 100 : null
   return m
 }
 
@@ -266,9 +272,25 @@ function pickActiveKS(list: KerjaSama[]): KerjaSama | undefined {
   return [...list].sort((a, b) => rank(a.status) - rank(b.status))[0]
 }
 
+/**
+ * No Billing HO = **hanya** `kompensasi.no_billing_sap`.
+ * Tidak boleh diisi dari:
+ * - no_invoice_sap / no_invoice (invoice)
+ * - no_kontrak_sap / no_perjanjian (kontrak)
+ * - no_pembayaran (bukti bayar)
+ * Kosong → biarkan kosong (string '').
+ */
+export function onlyNoBilling(value: string | null | undefined): string {
+  const v = (value ?? '').trim()
+  if (!v || v === '-' || v === '—' || v.toLowerCase() === 'null' || v.toLowerCase() === 'undefined') {
+    return ''
+  }
+  return v
+}
+
 function pushDok(existing: string, next: string | null | undefined): string {
-  const n = (next ?? '').trim()
-  if (!n || n === '-') return existing
+  const n = onlyNoBilling(next)
+  if (!n) return existing
   if (!existing) return n
   if (existing.split('; ').includes(n)) return existing
   return `${existing}; ${n}`
@@ -444,8 +466,8 @@ export function buildLaporanHO(opts: {
       m.kompensasi += pokok
       m.ppn += ppn
       m.pph += pph // sudah negatif
-      // No Dok SAP = No Billing saja; kosong jika belum ada
-      m.noDokSap = pushDok(m.noDokSap, k.no_billing_sap)
+      // No Billing = no_billing_sap saja (bukan invoice / kontrak)
+      m.noDokSap = pushDok(m.noDokSap, onlyNoBilling(k.no_billing_sap))
     })
   })
 
@@ -510,9 +532,8 @@ export function buildLaporanHO(opts: {
     if (nominalPbb <= 0) return
 
     const a = ensure(monikaId, rkapByMonika.get(monikaId)?.nama || monikaId)
+    // PBB hanya di Cash In (format HO) — tidak diisi di tab Pendapatan
     a.cash[monthIdx].pbb += nominalPbb
-    // PBB di sheet Pendapatan hanya jika masuk realisasi pendapatan (HO: kolom PBB)
-    a.pendapatan[monthIdx].pbb += nominalPbb
   })
 
   // ── Pendapatan: primari dari tagihan JT (pokok), selaras Laporan Pendapatan ─
@@ -542,8 +563,9 @@ export function buildLaporanHO(opts: {
       akrualByMonikaMonth.set(key, (akrualByMonikaMonth.get(key) ?? 0) + (pp.nominal || 0))
     })
 
-  // Tagihan by JT → pendapatan pokok + PPN + PPH(−)
-  // Jika bulan monika punya akrual, gunakan akrual sebagai pokok (bukan double-count invoice)
+  // Tagihan by JT → Pendapatan = DPP (pokok) saja.
+  // Tab Pendapatan TIDAK mengisi PPN / PPH / PBB (itu di Cash In).
+  // Jika bulan monika punya akrual, gunakan akrual sebagai pokok.
   const invoicePokokByMonikaMonth = new Map<string, number>()
   allKompensasi.forEach(k => {
     const parsed = parseYMD(k.tgl_jatuh_tempo)
@@ -557,14 +579,10 @@ export function buildLaporanHO(opts: {
     const m = a.pendapatan[parsed.m]
     const key = `${monikaId}|${parsed.m}`
     const pokok = Math.max(0, k.nominal ?? 0)
-    const ppn = Math.max(0, k.nominal_ppn ?? 0)
-    const pphAbs = Math.max(0, k.nominal_pph ?? 0)
 
     invoicePokokByMonikaMonth.set(key, (invoicePokokByMonikaMonth.get(key) ?? 0) + pokok)
-    m.ppn += ppn
-    m.pph += pphAbs > 0 ? -pphAbs : 0 // PPH minus
-    // No Dok SAP = No Billing saja; kosong jika belum ada
-    m.noDokSap = pushDok(m.noDokSap, k.no_billing_sap)
+    // No Billing = no_billing_sap saja (bukan invoice / kontrak)
+    m.noDokSap = pushDok(m.noDokSap, onlyNoBilling(k.no_billing_sap))
   })
 
   // Set pokok pendapatan: prefer akrual jika ada, else sum invoice
@@ -574,7 +592,13 @@ export function buildLaporanHO(opts: {
     const a = acc.get(monikaId)
     if (!a) return
     const akrual = akrualByMonikaMonth.get(key) ?? 0
-    a.pendapatan[monthIdx].pendapatan = akrual > 0 ? akrual : invoicePokok
+    const m = a.pendapatan[monthIdx]
+    m.pendapatan = akrual > 0 ? akrual : invoicePokok
+    m.ppn = 0
+    m.pph = 0
+    m.pbb = 0
+    m.total = m.pendapatan
+    m.pct = m.target > 0 ? (m.pendapatan / m.target) * 100 : null
   })
 
   // Monika yang hanya punya akrual tanpa tagihan JT di bulan itu
@@ -583,7 +607,13 @@ export function buildLaporanHO(opts: {
     const [monikaId, mStr] = key.split('|')
     const monthIdx = Number(mStr)
     const a = ensure(monikaId, rkapByMonika.get(monikaId)?.nama || monikaId)
-    a.pendapatan[monthIdx].pendapatan += akrual
+    const m = a.pendapatan[monthIdx]
+    m.pendapatan += akrual
+    m.ppn = 0
+    m.pph = 0
+    m.pbb = 0
+    m.total = m.pendapatan
+    m.pct = m.target > 0 ? (m.pendapatan / m.target) * 100 : null
   })
 
   // ── Piutang aging snapshot per akhir bulan ──────────────────────────────
@@ -787,7 +817,7 @@ export function monthsThrough(endMonth: number): number[] {
   return Array.from({ length: end + 1 }, (_, i) => i)
 }
 
-/** Agregasi pendapatan (akrual) beberapa bulan */
+/** Agregasi pendapatan (akrual) beberapa bulan — DPP saja */
 export function sumPendapatanMonths(r: HOMasterRow, months: number[]): HOPendapatanMonth {
   const out: HOPendapatanMonth = {
     target: 0,
@@ -805,16 +835,12 @@ export function sumPendapatanMonths(r: HOMasterRow, months: number[]): HOPendapa
     if (!p) return
     out.target += p.target
     out.pendapatan += p.pendapatan
-    out.ppn += p.ppn
-    out.pph += p.pph
-    out.pbb += p.pbb
-    out.total += p.total
     if (p.noDokSap) {
       p.noDokSap.split('; ').forEach(d => { if (d.trim()) doks.add(d.trim()) })
     }
   })
   out.noDokSap = Array.from(doks).join('; ')
-  // % capaian = pendapatan (akrual) vs target
+  out.total = out.pendapatan
   out.pct = out.target > 0 ? (out.pendapatan / out.target) * 100 : null
   return out
 }
@@ -908,19 +934,9 @@ export function rowHasCashTx(r: HOMasterRow, months: number[]): boolean {
   })
 }
 
-/** Ada Pendapatan akrual di periode */
+/** Ada Pendapatan akrual (DPP) di periode */
 export function rowHasPendapatanTx(r: HOMasterRow, months: number[]): boolean {
-  return months.some(m => {
-    const p = r.pendapatanByMonth[m]
-    if (!p) return false
-    return (
-      Math.abs(p.pendapatan) > TX_EPS
-      || Math.abs(p.total) > TX_EPS
-      || Math.abs(p.ppn) > TX_EPS
-      || Math.abs(p.pph) > TX_EPS
-      || Math.abs(p.pbb) > TX_EPS
-    )
-  })
+  return months.some(m => Math.abs(r.pendapatanByMonth[m]?.pendapatan ?? 0) > TX_EPS)
 }
 
 /** Ada sisa piutang di snapshot akhir bulan */

@@ -430,7 +430,7 @@ export default function LaporanHO() {
             <> Cash In HO: <strong>Kompensasi · Denda · PPN · PPH · PBB · Jaminan · Total · No Billing</strong>.</>
           )}
           {tab === 'pendapatan' && (
-            <> Pendapatan akrual (by JT): <strong>Target · Pendapatan · PPN · PPH · PBB · Total · No Billing</strong>.</>
+            <> Pendapatan akrual (by JT): <strong>Target · Pendapatan · No Billing · %</strong> (tanpa PPN/PPH/PBB).</>
           )}
           {tab === 'piutang' && (
             <> Aging snapshot akhir {bulanLabel} {tahun}.</>
@@ -603,6 +603,40 @@ function MasterCells({
   )
 }
 
+/** Chip total — selalu terlihat di luar scroll tabel */
+function TotalChip({
+  label,
+  value,
+  accent,
+  isPct,
+}: {
+  label: string
+  value: number
+  accent?: 'teal' | 'red' | 'amber' | 'bold' | 'muted'
+  isPct?: boolean
+}) {
+  return (
+    <div className="flex flex-col min-w-[88px] px-2.5 py-1.5 rounded-lg bg-white/80 border border-amber-200/80">
+      <span className="text-[10px] font-medium text-gray-500 uppercase tracking-wide">{label}</span>
+      <span
+        className={cn(
+          'text-sm font-bold tabular-nums mt-0.5',
+          accent === 'teal' && 'text-teal-800',
+          accent === 'red' && 'text-red-600',
+          accent === 'amber' && 'text-amber-800',
+          accent === 'bold' && 'text-gray-900 text-base',
+          accent === 'muted' && 'text-gray-500',
+          !accent && 'text-gray-800',
+        )}
+      >
+        {isPct
+          ? (value != null && Number.isFinite(value) ? pctLabel(value) : '—')
+          : <CurrencyDisplay value={value} size="sm" />}
+      </span>
+    </div>
+  )
+}
+
 /** Tab Cash In — format HO copy-paste */
 function CashInTable({
   rows,
@@ -625,6 +659,7 @@ function CashInTable({
     tJam += c.jaminan
     tTotal += c.totalDiluarJaminan
   })
+  const tPct = tTarget > 0 ? (tTotal / tTarget) * 100 : null
 
   return (
     <div className="rounded-xl border border-teal-200/80 bg-white shadow-sm overflow-hidden">
@@ -639,6 +674,25 @@ function CashInTable({
           Total Cash In {formatShort(tTotal)}
         </span>
       </div>
+
+      {/* TOTAL selalu di atas — tidak perlu scroll horizontal */}
+      <div className="px-3 py-2.5 border-b-2 border-amber-300 bg-[#FEF3C7]">
+        <p className="text-[11px] font-bold text-amber-950 mb-1.5">
+          TOTAL Cash In · {periodLabel} · {rows.length} proker
+        </p>
+        <div className="flex flex-wrap gap-1.5">
+          <TotalChip label="Target" value={tTarget} accent="muted" />
+          <TotalChip label="Kompensasi" value={tKomp} accent="teal" />
+          <TotalChip label="Denda" value={tDenda} accent="red" />
+          <TotalChip label="PPN" value={tPpn} />
+          <TotalChip label="PPH" value={tPph} accent="red" />
+          <TotalChip label="PBB" value={tPbb} accent="amber" />
+          <TotalChip label="Jaminan" value={tJam} />
+          <TotalChip label="Total" value={tTotal} accent="bold" />
+          <TotalChip label="%" value={tPct ?? 0} isPct accent="bold" />
+        </div>
+      </div>
+
       <div className="overflow-auto max-h-[min(72vh,760px)]">
         <table className="text-[11px] w-max min-w-full border-separate border-spacing-0">
           <thead className="sticky top-0 z-30">
@@ -685,7 +739,7 @@ function CashInTable({
                   <td className="px-2 py-1.5 text-right font-bold text-gray-900">
                     <CellRp value={c.totalDiluarJaminan} />
                   </td>
-                  <td className="px-2 py-1.5 text-gray-500 font-mono text-[10px] max-w-[120px] truncate" title={c.noDokSap}>
+                  <td className="px-2 py-1.5 text-gray-500 font-mono text-[10px] max-w-[120px] truncate" title={c.noDokSap || undefined}>
                     {c.noDokSap || ''}
                   </td>
                   <td className="px-2 py-1.5 text-center text-gray-500">{pctLabel(c.pct)}</td>
@@ -693,22 +747,22 @@ function CashInTable({
               )
             })}
           </tbody>
-          <tfoot className="sticky bottom-0 z-20">
-            <tr className="bg-[#FEF3C7] font-bold text-gray-900 border-t-2 border-amber-400 shadow-[0_-2px_6px_rgba(0,0,0,0.06)]">
-              <td colSpan={18} className="px-2 py-2.5 sticky left-0 bg-[#FEF3C7]">
-                TOTAL Cash In · {periodLabel}
+          <tfoot>
+            <tr className="bg-[#FEF3C7] font-bold text-gray-900 border-t-2 border-amber-400">
+              <td colSpan={18} className="px-2 py-2 sticky left-0 bg-[#FEF3C7] z-10">
+                TOTAL · scroll kanan untuk rincian kolom
               </td>
-              <td className="px-2 py-2.5 text-right border-l border-amber-200"><CellRp value={tTarget} /></td>
-              <td className="px-2 py-2.5 text-right text-teal-800"><CellRp value={tKomp} /></td>
-              <td className="px-2 py-2.5 text-right"><CellRp value={tDenda} /></td>
-              <td className="px-2 py-2.5 text-right"><CellRp value={tPpn} /></td>
-              <td className="px-2 py-2.5 text-right"><CellRp value={tPph} /></td>
-              <td className="px-2 py-2.5 text-right"><CellRp value={tPbb} /></td>
-              <td className="px-2 py-2.5 text-right"><CellRp value={tJam} /></td>
-              <td className="px-2 py-2.5 text-right text-sm"><CellRp value={tTotal} /></td>
-              <td className="px-2 py-2.5" />
-              <td className="px-2 py-2.5 text-center">
-                {tTarget > 0 ? pctLabel((tTotal / tTarget) * 100) : '—'}
+              <td className="px-2 py-2 text-right border-l border-amber-200 bg-[#FEF3C7]"><CellRp value={tTarget} /></td>
+              <td className="px-2 py-2 text-right text-teal-800 bg-[#FEF3C7]"><CellRp value={tKomp} /></td>
+              <td className="px-2 py-2 text-right bg-[#FEF3C7]"><CellRp value={tDenda} /></td>
+              <td className="px-2 py-2 text-right bg-[#FEF3C7]"><CellRp value={tPpn} /></td>
+              <td className="px-2 py-2 text-right bg-[#FEF3C7]"><CellRp value={tPph} /></td>
+              <td className="px-2 py-2 text-right bg-[#FEF3C7]"><CellRp value={tPbb} /></td>
+              <td className="px-2 py-2 text-right bg-[#FEF3C7]"><CellRp value={tJam} /></td>
+              <td className="px-2 py-2 text-right text-sm bg-[#FEF3C7]"><CellRp value={tTotal} /></td>
+              <td className="px-2 py-2 bg-[#FEF3C7]" />
+              <td className="px-2 py-2 text-center bg-[#FEF3C7]">
+                {tPct != null ? pctLabel(tPct) : '—'}
               </td>
             </tr>
           </tfoot>
@@ -716,13 +770,14 @@ function CashInTable({
       </div>
       <div className="px-3 py-2 border-t border-teal-100 text-[10px] text-gray-500">
         Format HO: Target · Kompensasi · Denda · PPN · PPH · PBB · Jaminan · Total · No Billing · %.
-        Kompensasi = pokok (DPP). PPH negatif. Cash by tanggal bayar.
+        Ringkasan TOTAL di atas tabel selalu terlihat (tidak perlu scroll).
+        No Billing = no_billing_sap saja; kosong biarkan kosong.
       </div>
     </div>
   )
 }
 
-/** Tab Pendapatan — akrual by jatuh tempo */
+/** Tab Pendapatan — hanya Target · Pendapatan (DPP) · No Billing · % (tanpa PPN/PPH/PBB) */
 function PendapatanTable({
   rows,
   months,
@@ -732,16 +787,13 @@ function PendapatanTable({
   months: number[]
   periodLabel: string
 }) {
-  let tTarget = 0, tPend = 0, tPpn = 0, tPph = 0, tPbb = 0, tTotal = 0
+  let tTarget = 0, tPend = 0
   rows.forEach(r => {
     const p = sumPendapatanMonths(r, months)
     tTarget += p.target
     tPend += p.pendapatan
-    tPpn += p.ppn
-    tPph += p.pph
-    tPbb += p.pbb
-    tTotal += p.total
   })
+  const tPct = tTarget > 0 ? (tPend / tTarget) * 100 : null
 
   return (
     <div className="rounded-xl border border-emerald-200/80 bg-white shadow-sm overflow-hidden">
@@ -749,19 +801,32 @@ function PendapatanTable({
         <div>
           <p className="text-sm font-semibold text-emerald-950">Pendapatan — akrual</p>
           <p className="text-[11px] text-emerald-800/70">
-            DPP by jatuh tempo (bukan kas) · {periodLabel} · {rows.length} proker
+            Hanya DPP (pokok) by jatuh tempo · {periodLabel} · {rows.length} proker
+            · PPN/PPH/PBB tidak diisi di sini (lihat tab Cash In)
           </p>
         </div>
         <span className="font-semibold text-emerald-900 bg-white border border-emerald-200 rounded-full px-2.5 py-0.5 text-[11px]">
           Pendapatan {formatShort(tPend)}
         </span>
       </div>
+
+      <div className="px-3 py-2.5 border-b-2 border-amber-300 bg-[#FEF3C7]">
+        <p className="text-[11px] font-bold text-amber-950 mb-1.5">
+          TOTAL Pendapatan · {periodLabel} · {rows.length} proker
+        </p>
+        <div className="flex flex-wrap gap-1.5">
+          <TotalChip label="Target" value={tTarget} accent="muted" />
+          <TotalChip label="Pendapatan" value={tPend} accent="bold" />
+          <TotalChip label="%" value={tPct ?? 0} isPct accent="bold" />
+        </div>
+      </div>
+
       <div className="overflow-auto max-h-[min(72vh,760px)]">
         <table className="text-[11px] w-max min-w-full border-separate border-spacing-0">
           <thead className="sticky top-0 z-30">
             <tr className="bg-emerald-800 text-white">
               <MasterHead className="bg-emerald-800" />
-              <th colSpan={8} className="px-2 py-2 text-center border-l border-white/25 font-semibold">
+              <th colSpan={4} className="px-2 py-2 text-center border-l border-white/25 font-semibold">
                 Realisasi Pendapatan · {periodLabel}
               </th>
             </tr>
@@ -770,11 +835,7 @@ function PendapatanTable({
                 <th key={i} className={cn(i < 2 && 'sticky z-20 bg-emerald-700', i === 0 && 'left-0', i === 1 && 'left-9')} />
               ))}
               <th className="px-2 py-1.5 text-right border-l border-white/15 font-normal min-w-[88px]">Target</th>
-              <th className="px-2 py-1.5 text-right font-normal min-w-[100px]">Pendapatan</th>
-              <th className="px-2 py-1.5 text-right font-normal min-w-[80px]">PPN</th>
-              <th className="px-2 py-1.5 text-right font-normal min-w-[80px]">PPH</th>
-              <th className="px-2 py-1.5 text-right font-normal min-w-[80px]">PBB</th>
-              <th className="px-2 py-1.5 text-right font-normal min-w-[96px]">Total</th>
+              <th className="px-2 py-1.5 text-right font-normal min-w-[120px]">Pendapatan</th>
               <th className="px-2 py-1.5 text-left font-normal min-w-[100px]">No Billing</th>
               <th className="px-2 py-1.5 text-center font-normal min-w-[48px]">%</th>
             </tr>
@@ -789,16 +850,10 @@ function PendapatanTable({
                   <td className="px-2 py-1.5 text-right text-gray-400 border-l border-gray-100">
                     <CellRp value={p.target} />
                   </td>
-                  <td className="px-2 py-1.5 text-right text-emerald-800 font-semibold">
+                  <td className="px-2 py-1.5 text-right text-emerald-800 font-bold">
                     <CellRp value={p.pendapatan} />
                   </td>
-                  <td className="px-2 py-1.5 text-right text-gray-700"><CellRp value={p.ppn} /></td>
-                  <td className="px-2 py-1.5 text-right text-red-600"><CellRp value={p.pph} /></td>
-                  <td className="px-2 py-1.5 text-right text-amber-800"><CellRp value={p.pbb} /></td>
-                  <td className="px-2 py-1.5 text-right font-bold text-gray-900">
-                    <CellRp value={p.total} />
-                  </td>
-                  <td className="px-2 py-1.5 text-gray-500 font-mono text-[10px] max-w-[120px] truncate" title={p.noDokSap}>
+                  <td className="px-2 py-1.5 text-gray-500 font-mono text-[10px] max-w-[120px] truncate" title={p.noDokSap || undefined}>
                     {p.noDokSap || ''}
                   </td>
                   <td className="px-2 py-1.5 text-center text-gray-500">{pctLabel(p.pct)}</td>
@@ -806,27 +861,24 @@ function PendapatanTable({
               )
             })}
           </tbody>
-          <tfoot className="sticky bottom-0 z-20">
-            <tr className="bg-[#FEF3C7] font-bold text-gray-900 border-t-2 border-amber-400 shadow-[0_-2px_6px_rgba(0,0,0,0.06)]">
-              <td colSpan={18} className="px-2 py-2.5 sticky left-0 bg-[#FEF3C7]">
+          <tfoot>
+            <tr className="bg-[#FEF3C7] font-bold text-gray-900 border-t-2 border-amber-400">
+              <td colSpan={18} className="px-2 py-2 sticky left-0 bg-[#FEF3C7] z-10">
                 TOTAL Pendapatan · {periodLabel}
               </td>
-              <td className="px-2 py-2.5 text-right border-l border-amber-200"><CellRp value={tTarget} /></td>
-              <td className="px-2 py-2.5 text-right text-emerald-800"><CellRp value={tPend} /></td>
-              <td className="px-2 py-2.5 text-right"><CellRp value={tPpn} /></td>
-              <td className="px-2 py-2.5 text-right"><CellRp value={tPph} /></td>
-              <td className="px-2 py-2.5 text-right"><CellRp value={tPbb} /></td>
-              <td className="px-2 py-2.5 text-right text-sm"><CellRp value={tTotal} /></td>
-              <td className="px-2 py-2.5" />
-              <td className="px-2 py-2.5 text-center">
-                {tTarget > 0 ? pctLabel((tPend / tTarget) * 100) : '—'}
+              <td className="px-2 py-2 text-right border-l border-amber-200 bg-[#FEF3C7]"><CellRp value={tTarget} /></td>
+              <td className="px-2 py-2 text-right text-emerald-800 text-sm bg-[#FEF3C7]"><CellRp value={tPend} /></td>
+              <td className="px-2 py-2 bg-[#FEF3C7]" />
+              <td className="px-2 py-2 text-center bg-[#FEF3C7]">
+                {tPct != null ? pctLabel(tPct) : '—'}
               </td>
             </tr>
           </tfoot>
         </table>
       </div>
       <div className="px-3 py-2 border-t border-emerald-100 text-[10px] text-gray-500">
-        Pendapatan = DPP akrual (by jatuh tempo). Bukan uang masuk — lihat tab Cash In untuk kas.
+        Pendapatan = DPP akrual (pokok) by jatuh tempo saja — tanpa PPN, PPH, PBB.
+        Pajak &amp; komponen kas ada di tab Cash In (format HO).
       </div>
     </div>
   )

@@ -239,7 +239,8 @@ export default function LaporanPendapatan() {
           noPerjanjian: ks?.no_perjanjian ?? '-',
           noKontrakSAP: ks?.no_kontrak_sap ?? '-',
           noInvoice: k.no_invoice_sap ?? '-',
-          noBilling: k.no_billing_sap ?? '-',
+          // No Billing = field billing saja; kosong biarkan kosong (bukan invoice/kontrak)
+          noBilling: (k.no_billing_sap ?? '').trim() || '',
           totalTagihan: efektifTagihan,
           cashIn,
           paymentsInYear,
@@ -1305,7 +1306,9 @@ function EditableCell({ value, isEditing, editValue, onStartEdit, onChange, onSa
           style={{ minWidth: '80px' }}
         />
       ) : (
-        <span className={value === '-' ? 'text-gray-300' : 'text-gray-700'}>{value}</span>
+        <span className={!value || value === '-' ? 'text-gray-300' : 'text-gray-700'}>
+          {!value || value === '-' ? '' : value}
+        </span>
       )}
     </div>
   )
