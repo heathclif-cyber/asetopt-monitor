@@ -391,3 +391,225 @@ export function summarizeProgramRows(rows: ProgramLaporanRow[]) {
     capaianPct: rkap > 0 ? (cashIn / rkap) * 100 : null,
   }
 }
+
+/**
+ * Per Proker dari baris Detail yang sudah difilter sama
+ * (tahun, bulan, basis JT/diterima) → total Pendapatan & Cash In selaras Detail.
+ *
+ * Hanya baris dengan monikaId; tanpa Monika tidak masuk (sama aturan lama).
+ */
+export function buildProgramLaporanRowsFromDetail(opts: {
+  detailRows: Array<{
+    monikaId: string | null
+    namaMitra: string
+    namaAset: string
+    pendapatan: number
+    cashIn: number
+    totalTagihan: number
+    sisa: number
+    status: string
+  }>
+  rkapRows: RKAPTargetRow[]
+  daftarAset: Aset[]
+  daftarKS: KerjaSama[]
+}): ProgramLaporanRow[] {
+  const { detailRows, rkapRows, daftarAset, daftarKS } = opts
+
+  const asetByKode = new Map(
+    daftarAset.filter(a => a.kode_aset?.trim()).map(a => [a.kode_aset.trim(), a]),
+  )
+  const rkapByMonika = new Map<string, RKAPTargetRow>()
+  const rkapInvalidNoKode: RKAPTargetRow[] = []
+  rkapRows.forEach(r => {
+    const kode = r.kode?.trim()
+    if (!kode) {
+      rkapInvalidNoKode.push(r)
+      return
+    }
+    const prev = rkapByMonika.get(kode)
+    if (!prev) rkapByMonika.set(kode, r)
+    else {
+      rkapByMonika.set(kode, {
+        ...prev,
+        total: (prev.total ?? 0) + (r.total ?? 0),
+        no: Math.min(prev.no, r.no),
+        nama: prev.nama || r.nama,
+      })
+    }
+  })
+
+  type Acc = {
+    pendapatan: number
+    cashIn: number
+    tagihan: number
+    nTagihan: number
+    nLunas: number
+    mitra: Map<string, string>
+    namaHint: string
+  }
+  const acc = new Map<string, Acc>()
+  const ensure = (kode: string, namaHint: string) => {
+    let a = acc.get(kode)
+    if (!a) {
+      a = {
+        pendapatan: 0,
+        cashIn: 0,
+        tagihan: 0,
+        nTagihan: 0,
+        nLunas: 0,
+        mitra: new Map(),
+        namaHint,
+      }
+      acc.set(kode, a)
+    }
+    return a
+  }
+
+  rkapByMonika.forEach((r, kode) => {
+    const aset = asetByKode.get(kode)
+    ensure(kode, r.nama || aset?.nama_aset || kode)
+  })
+
+  detailRows.forEach(row => {
+    const kode = row.monikaId?.trim()
+    if (!kode) return
+    const rkap = rkapByMonika.get(kode)
+    const aset = asetByKode.get(kode)
+    const a = ensure(kode, rkap?.nama || aset?.nama_aset || row.namaAset || kode)
+    a.pendapatan += row.pendapatan
+    a.cashIn += row.cashIn
+    a.tagihan += row.totalTagihan
+    a.nTagihan += 1
+    if (row.sisa <= 0.5 && row.totalTagihan > 0) a.nLunas += 1
+    if (row.namaMitra && row.namaMitra !== '-') {
+      a.mitra.set(row.namaMitra, row.namaMitra)
+    }
+  })
+
+  const ksByMonika = new Map<string, KerjaSama[]>()
+  daftarKS.forEach(ks => {
+    const kode = (ks.aset as Aset | undefined)?.kode_aset?.trim()
+    if (!kode) return
+    const list = ksByMonika.get(kode) ?? []
+    list.push(ks)
+    ksByMonika.set(kode, list)
+  })
+
+  const rows: ProgramLaporanRow[] = []
+  const used = new Set<string>()
+  const rkapList = Array.from(rkapByMonika.entries()).sort(
+    (a, b) => (a[1].no ?? 0) - (b[1].no ?? 0),
+  )
+
+  rkapList.forEach(([kode, r], idx) => {
+    used.add(kode)
+    const a = acc.get(kode)
+    const aset = asetByKode.get(kode)
+    const rkap = r.total ?? 0
+    const pendapatan = a?.pendapatan ?? 0
+    const cashIn = a?.cashIn ?? 0
+    const capaianPct = rkap > 0 ? (cashIn / rkap) * 100 : null
+    const mitraFromAcc = a ? Array.from(a.mitra.values()) : []
+    const ksList = ksByMonika.get(kode) ?? []
+
+    let prosesMitra = ''
+    let monitoring = ''
+    if (mitraFromAcc.length > 0) {
+      prosesMitra = `Eksisting: ${mitraFromAcc.join('; ')}`
+    } else if (ksList.length > 0) {
+      prosesMitra = `Eksisting: ${ksList.map(k => `${k.nama_mitra} (${statusLabelKS(k.status)})`).join('; ')}`
+    } else {
+      prosesMitra = statusLabelAset(aset?.status)
+    }
+
+    if (a && a.nTagihan > 0) {
+      if (a.nLunas === a.nTagihan && cashIn > 0) {
+        monitoring = `Pembayaran lancar (${a.nLunas}/${a.nTagihan} tagihan lunas)`
+      } else if (cashIn > 0) {
+        monitoring = `Sebagian tertagih — ${a.nLunas}/${a.nTagihan} lunas`
+      } else {
+        monitoring = `Belum ada pembayaran · ${a.nTagihan} tagihan di filter`
+      }
+    } else if (ksList.length > 0) {
+      monitoring = 'Ada kerja sama; belum ada tagihan di filter ini'
+    } else {
+      monitoring = '-'
+    }
+
+    rows.push({
+      no: r.no || idx + 1,
+      key: kode,
+      kategori: inferKategori(kode, r.nama || aset?.nama_aset || ''),
+      programAset: r.nama || aset?.nama_aset || kode,
+      kode,
+      rkap,
+      pendapatan,
+      cashIn,
+      capaianPct,
+      prosesMitra,
+      monitoring,
+      mitraList: mitraFromAcc,
+      nTagihan: a?.nTagihan ?? 0,
+      nLunas: a?.nLunas ?? 0,
+      isOrphan: false,
+    })
+  })
+
+  const orphanMonika = Array.from(acc.entries())
+    .filter(([kode, a]) => !used.has(kode) && (a.pendapatan > 0 || a.cashIn > 0 || a.nTagihan > 0))
+    .sort((x, y) => x[0].localeCompare(y[0]))
+
+  let orphanNo = rows.length + 1
+  orphanMonika.forEach(([kode, a]) => {
+    const aset = asetByKode.get(kode)
+    const mitraFromAcc = Array.from(a.mitra.values())
+    let monitoring = '-'
+    if (a.nTagihan > 0) {
+      if (a.nLunas === a.nTagihan && a.cashIn > 0) monitoring = `Pembayaran lancar (${a.nLunas}/${a.nTagihan} lunas)`
+      else if (a.cashIn > 0) monitoring = `Sebagian tertagih — ${a.nLunas}/${a.nTagihan} lunas`
+      else monitoring = `Belum ada pembayaran · ${a.nTagihan} tagihan`
+    }
+    rows.push({
+      no: orphanNo++,
+      key: kode,
+      kategori: inferKategori(kode, a.namaHint),
+      programAset: a.namaHint || aset?.nama_aset || kode,
+      kode,
+      rkap: 0,
+      pendapatan: a.pendapatan,
+      cashIn: a.cashIn,
+      capaianPct: null,
+      prosesMitra: mitraFromAcc.length
+        ? `Eksisting: ${mitraFromAcc.join('; ')}`
+        : statusLabelAset(aset?.status),
+      monitoring,
+      mitraList: mitraFromAcc,
+      nTagihan: a.nTagihan,
+      nLunas: a.nLunas,
+      isOrphan: true,
+    })
+  })
+
+  rkapInvalidNoKode.forEach((r, i) => {
+    rows.push({
+      no: r.no || 9000 + i,
+      key: `invalid-no-monika:${r.id || r.no}`,
+      kategori: inferKategori('', r.nama),
+      programAset: r.nama,
+      kode: '',
+      rkap: r.total ?? 0,
+      pendapatan: 0,
+      cashIn: 0,
+      capaianPct: null,
+      prosesMitra: '⚠ Belum ada ID Monika',
+      monitoring: 'Perbaiki di RKAP Monitor: isi ID Monika dari master aset',
+      mitraList: [],
+      nTagihan: 0,
+      nLunas: 0,
+      isOrphan: false,
+      missingMonikaId: true,
+    })
+  })
+
+  return rows
+}

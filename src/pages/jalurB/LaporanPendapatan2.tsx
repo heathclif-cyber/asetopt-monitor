@@ -12,11 +12,12 @@ import { supabase } from '@/lib/supabase'
 import { ChevronUp, ChevronDown, ChevronsUpDown, Filter, LayoutList, Table2 } from 'lucide-react'
 import { hitungDenda } from '@/utils/taxUtils'
 import {
-  buildProgramLaporanRows,
+  buildProgramLaporanRowsFromDetail,
+  resolveMonikaId,
   summarizeProgramRows,
-  type ProgramHorizon,
   type ProgramLaporanRow,
 } from '@/utils/laporanProgramUtils'
+import { hitungPendapatan, hitungTagihan } from '@/utils/accountingTerms'
 import {
   exportLaporanDetailExcel,
   exportLaporanProgramExcel,
@@ -117,8 +118,6 @@ export default function LaporanPendapatan() {
   const { daftarAset, fetchAset } = useAsetStore()
 
   const [viewMode, setViewMode] = useState<ViewMode>('detail')
-  // Default full year — selaras dengan total Cash In di Detail Tagihan (filter tahun JT)
-  const [programHorizon, setProgramHorizon] = useState<ProgramHorizon>('full_year')
   const [programSort, setProgramSort] = useState<'no' | 'rkap' | 'pendapatan' | 'cashIn' | 'capaian' | 'kategori'>('no')
   const [programSortDir, setProgramSortDir] = useState<SortDir>('asc')
   const [filterKategori, setFilterKategori] = useState('all')
@@ -146,8 +145,8 @@ export default function LaporanPendapatan() {
   const [filterMitra, setFilterMitra] = useState('all')
   const [filterStatus, setFilterStatus] = useState<StatusFilter>('all')
   const [periodeMode, setPeriodeMode] = useState<PeriodeMode>('semua')
-  // Default: Jan–bulan berjalan (YTD). Contoh Juli → Jan–Jul aktif.
-  const [selectedMonths, setSelectedMonths] = useState<number[]>(() => monthsYtd())
+  // Default full year (12 bulan) — sama basis Detail & Per Proker
+  const [selectedMonths, setSelectedMonths] = useState<number[]>(() => ALL_MONTHS)
 
   // ── Sort (default: laporan / tagihan terbaru dulu) ───────────────────────
   const [sortKey, setSortKey] = useState<SortKey>('tglJatuhTempo')
@@ -203,11 +202,9 @@ export default function LaporanPendapatan() {
         if (!inScope) return null
 
         const ks = daftarKS.find(x => x.id === k.ks_id) ?? k.kerja_sama
-        const efektifTagihan = Math.max(0, (k.total_tagihan ?? 0) - (k.pengurang ?? 0))
+        const efektifTagihan = hitungTagihan(k)
         const sisa = Math.max(0, efektifTagihan - totalDibayar)
         const isLunasRow = efektifTagihan > 0 && totalDibayar + 0.5 >= efektifTagihan
-        // Lunas: denda membeku di tgl bayar terakhir. Belum lunas: s.d. hari ini.
-        // Grace 0 — lewat JT langsung ber-denda.
         const denda = hitungDenda({
           nominal: k.nominal,
           tglJatuhTempo: k.tgl_jatuh_tempo,
@@ -221,12 +218,8 @@ export default function LaporanPendapatan() {
           ? 'lunas'
           : resolveStatus(totalDibayar, efektifTagihan, denda.hariTerlambat)
 
-        const pddm = daftarPDDM.find(p => p.ks_id === k.ks_id)
-        const match = pddm
-          ? allPengakuan.find(
-              pp => pp.pddm_id === pddm.id && dateKey(pp.tgl_awal) === dateKey(k.tgl_jatuh_tempo),
-            )
-          : null
+        // Pendapatan = DPP (akrual) — standar akuntansi, sama di Detail & Per Proker
+        const pendapatan = hitungPendapatan(k)
 
         const cashIn =
           bulanBasis === 'diterima'
@@ -236,6 +229,7 @@ export default function LaporanPendapatan() {
         return {
           id: k.id,
           ksId: k.ks_id,
+          monikaId: resolveMonikaId(k, ks),
           namaMitra: ks?.nama_mitra ?? '-',
           namaAset: (ks?.aset as any)?.nama_aset ?? '-',
           periodeLabel: k.periode_label ?? formatTanggal(k.tgl_jatuh_tempo),
@@ -249,13 +243,13 @@ export default function LaporanPendapatan() {
           totalTagihan: efektifTagihan,
           cashIn,
           paymentsInYear,
-          pendapatanAkrual: match?.nominal ?? k.nominal ?? 0,
+          pendapatanAkrual: pendapatan,
           sisa,
           status,
         }
       })
       .filter((r): r is NonNullable<typeof r> => r !== null)
-  }, [allKompensasi, daftarKS, daftarPDDM, allPengakuan, tahun, bulanBasis])
+  }, [allKompensasi, daftarKS, tahun, bulanBasis])
 
   // ── Mitra list for dropdown ───────────────────────────────────────────────
   const mitraList = useMemo(() => {
@@ -366,18 +360,54 @@ export default function LaporanPendapatan() {
   const totalAkrual = rows.reduce((s, r) => s + r.pendapatanAkrual, 0)
   const pctTertagih = totalTagihan > 0 ? (totalCashIn / totalTagihan) * 100 : 0
 
-  // ── Per Proker (format Optimalisasi Aset / LM) ────────────────────────────
+  // Baris Detail setelah filter bulan/tahun (tanpa filter mitra/status) → basis Per Proker
+  const detailForProgram = useMemo(() => {
+    let data = allRows
+    if (selectedMonths.length < 12) {
+      if (bulanBasis === 'diterima') {
+        data = data
+          .map(r => {
+            const cashIn = r.paymentsInYear
+              .filter(p => selectedMonths.includes(p.month))
+              .reduce((s, p) => s + p.nominal, 0)
+            return { ...r, cashIn }
+          })
+          .filter(r => r.cashIn > 0)
+      } else {
+        data = data.filter(r => selectedMonths.includes(parseTglParts(r.tglJatuhTempo).month))
+      }
+    }
+    return data
+  }, [allRows, selectedMonths, bulanBasis])
+
+  // Totals Detail hanya Monika — harus = totals Per Proker (Pendapatan & Cash In)
+  const detailWithMonika = useMemo(
+    () => detailForProgram.filter(r => !!r.monikaId),
+    [detailForProgram],
+  )
+  const totalPendapatanMonika = detailWithMonika.reduce((s, r) => s + r.pendapatanAkrual, 0)
+  const totalCashInMonika = detailWithMonika.reduce((s, r) => s + r.cashIn, 0)
+  const nTanpaMonika = detailForProgram.length - detailWithMonika.length
+
+  // ── Per Proker = agregasi Detail (filter bulan/tahun sama) ─────────────────
   const programRowsRaw = useMemo(
     () =>
-      buildProgramLaporanRows({
+      buildProgramLaporanRowsFromDetail({
+        detailRows: detailForProgram.map(r => ({
+          monikaId: r.monikaId,
+          namaMitra: r.namaMitra,
+          namaAset: r.namaAset,
+          pendapatan: r.pendapatanAkrual,
+          cashIn: r.cashIn,
+          totalTagihan: r.totalTagihan,
+          sisa: r.sisa,
+          status: r.status,
+        })),
         rkapRows: rkapRows.filter(r => r.tahun === tahun),
-        allKompensasi,
-        daftarKS,
         daftarAset,
-        tahun,
-        horizon: programHorizon,
+        daftarKS,
       }),
-    [rkapRows, allKompensasi, daftarKS, daftarAset, tahun, programHorizon],
+    [detailForProgram, rkapRows, daftarAset, daftarKS, tahun],
   )
 
   const kategoriList = useMemo(() => {
@@ -472,7 +502,7 @@ export default function LaporanPendapatan() {
         if (programRows.length === 0) return
         await exportLaporanProgramExcel(programRows, {
           tahun,
-          horizon: programHorizon,
+          horizon: selectedMonths.length < 12 ? 'bulan_filter' : 'full_year',
         })
       }
     } finally {
@@ -531,7 +561,7 @@ export default function LaporanPendapatan() {
         meta={
           viewMode === 'detail'
             ? `${rows.length} baris · ${tahun} · ${monthsLabel}`
-            : `${programRows.length} program · ${tahun} · ${programHorizon === 'ytd' ? 'YTD' : 'Full year'}`
+            : `${programRows.length} program · ${tahun} · ${monthsLabel}`
         }
         fileNameHint={
           viewMode === 'detail'
@@ -560,17 +590,6 @@ export default function LaporanPendapatan() {
 
         {viewMode === 'program' && (
           <>
-            <div className="flex items-center gap-1.5">
-              <label className="text-xs text-gray-500 whitespace-nowrap">Cakupan</label>
-              <select
-                value={programHorizon}
-                onChange={e => setProgramHorizon(e.target.value as ProgramHorizon)}
-                className="text-xs border rounded-md px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-[#1B4F72]"
-              >
-                <option value="full_year">Full Year {tahun} (sama basis Detail)</option>
-                <option value="ytd">YTD s.d. hari ini (JT & bayar ≤ hari ini)</option>
-              </select>
-            </div>
             <div className="flex items-center gap-1.5">
               <label className="text-xs text-gray-500 whitespace-nowrap">Kategori</label>
               <select
@@ -702,31 +721,13 @@ export default function LaporanPendapatan() {
         </span>
       </div>
 
-      {viewMode === 'program' ? (
-        <ProgramView
-          rows={programRows}
-          summary={programSummary}
-          tahun={tahun}
-          horizon={programHorizon}
-          programSort={programSort}
-          programSortDir={programSortDir}
-          onSort={(key) => {
-            if (programSort === key) setProgramSortDir(d => (d === 'asc' ? 'desc' : 'asc'))
-            else {
-              setProgramSort(key)
-              setProgramSortDir(key === 'no' || key === 'kategori' ? 'asc' : 'desc')
-            }
-          }}
-        />
-      ) : (
-        <>
-          {/* ── Month filter ──────────────────────────────────────────────── */}
-          <div className="bg-white border rounded-xl px-4 py-2.5 flex flex-wrap items-center gap-1.5">
-            <span className="text-xs text-gray-500 font-medium mr-1">Bulan:</span>
-            <select
-              value={bulanBasis}
-              onChange={e => setBulanBasis(e.target.value as BulanBasis)}
-              className="text-xs border rounded-md px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-[#1B4F72] mr-1"
+      {/* ── Month filter (sama untuk Detail & Per Proker) ─────────────────── */}
+      <div className="bg-white border rounded-xl px-4 py-2.5 flex flex-wrap items-center gap-1.5">
+        <span className="text-xs text-gray-500 font-medium mr-1">Bulan:</span>
+        <select
+          value={bulanBasis}
+          onChange={e => setBulanBasis(e.target.value as BulanBasis)}
+          className="text-xs border rounded-md px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-[#1B4F72] mr-1"
               title="Dasar filter tahun & bulan"
             >
               <option value="jatuh_tempo">Jatuh tempo</option>
@@ -759,25 +760,46 @@ export default function LaporanPendapatan() {
                 </button>
               )
             })}
-            <button
-              type="button"
-              onClick={() => setSelectedMonths(monthsYtd())}
-              className="ml-1 text-[10px] text-blue-600 hover:underline"
-              title="Aktifkan Januari s.d. bulan berjalan"
-            >
-              YTD
-            </button>
-            {selectedMonths.length < 12 && (
-              <button
-                type="button"
-                onClick={() => setSelectedMonths(ALL_MONTHS)}
-                className="text-[10px] text-blue-600 hover:underline"
-              >
-                Semua
-              </button>
-            )}
-          </div>
+        <button
+          type="button"
+          onClick={() => setSelectedMonths(monthsYtd())}
+          className="ml-1 text-[10px] text-blue-600 hover:underline"
+          title="Aktifkan Januari s.d. bulan berjalan"
+        >
+          YTD
+        </button>
+        {selectedMonths.length < 12 && (
+          <button
+            type="button"
+            onClick={() => setSelectedMonths(ALL_MONTHS)}
+            className="text-[10px] text-blue-600 hover:underline"
+          >
+            Semua
+          </button>
+        )}
+      </div>
 
+      {viewMode === 'program' ? (
+        <ProgramView
+          rows={programRows}
+          summary={programSummary}
+          tahun={tahun}
+          monthsLabel={monthsLabel}
+          detailPendapatanMonika={totalPendapatanMonika}
+          detailCashInMonika={totalCashInMonika}
+          nTanpaMonika={nTanpaMonika}
+          programSort={programSort}
+          programSortDir={programSortDir}
+          onSort={(key) => {
+            if (programSort === key) setProgramSortDir(d => (d === 'asc' ? 'desc' : 'asc'))
+            else {
+              setProgramSort(key)
+              setProgramSortDir(key === 'no' || key === 'kategori' ? 'asc' : 'desc')
+            }
+          }}
+        />
+      ) : (
+        <>
           {/* ── Summary cards ────────────────────────────────────────────── */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <SummaryCard label="Tagihan" value={totalTagihan} color="text-gray-800" />
@@ -801,15 +823,17 @@ export default function LaporanPendapatan() {
             />
           </div>
           <p className="text-[11px] text-gray-500 -mt-1">
-            <strong>Tagihan</strong> = invoice ke mitra (DPP+PPN−PPH−pengurang).
-            <strong> Pendapatan</strong> = akrual (DPP).
+            <strong>Tagihan</strong> = invoice (DPP+PPN−PPH−pengurang).
+            <strong> Pendapatan</strong> = DPP (akrual).
             <strong> Cash In</strong> = uang masuk.
             <strong> Sisa</strong> = tagihan − bayar.
             {bulanBasis === 'diterima'
-              ? ` Filter by tgl bayar tahun ${tahun}.`
-              : ` Filter by jatuh tempo tahun ${tahun}.`}
-            {' '}Tanpa ID Monika tetap di Detail, tidak di Per Proker.
-            {' '}Capaian kas: {pctTertagih.toFixed(1)}% (Cash In ÷ Tagihan).
+              ? ` Filter by tgl bayar · ${monthsLabel}.`
+              : ` Filter by jatuh tempo · ${monthsLabel}.`}
+            {nTanpaMonika > 0 && (
+              <> · {nTanpaMonika} baris tanpa ID Monika (hanya di Detail; Per Proker = Σ ber-Monika: Pendapatan {formatRupiah(totalPendapatanMonika)}, Cash In {formatRupiah(totalCashInMonika)}).</>
+            )}
+            {' '}Capaian: {pctTertagih.toFixed(1)}% (Cash In ÷ Tagihan).
           </p>
 
           {/* ── Detail table ─────────────────────────────────────────────── */}
@@ -985,7 +1009,10 @@ function ProgramView({
   rows,
   summary,
   tahun,
-  horizon,
+  monthsLabel,
+  detailPendapatanMonika,
+  detailCashInMonika,
+  nTanpaMonika,
   programSort,
   programSortDir,
   onSort,
@@ -993,7 +1020,10 @@ function ProgramView({
   rows: ProgramLaporanRow[]
   summary: ReturnType<typeof summarizeProgramRows>
   tahun: number
-  horizon: ProgramHorizon
+  monthsLabel: string
+  detailPendapatanMonika: number
+  detailCashInMonika: number
+  nTanpaMonika: number
   programSort: ProgramSortKey
   programSortDir: SortDir
   onSort: (k: ProgramSortKey) => void
@@ -1001,7 +1031,7 @@ function ProgramView({
   return (
     <>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <SummaryCard label="Total RKAP" value={summary.rkap} color="text-gray-800" />
+        <SummaryCard label="Target RKAP" value={summary.rkap} color="text-gray-800" />
         <SummaryCard label="Pendapatan" value={summary.pendapatan} color="text-[#5B2C6F]" />
         <SummaryCard label="Cash In" value={summary.cashIn} color="text-green-700" />
         <div className="bg-white rounded-xl border px-4 py-3">
@@ -1010,13 +1040,17 @@ function ProgramView({
             {summary.capaianPct != null ? `${summary.capaianPct.toFixed(1)}%` : '—'}
           </p>
           <p className="text-[11px] text-gray-400">
-            {horizon === 'ytd' ? `YTD s.d. hari ini · ${tahun}` : `Full year ${tahun}`}
+            {monthsLabel} · {tahun}
           </p>
         </div>
       </div>
       <p className="text-[11px] text-gray-500 -mt-1">
-        <strong>Pendapatan</strong> = Σ DPP tagihan by JT · <strong>Cash In</strong> = Σ bayar pada tagihan JT tahun {tahun} · per ID Monika.
-        Tanpa Monika tidak dihitung di sini (lihat Detail).
+        Sama filter bulan/tahun dengan Detail.
+        <strong> Pendapatan</strong> &amp; <strong>Cash In</strong> di sini = jumlah baris Detail yang punya ID Monika
+        ({formatRupiah(detailPendapatanMonika)} · {formatRupiah(detailCashInMonika)}).
+        {nTanpaMonika > 0
+          ? ` Ada ${nTanpaMonika} baris Detail tanpa Monika — tidak masuk di sini.`
+          : ' Semua baris Detail punya Monika — total harus sama dengan Detail (jika filter mitra/status = semua).'}
       </p>
 
       <div className="bg-white rounded-xl border overflow-hidden">
