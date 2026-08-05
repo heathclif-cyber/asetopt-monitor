@@ -47,9 +47,9 @@ export async function exportLaporanDetailExcel(
     { header: 'No. Kontrak SAP', key: 'noKontrakSAP', width: 16, type: 'text' },
     { header: 'No. Invoice SAP', key: 'noInvoice', width: 16, type: 'text' },
     { header: 'No. Billing SAP', key: 'noBilling', width: 14, type: 'text' },
-    { header: 'Total Tagihan', key: 'totalTagihan', width: 15, type: 'money' },
+    { header: 'Tagihan', key: 'totalTagihan', width: 15, type: 'money' },
+    { header: 'Pendapatan', key: 'pendapatanAkrual', width: 15, type: 'money' },
     { header: 'Cash In', key: 'cashIn', width: 14, type: 'money' },
-    { header: 'Pendapatan Akrual', key: 'pendapatanAkrual', width: 16, type: 'money' },
     { header: 'Sisa', key: 'sisa', width: 14, type: 'money' },
   ]
 
@@ -100,7 +100,7 @@ export async function exportLaporanProgramExcel(
     { header: 'ID Monika', key: 'kode', width: 16, type: 'text' },
     { header: 'Nama Proker', key: 'programAset', width: 32, type: 'text' },
     { header: 'Kategori', key: 'kategori', width: 16, type: 'text' },
-    { header: 'RKAP', key: 'rkap', width: 15, type: 'money' },
+    { header: 'Target RKAP', key: 'rkap', width: 15, type: 'money' },
     { header: 'Pendapatan', key: 'pendapatan', width: 15, type: 'money' },
     { header: 'Cash In', key: 'cashIn', width: 15, type: 'money' },
     { header: 'Capaian %', key: 'capaianPct', width: 12, type: 'percent', align: 'center' },

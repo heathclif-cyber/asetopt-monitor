@@ -212,29 +212,28 @@ function buildPendapatanSheet(
     views: [{ state: 'frozen', xSplit: 3, ySplit: 9, showGridLines: false }],
   })
 
-  // Per bulan: Target | Pendapatan | PPN | PPH | PBB | Total | No Dok SAP | %
-  const subPerMonth = 8
+  // Per bulan: Target RKAP | Pendapatan | Cash In | No Billing | Capaian %
+  const subPerMonth = 5
   const masterCount = MASTER_HEADERS.length
   const colCount = masterCount + months.length * subPerMonth
 
   MASTER_WIDTHS.forEach((w, i) => { ws.getColumn(i + 1).width = w })
   for (let i = 0; i < months.length; i++) {
     const base = masterCount + i * subPerMonth
-    ;[10, 12, 10, 10, 10, 12, 14, 8].forEach((w, j) => {
+    ;[12, 14, 14, 14, 10].forEach((w, j) => {
       ws.getColumn(base + j + 1).width = w
     })
   }
 
   writeTitleBlock(
     ws,
-    'MONITORING PENERIMAAN PENDAPATAN',
-    `Pendapatan ${months.map(m => BULAN_LABELS_HO[m]).join(', ')} ${tahun}`,
+    'LAPORAN PENDAPATAN & CASH IN',
+    `Periode ${months.map(m => BULAN_LABELS_HO[m]).join(', ')} ${tahun}`,
     tahun,
     months,
     colCount,
   )
 
-  // Header mulai baris 7 (setelah banner satuan di baris 6)
   const h1 = 7
   const h2 = 8
   const h3 = 9
@@ -254,12 +253,12 @@ function buildPendapatanSheet(
     styleHeader(top)
     for (let c = start; c <= end; c++) styleHeader(ws.getCell(h1, c))
 
-    ;['Target RKAP', 'Pendapatan', 'PPN', 'PPH', 'PBB', 'Cash In', 'No Billing', '%'].forEach((s, j) => {
+    ;['Target RKAP', 'Pendapatan', 'Cash In', 'No Billing', 'Capaian'].forEach((s, j) => {
       const cell = ws.getCell(h2, start + j)
       cell.value = s
       styleHeader(cell)
     })
-    ;['(Rp 000)', '(Rp 000)', '(Rp 000)', '(Rp 000)', '(Rp 000)', '(Rp 000)', '', ''].forEach((s, j) => {
+    ;['(Rp 000)', '(Rp 000)', '(Rp 000)', '', ''].forEach((s, j) => {
       const cell = ws.getCell(h3, start + j)
       cell.value = s
       styleHeader(cell)
@@ -271,7 +270,7 @@ function buildPendapatanSheet(
 
   let rIdx = 10
   const totals = months.map(() => ({
-    target: 0, pendapatan: 0, ppn: 0, pph: 0, pbb: 0, total: 0,
+    target: 0, pendapatan: 0, cashIn: 0,
   }))
 
   rows.forEach((r, ri) => {
@@ -279,25 +278,18 @@ function buildPendapatanSheet(
     writeMasterCells(ws, rIdx, r, alt)
     months.forEach((m, mi) => {
       const pm = r.pendapatanByMonth[m]
+      const cash = r.cashByMonth[m]?.totalDiluarJaminan ?? 0
       const base = masterCount + mi * subPerMonth + 1
-      const pctVsTarget = pm.target > 0 ? (pm.pendapatan / pm.target) * 100 : null
-      ;[
-        toRp000(pm.target),
-        toRp000(pm.pendapatan),
-        toRp000(pm.ppn),
-        toRp000(pm.pph),
-        toRp000(pm.pbb),
-        toRp000(pm.total),
-      ].forEach((v, j) => moneyCell(ws.getCell(rIdx, base + j), v, alt))
-      textCell(ws.getCell(rIdx, base + 6), pm.noDokSap, alt)
-      pctCell(ws.getCell(rIdx, base + 7), pctVsTarget, alt)
+      const pct = pm.target > 0 ? (cash / pm.target) * 100 : null
+      moneyCell(ws.getCell(rIdx, base), toRp000(pm.target), alt)
+      moneyCell(ws.getCell(rIdx, base + 1), toRp000(pm.pendapatan), alt)
+      moneyCell(ws.getCell(rIdx, base + 2), toRp000(cash), alt)
+      textCell(ws.getCell(rIdx, base + 3), pm.noDokSap, alt)
+      pctCell(ws.getCell(rIdx, base + 4), pct, alt)
 
       totals[mi].target += pm.target
       totals[mi].pendapatan += pm.pendapatan
-      totals[mi].ppn += pm.ppn
-      totals[mi].pph += pm.pph
-      totals[mi].pbb += pm.pbb
-      totals[mi].total += pm.total
+      totals[mi].cashIn += cash
     })
     rIdx += 1
   })
@@ -312,18 +304,17 @@ function buildPendapatanSheet(
   months.forEach((_, mi) => {
     const t = totals[mi]
     const base = masterCount + mi * subPerMonth + 1
-    ;[t.target, t.pendapatan, t.ppn, t.pph, t.pbb, t.total].forEach((v, j) => {
+    ;[t.target, t.pendapatan, t.cashIn].forEach((v, j) => {
       const cell = ws.getCell(rIdx, base + j)
       moneyCell(cell, toRp000(v), false)
       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TOTAL_BG } }
       cell.font = { name: 'Calibri', size: 9, bold: true }
     })
-    const dok = ws.getCell(rIdx, base + 6)
+    const dok = ws.getCell(rIdx, base + 3)
     textCell(dok, '', false)
     dok.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TOTAL_BG } }
-    // % capaian = pendapatan (pokok) / target
-    const pct = t.target > 0 ? (t.pendapatan / t.target) * 100 : null
-    const pc = ws.getCell(rIdx, base + 7)
+    const pct = t.target > 0 ? (t.cashIn / t.target) * 100 : null
+    const pc = ws.getCell(rIdx, base + 4)
     pctCell(pc, pct, false)
     pc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TOTAL_BG } }
   })
@@ -331,7 +322,7 @@ function buildPendapatanSheet(
   rIdx += 2
   ws.mergeCells(rIdx, 1, rIdx, Math.min(8, colCount))
   ws.getCell(rIdx, 1).value =
-    'Catatan: Semua nilai uang dalam Rp 000. Pendapatan = nilai sewa/tagihan utama. Cash In = pendapatan + PPN + PPH + PBB. PPH dikurangi (minus). % = pendapatan dibanding target.'
+    'Standar: Pendapatan = akrual (DPP by JT). Cash In = uang masuk (tgl bayar). Capaian = Cash In / Target RKAP. Rp 000. Lihat STANDAR_AKUNTANSI.md.'
   ws.getCell(rIdx, 1).font = { name: 'Calibri', size: 8, italic: true, color: { argb: 'FF64748B' } }
 
   return ws
@@ -520,22 +511,19 @@ function buildRingkasanSheet(
     {
       uraian: `Pendapatan ${periodLabel}`,
       value: s.realisasiPendapatan,
-      ket: 'Nilai sewa/tagihan utama di periode ini',
+      ket: 'Akrual (DPP) — by jatuh tempo',
       bold: true,
     },
-    { uraian: '  PPN', value: s.pendapatanPpn, ket: 'Pajak — terpisah dari pendapatan' },
-    { uraian: '  PPH', value: s.pendapatanPph, ket: 'Dikurangi — terpisah dari pendapatan', danger: true },
-    { uraian: '  PBB', value: s.pendapatanPbb, ket: 'Pajak — terpisah dari pendapatan' },
     {
       uraian: `Cash In ${periodLabel}`,
-      value: s.totalSdPajak,
-      ket: 'Pendapatan + PPN + PPH + PBB',
+      value: s.cashIn,
+      ket: 'Uang masuk — by tanggal bayar',
       bold: true,
     },
     {
-      uraian: 'Capaian vs target (%)',
-      value: s.targetPendapatan > 0 ? (s.realisasiPendapatan / s.targetPendapatan) * 100 : 0,
-      ket: 'Pendapatan dibagi target RKAP',
+      uraian: 'Capaian Cash In vs target (%)',
+      value: s.targetPendapatan > 0 ? (s.cashIn / s.targetPendapatan) * 100 : 0,
+      ket: 'Cash In dibagi Target RKAP',
       bold: true,
     },
     { uraian: '', value: 0, ket: '' },
@@ -555,7 +543,13 @@ function buildRingkasanSheet(
     {
       uraian: `Pendapatan Januari s.d. Desember ${tahun}`,
       value: sYear.realisasiPendapatan,
-      ket: 'Pendapatan sepanjang tahun (12 bulan)',
+      ket: 'Pendapatan akrual sepanjang tahun',
+      bold: true,
+    },
+    {
+      uraian: `Cash In Januari s.d. Desember ${tahun}`,
+      value: sYear.cashIn,
+      ket: 'Uang masuk sepanjang tahun',
       bold: true,
     },
   ]

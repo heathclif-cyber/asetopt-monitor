@@ -10,12 +10,13 @@ Panduan operasional untuk AI agent. File ini **ringan** (~2 KB). Jangan baca sem
 |-----------|------|--------|--------------|
 | 1 | `agent.md` | kecil | **Selalu** — routing & hemat token |
 | 2 | `Claude.md` | ~290 baris | Konteks proyek: file map, DB, business rules, konvensi |
-| 3 | `DESIGN_SYSTEM.md` | ~900 baris | **Hanya** UI/layout/styling/pola komponen — baca section tertentu, jangan full file |
-| 4 | `DEPLOY_SELFHOST.md` | self-host | Deploy Windows/Docker, pindah dari Railway |
-| 5 | `src/types/index.ts` | referensi tipe | Saat butuh interface/type pasti |
-| 6 | Source code | per file | Saat implementasi/debug — baca file relevan saja |
+| 3 | `STANDAR_AKUNTANSI.md` | ~120 baris | **Laporan / angka keuangan** — istilah Pendapatan, Cash In, Tagihan |
+| 4 | `DESIGN_SYSTEM.md` | ~900 baris | **Hanya** UI/layout/styling/pola komponen — baca section tertentu, jangan full file |
+| 5 | `DEPLOY_SELFHOST.md` | self-host | Deploy Windows/Docker, pindah dari Railway |
+| 6 | `src/types/index.ts` | referensi tipe | Saat butuh interface/type pasti |
+| 7 | Source code | per file | Saat implementasi/debug — baca file relevan saja |
 
-**Aturan emas:** `Claude.md` = *apa & di mana*. `DESIGN_SYSTEM.md` = *bagaimana tampil & pola UI*. Source code = *implementasi aktual*.
+**Aturan emas:** `Claude.md` = *apa & di mana*. `STANDAR_AKUNTANSI.md` = *nama & formula angka*. `DESIGN_SYSTEM.md` = *bagaimana tampil*. Source code = *implementasi aktual*.
 
 ---
 
@@ -31,7 +32,8 @@ Baca **hanya** yang diperlukan untuk tugas saat ini:
 | Migration / tabel baru | `Claude.md` → How to Add a New Table + DB | DESIGN_SYSTEM.md |
 | Katalog / factsheet | `Claude.md` → Katalog System | DESIGN_SYSTEM.md |
 | Refactor store | `Claude.md` → Zustand Store Patterns + 1 store contoh | File map lengkap |
-| Laporan / util bisnis | `Claude.md` → Business Rules + file utils terkait | DESIGN_SYSTEM.md |
+| Laporan / util bisnis | `STANDAR_AKUNTANSI.md` + `src/utils/accountingTerms.ts` + utils terkait | DESIGN_SYSTEM.md penuh |
+| Label Pendapatan / Cash In / Tagihan | `STANDAR_AKUNTANSI.md` (wajib) | Tebak label baru |
 | Self-host / Docker / pindah Railway | `DEPLOY_SELFHOST.md` + `docker-compose.yml` | DESIGN_SYSTEM.md |
 
 ---

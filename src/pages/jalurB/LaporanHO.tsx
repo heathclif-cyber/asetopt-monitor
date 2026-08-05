@@ -22,11 +22,13 @@ import {
   buildLaporanHO,
   monthsThrough,
   piutangAsOf,
+  sumCashInMonths,
   sumPendapatanMonths,
   summarizeHO,
   type HOMasterRow,
   type HOSummary,
 } from '@/utils/laporanHOUtils'
+import { AK } from '@/utils/accountingTerms'
 import { exportLaporanHOExcel } from '@/utils/laporanHOExport'
 
 type TabMode = 'pendapatan' | 'piutang'
@@ -322,6 +324,7 @@ export default function LaporanHO() {
         periodTarget={periodTarget}
         periodPiutang={periodPiutang}
         periodFullYear={periodFullYear}
+        tahun={tahun}
         summary={summary}
         summaryYear={summaryYear}
       />
@@ -377,9 +380,9 @@ export default function LaporanHO() {
       <p className="text-[11px] text-gray-400 flex items-start gap-1.5 pb-4">
         <FileSpreadsheet size={12} className="mt-0.5 shrink-0" />
         <span>
-          Angka di atas mengikuti periode: <strong>{periodLabel}</strong>.
-          <strong> Pendapatan</strong> = nilai sewa/tagihan utama.
-          <strong> Cash In</strong> = pendapatan + PPN + PPH + PBB.
+          Periode: <strong>{periodLabel}</strong>.
+          Istilah standar: <strong>{AK.pendapatan}</strong> (akrual) · <strong>{AK.cashIn}</strong> (kas) · <strong>{AK.tagihan}</strong> (invoice).
+          Lihat STANDAR_AKUNTANSI.md.
         </span>
       </p>
     </div>
@@ -398,6 +401,7 @@ function TotalBar({
   periodTarget,
   periodPiutang,
   periodFullYear,
+  tahun,
   summary,
   summaryYear,
 }: {
@@ -406,6 +410,7 @@ function TotalBar({
   periodTarget: string
   periodPiutang: string
   periodFullYear: string
+  tahun: number
   summary: HOSummary
   summaryYear: HOSummary
 }) {
@@ -436,16 +441,10 @@ function TotalBar({
           accent="strong"
         />
         <TotalCell
-          label={`Cash In (${periodLabel})`}
-          value={summary.totalSdPajak}
+          label={`${AK.cashIn} (${periodLabel})`}
+          value={summary.cashIn}
           accent="navy"
         />
-      </div>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-gray-200 border-t border-gray-200">
-        <TotalCell label="PPN" value={summary.pendapatanPpn} compact />
-        <TotalCell label="PPH (dikurangi)" value={summary.pendapatanPph} accent="danger" compact />
-        <TotalCell label="PBB" value={summary.pendapatanPbb} accent="amber" compact />
-        <TotalCell label={periodFullYear} value={summaryYear.realisasiPendapatan} compact />
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-px bg-gray-200 border-t border-gray-200">
         <TotalCell label={periodPiutang} value={summary.saldoPiutang} accent="amber" />
@@ -456,10 +455,18 @@ function TotalBar({
           compact
         />
       </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-px bg-gray-200 border-t border-gray-200">
+        <TotalCell label={periodFullYear} value={summaryYear.realisasiPendapatan} compact />
+        <TotalCell
+          label={`${AK.cashIn} Januari s.d. Desember ${tahun}`}
+          value={summaryYear.cashIn}
+          compact
+        />
+      </div>
       <p className="px-3 py-2 text-[11px] text-gray-600 bg-white border-t border-gray-100 leading-relaxed">
-        <strong>{periodPendapatan}</strong> = nilai sewa/tagihan utama di periode itu.
-        Baris <strong>{periodFullYear}</strong> = pendapatan sepanjang tahun (Januari–Desember),
-        terpisah dari periode filter di atas.
+        <strong>{AK.pendapatan}</strong> = pengakuan akrual (DPP) di periode.
+        <strong> {AK.cashIn}</strong> = uang masuk (pembayaran) di periode.
+        Keduanya berbeda: pendapatan bisa belum dibayar; cash in bisa melunasi tagihan tahun lalu.
       </p>
     </div>
   )
@@ -574,10 +581,7 @@ function PendapatanTable({
 }) {
   const tTarget = totals.targetPendapatan
   const tPendapatan = totals.realisasiPendapatan
-  const tPpn = totals.pendapatanPpn
-  const tPph = totals.pendapatanPph
-  const tPbb = totals.pendapatanPbb
-  const tSdPajak = totals.totalSdPajak
+  const tCashIn = totals.cashIn
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
@@ -587,11 +591,15 @@ function PendapatanTable({
           <p className="text-[11px] text-gray-500">
             Regional 8 · {rows.length} proker
             {months.length > 1 ? ` · dijumlah ${months.length} bulan` : ''}
+            {' · '}{AK.pendapatan} (akrual) · {AK.cashIn} (kas)
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-[11px]">
           <span className="font-semibold text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-full px-2.5 py-0.5">
-            {formatShort(tPendapatan)}
+            {AK.pendapatan} {formatShort(tPendapatan)}
+          </span>
+          <span className="font-semibold text-teal-800 bg-teal-50 border border-teal-100 rounded-full px-2.5 py-0.5">
+            {AK.cashIn} {formatShort(tCashIn)}
           </span>
         </div>
       </div>
@@ -600,29 +608,27 @@ function PendapatanTable({
           <thead className="sticky top-0 z-30">
             <tr className="bg-[#1B4F72] text-white">
               <MasterHead />
-              <th colSpan={8} className="px-2 py-2 text-center border-l border-white/25 font-semibold bg-[#5B2C6F]">
-                {periodPendapatan}
+              <th colSpan={5} className="px-2 py-2 text-center border-l border-white/25 font-semibold bg-[#5B2C6F]">
+                {periodLabel}
               </th>
             </tr>
             <tr className="bg-[#163f5c] text-white/95">
               {Array.from({ length: 18 }).map((_, i) => (
                 <th key={i} className={cn(i < 2 && 'sticky z-20 bg-[#163f5c]', i === 0 && 'left-0', i === 1 && 'left-9')} />
               ))}
-              <th className="px-2 py-1.5 text-right border-l border-white/15 font-normal min-w-[88px]">Target RKAP</th>
-              <th className="px-2 py-1.5 text-right font-normal min-w-[110px]">Pendapatan</th>
-              <th className="px-2 py-1.5 text-right font-normal min-w-[72px]">PPN</th>
-              <th className="px-2 py-1.5 text-right font-normal min-w-[80px] text-red-200">PPH</th>
-              <th className="px-2 py-1.5 text-right font-normal min-w-[72px] bg-amber-900/40">PBB</th>
-              <th className="px-2 py-1.5 text-right font-normal min-w-[100px]">Cash In</th>
-              <th className="px-2 py-1.5 text-left font-normal min-w-[100px]">No Billing</th>
-              <th className="px-2 py-1.5 text-center font-normal min-w-[48px]">%</th>
+              <th className="px-2 py-1.5 text-right border-l border-white/15 font-normal min-w-[96px]">{AK.targetRkap}</th>
+              <th className="px-2 py-1.5 text-right font-normal min-w-[110px]">{AK.pendapatan}</th>
+              <th className="px-2 py-1.5 text-right font-normal min-w-[110px]">{AK.cashIn}</th>
+              <th className="px-2 py-1.5 text-left font-normal min-w-[100px]">{AK.noBilling}</th>
+              <th className="px-2 py-1.5 text-center font-normal min-w-[56px]">{AK.capaian}</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((r, i) => {
               const zebra = i % 2 === 1
               const p = sumPendapatanMonths(r, months)
-              const pctVsTarget = p.target > 0 ? (p.pendapatan / p.target) * 100 : null
+              const cash = sumCashInMonths(r, months)
+              const pct = p.target > 0 ? (cash / p.target) * 100 : null
               return (
                 <tr key={r.kodeMonika} className={zebra ? 'bg-slate-50/80' : 'bg-white'}>
                   <MasterCells r={r} zebra={zebra} />
@@ -632,16 +638,13 @@ function PendapatanTable({
                   <td className="px-2 py-1.5 text-right text-emerald-800 font-semibold">
                     <CellRp value={p.pendapatan} />
                   </td>
-                  <td className="px-2 py-1.5 text-right text-gray-600"><CellRp value={p.ppn} /></td>
-                  <td className="px-2 py-1.5 text-right text-gray-600"><CellRp value={p.pph} /></td>
-                  <td className="px-2 py-1.5 text-right text-amber-800 font-medium bg-amber-50/50">
-                    <CellRp value={p.pbb} />
+                  <td className="px-2 py-1.5 text-right text-teal-800 font-medium">
+                    <CellRp value={cash} />
                   </td>
-                  <td className="px-2 py-1.5 text-right font-medium text-gray-700"><CellRp value={p.total} /></td>
                   <td className="px-2 py-1.5 text-gray-500 font-mono text-[10px] max-w-[120px] truncate" title={p.noDokSap}>
                     {p.noDokSap || '—'}
                   </td>
-                  <td className="px-2 py-1.5 text-center text-gray-500">{pctLabel(pctVsTarget)}</td>
+                  <td className="px-2 py-1.5 text-center text-gray-500">{pctLabel(pct)}</td>
                 </tr>
               )
             })}
@@ -649,19 +652,14 @@ function PendapatanTable({
           <tfoot className="sticky bottom-0 z-20">
             <tr className="bg-[#FEF3C7] font-bold text-gray-900 border-t-2 border-amber-400 shadow-[0_-2px_6px_rgba(0,0,0,0.06)]">
               <td colSpan={18} className="px-2 py-2.5 sticky left-0 bg-[#FEF3C7]">
-                Jumlah · {periodPendapatan}
+                Jumlah · {periodLabel}
               </td>
               <td className="px-2 py-2.5 text-right border-l border-amber-200"><CellRp value={tTarget} /></td>
               <td className="px-2 py-2.5 text-right text-emerald-800 text-sm"><CellRp value={tPendapatan} /></td>
-              <td className="px-2 py-2.5 text-right"><CellRp value={tPpn} /></td>
-              <td className="px-2 py-2.5 text-right"><CellRp value={tPph} /></td>
-              <td className="px-2 py-2.5 text-right text-amber-900"><CellRp value={tPbb} /></td>
-              <td className="px-2 py-2.5 text-right text-gray-800">
-                <CellRp value={tSdPajak} />
-              </td>
+              <td className="px-2 py-2.5 text-right text-teal-800 text-sm"><CellRp value={tCashIn} /></td>
               <td className="px-2 py-2.5" />
               <td className="px-2 py-2.5 text-center">
-                {tTarget > 0 ? pctLabel((tPendapatan / tTarget) * 100) : '—'}
+                {tTarget > 0 ? pctLabel((tCashIn / tTarget) * 100) : '—'}
               </td>
             </tr>
           </tfoot>

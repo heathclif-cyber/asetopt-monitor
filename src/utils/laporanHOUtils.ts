@@ -93,17 +93,22 @@ export interface HOSummary {
   realisasiCash: number
   targetPendapatan: number
   /**
-   * Realisasi **Pendapatan** = pokok (DPP / nominal).
-   * Bukan termasuk PPN/PPH/PBB.
+   * Pendapatan (akrual) = DPP / nominal di periode.
+   * Standar: STANDAR_AKUNTANSI.md
    */
   realisasiPendapatan: number
-  /** Alias eksplisit = realisasiPendapatan (pokok) */
+  /** Alias = realisasiPendapatan */
   pendapatanPokok: number
   pendapatanPpn: number
   pendapatanPph: number
   pendapatanPbb: number
-  /** Cash In = Pendapatan + PPN + PPH(−) + PBB */
+  /**
+   * Cash In = uang masuk (pembayaran) di periode.
+   * Bukan DPP+pajak di kertas tagihan.
+   */
   totalSdPajak: number
+  /** Alias eksplisit Cash In (= totalSdPajak / realisasiCash) */
+  cashIn: number
   saldoPiutang: number
   /** Breakdown aging piutang bulan terakhir di filter */
   piutang1_30: number
@@ -705,7 +710,6 @@ export function summarizeHO(rows: HOMasterRow[], months: number[]): HOSummary {
   let pendapatanPpn = 0
   let pendapatanPph = 0
   let pendapatanPbb = 0
-  let totalSdPajak = 0
   let saldoPiutang = 0
   let piutang1_30 = 0
   let piutang31_60 = 0
@@ -723,15 +727,15 @@ export function summarizeHO(rows: HOMasterRow[], months: number[]): HOSummary {
     totalTargetTahun += r.targetTahun ?? 0
     months.forEach(m => {
       targetCash += r.cashByMonth[m]?.target ?? 0
+      // Cash In = uang masuk (alokasi pembayaran)
       realisasiCash += r.cashByMonth[m]?.totalDiluarJaminan ?? 0
       const p = r.pendapatanByMonth[m]
       targetPendapatan += p?.target ?? 0
-      // Pendapatan = pokok (DPP)
+      // Pendapatan = akrual / DPP
       pendapatanPokok += p?.pendapatan ?? 0
       pendapatanPpn += p?.ppn ?? 0
       pendapatanPph += p?.pph ?? 0
       pendapatanPbb += p?.pbb ?? 0
-      totalSdPajak += p?.total ?? 0
     })
     const pi = r.piutangByMonth[lastM]
     saldoPiutang += pi?.saldo ?? 0
@@ -752,7 +756,8 @@ export function summarizeHO(rows: HOMasterRow[], months: number[]): HOSummary {
     pendapatanPpn,
     pendapatanPph,
     pendapatanPbb,
-    totalSdPajak,
+    totalSdPajak: realisasiCash,
+    cashIn: realisasiCash,
     saldoPiutang,
     piutang1_30,
     piutang31_60,
@@ -782,7 +787,7 @@ export function monthsThrough(endMonth: number): number[] {
   return Array.from({ length: end + 1 }, (_, i) => i)
 }
 
-/** Agregasi pendapatan beberapa bulan (untuk mode s.d. bulan) */
+/** Agregasi pendapatan (akrual) beberapa bulan */
 export function sumPendapatanMonths(r: HOMasterRow, months: number[]): HOPendapatanMonth {
   const out: HOPendapatanMonth = {
     target: 0,
@@ -809,8 +814,18 @@ export function sumPendapatanMonths(r: HOMasterRow, months: number[]): HOPendapa
     }
   })
   out.noDokSap = Array.from(doks).join('; ')
-  out.pct = out.target > 0 ? (out.total / out.target) * 100 : null
+  // % capaian = pendapatan (akrual) vs target
+  out.pct = out.target > 0 ? (out.pendapatan / out.target) * 100 : null
   return out
+}
+
+/** Cash In (uang masuk) beberapa bulan — dari cashByMonth */
+export function sumCashInMonths(r: HOMasterRow, months: number[]): number {
+  let s = 0
+  months.forEach(m => {
+    s += r.cashByMonth[m]?.totalDiluarJaminan ?? 0
+  })
+  return s
 }
 
 /** Piutang s.d. bulan = snapshot akhir bulan terakhir (bukan jumlah aging) */

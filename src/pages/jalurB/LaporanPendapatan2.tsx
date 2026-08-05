@@ -55,7 +55,7 @@ const SORT_PRESETS: { value: SortPreset; label: string; key: SortKey; dir: SortD
   { value: 'cashin_terbesar', label: 'Cash In terbesar', key: 'cashIn', dir: 'desc' },
   { value: 'cashin_terkecil', label: 'Cash In terkecil', key: 'cashIn', dir: 'asc' },
   { value: 'sisa_terbesar', label: 'Outstanding terbesar', key: 'sisa', dir: 'desc' },
-  { value: 'akrual_terbesar', label: 'Akrual terbesar', key: 'pendapatanAkrual', dir: 'desc' },
+  { value: 'akrual_terbesar', label: 'Pendapatan terbesar', key: 'pendapatanAkrual', dir: 'desc' },
   { value: 'mitra_az', label: 'Mitra A → Z', key: 'namaMitra', dir: 'asc' },
   { value: 'mitra_za', label: 'Mitra Z → A', key: 'namaMitra', dir: 'desc' },
   { value: 'status', label: 'Status', key: 'status', dir: 'asc' },
@@ -643,7 +643,7 @@ export default function LaporanPendapatan() {
                 title="Outstanding = tagihan dengan sisa > 0"
               >
                 <option value="all">Semua</option>
-                <option value="outstanding">Outstanding</option>
+                <option value="outstanding">Sisa &gt; 0</option>
                 <option value="terlambat">Terlambat</option>
                 <option value="lunas">Lunas</option>
               </select>
@@ -780,10 +780,11 @@ export default function LaporanPendapatan() {
 
           {/* ── Summary cards ────────────────────────────────────────────── */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <SummaryCard label="Total Tagihan" value={totalTagihan} color="text-gray-800" />
+            <SummaryCard label="Tagihan" value={totalTagihan} color="text-gray-800" />
+            <SummaryCard label="Pendapatan" value={totalAkrual} color="text-[#5B2C6F]" />
             <SummaryCard label="Cash In" value={totalCashIn} color="text-green-700" />
             <SummaryCard
-              label="Outstanding"
+              label="Sisa"
               value={totalSisa}
               color="text-red-600"
               active={filterStatus === 'outstanding'}
@@ -796,28 +797,19 @@ export default function LaporanPendapatan() {
                   setSortDir('desc')
                 }
               }}
-              hint={filterStatus === 'outstanding' ? 'Klik untuk tampilkan semua' : 'Klik untuk filter outstanding'}
+              hint={filterStatus === 'outstanding' ? 'Klik untuk tampilkan semua' : 'Klik untuk filter sisa > 0'}
             />
-            <div className="bg-white rounded-xl border px-4 py-3">
-              <p className="text-xs text-gray-500">% Tertagih</p>
-              <p className="text-lg font-bold text-[#1B4F72] mt-0.5">{pctTertagih.toFixed(1)}%</p>
-              <p className="text-[11px] text-gray-400">Akrual: {formatRupiah(totalAkrual)}</p>
-            </div>
           </div>
           <p className="text-[11px] text-gray-500 -mt-1">
-            {bulanBasis === 'diterima' ? (
-              <>
-                Cash In = jumlah <strong>pembayaran dengan tgl bayar tahun {tahun}</strong>
-                {selectedMonths.length < 12 ? ' (terfilter bulan diterima)' : ''}.
-                Hanya tagihan yang punya penerimaan di periode itu. Outstanding = sisa tagihan keseluruhan.
-              </>
-            ) : (
-              <>
-                Cash In = jumlah bayar pada tagihan dengan <strong>jatuh tempo tahun {tahun}</strong>
-                {selectedMonths.length < 12 ? ' (terfilter bulan JT)' : ''}.
-              </>
-            )}
-            {' '}Tagihan tanpa ID Monika tetap masuk di sini, tapi tidak di Per Proker.
+            <strong>Tagihan</strong> = invoice ke mitra (DPP+PPN−PPH−pengurang).
+            <strong> Pendapatan</strong> = akrual (DPP).
+            <strong> Cash In</strong> = uang masuk.
+            <strong> Sisa</strong> = tagihan − bayar.
+            {bulanBasis === 'diterima'
+              ? ` Filter by tgl bayar tahun ${tahun}.`
+              : ` Filter by jatuh tempo tahun ${tahun}.`}
+            {' '}Tanpa ID Monika tetap di Detail, tidak di Per Proker.
+            {' '}Capaian kas: {pctTertagih.toFixed(1)}% (Cash In ÷ Tagihan).
           </p>
 
           {/* ── Detail table ─────────────────────────────────────────────── */}
@@ -837,9 +829,9 @@ export default function LaporanPendapatan() {
                     <th className="text-left px-3 py-2.5">No Kontrak SAP</th>
                     <th className="text-left px-3 py-2.5">No Invoice SAP</th>
                     <th className="text-left px-3 py-2.5">No Billing SAP</th>
-                    <SortTh label="Total Tagihan" col="totalTagihan" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
+                    <SortTh label="Tagihan" col="totalTagihan" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
+                    <SortTh label="Pendapatan" col="pendapatanAkrual" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
                     <SortTh label="Cash In" col="cashIn" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
-                    <th className="text-right px-3 py-2.5 font-semibold text-gray-500">Pendapatan Akrual</th>
                     <SortTh label="Sisa" col="sisa" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
                   </tr>
                 </thead>
@@ -923,11 +915,11 @@ export default function LaporanPendapatan() {
                       <td className="px-3 py-2 text-right">
                         <CurrencyDisplay value={row.totalTagihan} size="sm" />
                       </td>
-                      <td className="px-3 py-2 text-right text-green-700">
-                        <CurrencyDisplay value={row.cashIn} size="sm" />
-                      </td>
                       <td className="px-3 py-2 text-right">
                         <CurrencyDisplay value={row.pendapatanAkrual} size="sm" className="text-[#5B2C6F]" />
+                      </td>
+                      <td className="px-3 py-2 text-right text-green-700">
+                        <CurrencyDisplay value={row.cashIn} size="sm" />
                       </td>
                       <td className="px-3 py-2 text-right">
                         <CurrencyDisplay value={row.sisa} size="sm" className={row.sisa > 0 ? 'text-red-600' : 'text-gray-400'} />
@@ -938,10 +930,10 @@ export default function LaporanPendapatan() {
                 {rows.length > 0 && (
                   <tfoot>
                     <tr className="border-t-2 bg-gray-50 font-semibold text-xs">
-                      <td colSpan={11} className="px-3 py-2.5 text-gray-700">Total ({rows.length} tagihan)</td>
+                      <td colSpan={11} className="px-3 py-2.5 text-gray-700">Jumlah ({rows.length} baris)</td>
                       <td className="px-3 py-2.5 text-right"><CurrencyDisplay value={totalTagihan} size="sm" /></td>
-                      <td className="px-3 py-2.5 text-right text-green-700"><CurrencyDisplay value={totalCashIn} size="sm" /></td>
                       <td className="px-3 py-2.5 text-right text-[#5B2C6F]"><CurrencyDisplay value={totalAkrual} size="sm" /></td>
+                      <td className="px-3 py-2.5 text-right text-green-700"><CurrencyDisplay value={totalCashIn} size="sm" /></td>
                       <td className="px-3 py-2.5 text-right text-red-600"><CurrencyDisplay value={totalSisa} size="sm" /></td>
                     </tr>
                   </tfoot>
@@ -1011,9 +1003,9 @@ function ProgramView({
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <SummaryCard label="Total RKAP" value={summary.rkap} color="text-gray-800" />
         <SummaryCard label="Pendapatan" value={summary.pendapatan} color="text-[#5B2C6F]" />
-        <SummaryCard label="Realisasi Cash In" value={summary.cashIn} color="text-green-700" />
+        <SummaryCard label="Cash In" value={summary.cashIn} color="text-green-700" />
         <div className="bg-white rounded-xl border px-4 py-3">
-          <p className="text-xs text-gray-500">Capaian Cash In</p>
+          <p className="text-xs text-gray-500">Capaian (Cash In ÷ RKAP)</p>
           <p className="text-lg font-bold text-[#1B4F72] mt-0.5">
             {summary.capaianPct != null ? `${summary.capaianPct.toFixed(1)}%` : '—'}
           </p>
@@ -1023,16 +1015,16 @@ function ProgramView({
         </div>
       </div>
       <p className="text-[11px] text-gray-500 -mt-1">
-        Cash In = bayar pada tagihan <strong>JT tahun {tahun}</strong> (sama basis Detail Tagihan), digabung per ID Monika.
-        Tagihan tanpa ID Monika tidak dihitung di sini.
+        <strong>Pendapatan</strong> = Σ DPP tagihan by JT · <strong>Cash In</strong> = Σ bayar pada tagihan JT tahun {tahun} · per ID Monika.
+        Tanpa Monika tidak dihitung di sini (lihat Detail).
       </p>
 
       <div className="bg-white rounded-xl border overflow-hidden">
         <div className="px-4 py-2.5 border-b bg-gray-50 flex flex-wrap items-center justify-between gap-2">
           <div>
-            <p className="text-sm font-semibold text-gray-800">Optimalisasi Aset — Per Proker</p>
+            <p className="text-sm font-semibold text-gray-800">Per Proker (ID Monika)</p>
             <p className="text-[11px] text-gray-500">
-              Kunci proker = <strong>ID Monika</strong> (bukan nama bebas). Format LM: No · Kategori · Program · RKAP · Pendapatan · Cash In · Capaian % · Mitra · Monitoring.
+              Target RKAP · Pendapatan (akrual) · Cash In (kas) · Capaian = Cash In ÷ RKAP
             </p>
           </div>
           <div className="flex flex-wrap gap-1.5">
@@ -1056,10 +1048,10 @@ function ProgramView({
                 <th className="text-left px-3 py-2.5 font-semibold whitespace-nowrap">ID Monika</th>
                 <ProgramSortTh label="Kategori" col="kategori" sortKey={programSort} sortDir={programSortDir} onSort={onSort} />
                 <th className="text-left px-3 py-2.5 font-semibold min-w-[180px]">Program Aset</th>
-                <ProgramSortTh label="RKAP (Rp)" col="rkap" sortKey={programSort} sortDir={programSortDir} onSort={onSort} align="right" />
-                <ProgramSortTh label="Pendapatan (Rp)" col="pendapatan" sortKey={programSort} sortDir={programSortDir} onSort={onSort} align="right" />
-                <ProgramSortTh label="Realisasi Cash In (Rp)" col="cashIn" sortKey={programSort} sortDir={programSortDir} onSort={onSort} align="right" />
-                <ProgramSortTh label="Capaian Cash In (%)" col="capaian" sortKey={programSort} sortDir={programSortDir} onSort={onSort} align="right" />
+                <ProgramSortTh label="Target RKAP" col="rkap" sortKey={programSort} sortDir={programSortDir} onSort={onSort} align="right" />
+                <ProgramSortTh label="Pendapatan" col="pendapatan" sortKey={programSort} sortDir={programSortDir} onSort={onSort} align="right" />
+                <ProgramSortTh label="Cash In" col="cashIn" sortKey={programSort} sortDir={programSortDir} onSort={onSort} align="right" />
+                <ProgramSortTh label="Capaian %" col="capaian" sortKey={programSort} sortDir={programSortDir} onSort={onSort} align="right" />
                 <th className="text-left px-3 py-2.5 font-semibold min-w-[160px]">Proses Pencarian Mitra</th>
                 <th className="text-left px-3 py-2.5 font-semibold min-w-[160px]">Monitoring Kerja Sama</th>
               </tr>
