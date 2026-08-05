@@ -20,7 +20,6 @@ import { resolveMonikaId, KATEGORI_BY_KODE } from '@/utils/laporanProgramUtils'
 import {
   alokasiPembayaranKeHO,
   hitungPendapatan,
-  hitungTagihan,
 } from '@/utils/accountingTerms'
 
 export const BULAN_LABELS_HO = [
@@ -606,7 +605,9 @@ export function buildLaporanHO(opts: {
     m.pct = m.target > 0 ? (m.pendapatan / m.target) * 100 : null
   })
 
-  // ── Piutang aging snapshot per akhir bulan ──────────────────────────────
+  // ── Piutang aging snapshot per akhir bulan (POKOK / DPP saja) ───────────
+  // HO: sisa = max(0, nominal − Σ porsi DPP dari pembayaran s.d. asOf)
+  // Bukan total tagihan ber-PPN/PPH.
   months.forEach(monthIdx => {
     const asOf = endOfMonthKey(tahun, monthIdx)
     allKompensasi.forEach(k => {
@@ -619,12 +620,22 @@ export function buildLaporanHO(opts: {
       const monikaId = resolveMonikaIdHO(k, ks, asetById)
       if (!monikaId) return
 
-      const efektif = hitungTagihan(k)
-      const dibayar = (k.pembayaran ?? [])
-        .filter(p => dateKey(p.tgl_bayar) && dateKey(p.tgl_bayar) <= asOf)
-        .reduce((s, p) => s + (p.nominal_bayar || 0), 0)
-      const sisa = Math.max(0, efektif - dibayar)
-      if (sisa <= 0.5) return
+      const pokok = hitungPendapatan(k)
+      if (pokok <= 0.5) return
+
+      // Porsi DPP yang sudah "terbayar" via alokasi SSOT (bukan full nominal_bayar)
+      let dibayarPokok = 0
+      ;(k.pembayaran ?? []).forEach(p => {
+        const tgl = dateKey(p.tgl_bayar)
+        if (!tgl || tgl > asOf) return
+        const bayar = p.nominal_bayar || 0
+        if (bayar <= 0) return
+        dibayarPokok += alokasiPembayaranKeHO(k, bayar).kompensasi
+      })
+      // Cap: tidak boleh melebihi pokok (kelebihan bayar ke kompensasi tidak bikin sisa negatif)
+      dibayarPokok = Math.min(pokok, Math.max(0, dibayarPokok))
+      const sisaPokok = Math.max(0, pokok - dibayarPokok)
+      if (sisaPokok <= 0.5) return
 
       const hasInv = Boolean(
         (k.invoice_tgl && String(k.invoice_tgl).trim())
@@ -635,7 +646,7 @@ export function buildLaporanHO(opts: {
       if (!hasInv && hariDariJT < 0) return
 
       const a = ensure(monikaId, rkapByMonika.get(monikaId)?.nama || monikaId)
-      addAging(a.piutang[monthIdx], hariDariJT, sisa)
+      addAging(a.piutang[monthIdx], hariDariJT, sisaPokok)
     })
   })
 

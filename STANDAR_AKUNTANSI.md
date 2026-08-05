@@ -88,13 +88,16 @@ Satu baris = satu **ID Monika**.
 | PPH (kolom) | Negatif **hanya** jika `pph_mode = bukti_potong`; jika `none` → 0 (tidak mengurangi Total) |
 | No Billing | Hanya `no_billing_sap`; kosong jika kosong |
 | Capaian | Cash In Total ÷ Target RKAP |
-| Piutang | Snapshot sisa = Tagihan − Σ bayar s.d. akhir bulan |
+| Piutang (HO) | Snapshot sisa **pokok (DPP)** saja: `nominal − Σ porsi DPP dari pembayaran` s.d. akhir bulan — **tanpa** PPN/PPH |
 
 **Invariant wajib:** `Kompensasi + Denda + PPN + PPH + PBB (+ Jaminan) = Total Cash In`  
 **Jangan** hitung Total dari pajak terpisah dari uang masuk — Total selalu = uang masuk aktual.
 
 Helper SSOT: `src/utils/accountingTerms.ts`  
 (`hitungTagihan`, `hitungPendapatan`, `hitungCashInPembayaran`, `alokasiPembayaranKeHO`)
+
+**ID Monika (kode):** agregasi proker memakai `kompensasi.rkap_kode` dulu, fallback `aset.kode_aset`.  
+Jika kode monika berubah (contoh pemisahan Mini Soccer vs Cafe), **update `rkap_kode` di tagihan** ke kode yang benar — jangan mengandalkan nama mitra.
 
 Periode selalu disebut jelas, contoh: **Pendapatan Januari s.d. Juli 2026**.
 

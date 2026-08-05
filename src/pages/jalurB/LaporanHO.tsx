@@ -437,7 +437,7 @@ export default function LaporanHO() {
             <> Pendapatan akrual (by JT): <strong>Target · Pendapatan · No Billing · %</strong> (tanpa PPN/PPH/PBB).</>
           )}
           {tab === 'piutang' && (
-            <> Aging snapshot akhir {bulanLabel} {tahun}.</>
+            <> Piutang HO = sisa <strong>pokok (DPP)</strong> saja (tanpa PPN/PPH) · aging akhir {bulanLabel} {tahun}.</>
           )}
           {' '}Excel satuan Rp 000.
         </span>
@@ -920,12 +920,12 @@ function PiutangTable({
         <div>
           <p className="text-sm font-semibold text-gray-800">{periodPiutang}</p>
           <p className="text-[11px] text-gray-500">
-            {withSaldo} proker masih punya sisa tagihan · periode laporan {periodLabel}
+            {withSaldo} proker sisa pokok (DPP) · tanpa PPN/PPH · {periodLabel}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-[11px]">
           <span className="font-semibold text-amber-900 bg-amber-50 border border-amber-100 rounded-full px-2.5 py-0.5">
-            Sisa {formatShort(tSaldo)}
+            Sisa pokok {formatShort(tSaldo)}
           </span>
         </div>
       </div>
@@ -935,7 +935,7 @@ function PiutangTable({
             <tr className="bg-[#1B4F72] text-white">
               <MasterHead />
               <th colSpan={7} className="px-2 py-2 text-center border-l border-white/25 font-semibold bg-amber-800">
-                {periodPiutang}
+                {periodPiutang} · pokok saja
               </th>
             </tr>
             <tr className="bg-[#163f5c] text-white/95">

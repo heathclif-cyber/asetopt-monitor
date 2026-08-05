@@ -98,37 +98,23 @@ function statusLabelAset(status: string | undefined): string {
 }
 
 /**
- * Resolusi proker by ID Monika (kode).
+ * Resolusi proker by **ID Monika (kode)** — SSOT untuk HO / RKAP / laporan.
  *
- * SSOT prioritas:
- * 1. Jika KS multi-aset dan `rkap_kode` salah satu aset di `kerja_sama_aset` → pakai rkap_kode
- * 2. Jika `rkap_kode` === kode aset KS → pakai itu
- * 3. Jika **konflik** (rkap ≠ aset KS, bukan multi) → **percaya aset KS**
- *    (mitra terikat aset fisik; rkap_kode sering salah isi — ex Mari Bangun Cafe
- *    rkap=R800006 Mini Soccer padahal aset=R800026)
- * 4. Aset KS → rkap_kode → null
+ * Urutan:
+ * 1. `kompensasi.rkap_kode` (kode monika di tagihan) — **utama**
+ * 2. `aset.kode_aset` dari KS (fallback jika rkap_kode kosong)
+ *
+ * Jika monika pindah/berubah (ex Mini Soccer vs Cafe), **perbaiki rkap_kode
+ * di tagihan** agar mengarah ke kode yang benar — jangan tebak dari mitra/aset.
  */
 export function resolveMonikaId(
   k: Kompensasi,
   ks: KerjaSama | undefined,
 ): string | null {
   const rkapKode = k.rkap_kode?.trim() || ''
-  const asetKode = (ks?.aset as Aset | undefined)?.kode_aset?.trim() || ''
-
-  const multiKodes = (ks?.kerja_sama_aset ?? [])
-    .map(x => (x.aset as Aset | undefined)?.kode_aset?.trim() || '')
-    .filter(Boolean)
-  if (rkapKode && multiKodes.length > 0 && multiKodes.includes(rkapKode)) {
-    return rkapKode
-  }
-
-  if (rkapKode && asetKode && rkapKode === asetKode) return rkapKode
-
-  // Konflik: jangan biarkan rkap salah menarik cash ke proker lain
-  if (asetKode && rkapKode && rkapKode !== asetKode) return asetKode
-
-  if (asetKode) return asetKode
   if (rkapKode) return rkapKode
+  const asetKode = (ks?.aset as Aset | undefined)?.kode_aset?.trim() || ''
+  if (asetKode) return asetKode
   return null
 }
 

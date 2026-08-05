@@ -495,7 +495,7 @@ function buildPiutangSheet(
   writeTitleBlock(
     ws,
     'MONITORING PIUTANG',
-    'Format HO — Aging piutang snapshot akhir bulan (invoice terbit atau sudah JT, sisa > 0)',
+    'Format HO — Aging sisa POKOK (DPP) saja, tanpa PPN/PPH. Snapshot akhir bulan.',
     tahun,
     months,
     colCount,
@@ -588,7 +588,7 @@ function buildPiutangSheet(
   rIdx += 2
   ws.mergeCells(rIdx, 1, rIdx, Math.min(8, colCount))
   ws.getCell(rIdx, 1).value =
-    'Catatan: Semua kolom uang dalam Rp 000 (nilai asli ÷ 1.000). Aging dari tgl jatuh tempo. Contoh: 50.000 = Rp 50.000.000'
+    'Catatan: Piutang HO = sisa pokok (DPP) saja, bukan total tagihan ber-pajak. Rp 000. Aging dari tgl jatuh tempo.'
   ws.getCell(rIdx, 1).font = { name: 'Calibri', size: 8, italic: true, color: { argb: 'FF64748B' } }
 
   return ws
