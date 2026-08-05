@@ -614,7 +614,7 @@ function PendapatanTable({
               <th className="px-2 py-1.5 text-right font-normal min-w-[80px] text-red-200">PPH</th>
               <th className="px-2 py-1.5 text-right font-normal min-w-[72px] bg-amber-900/40">PBB</th>
               <th className="px-2 py-1.5 text-right font-normal min-w-[100px]">Cash In</th>
-              <th className="px-2 py-1.5 text-left font-normal min-w-[100px]">No Dok (SAP)</th>
+              <th className="px-2 py-1.5 text-left font-normal min-w-[100px]">No Billing</th>
               <th className="px-2 py-1.5 text-center font-normal min-w-[48px]">%</th>
             </tr>
           </thead>

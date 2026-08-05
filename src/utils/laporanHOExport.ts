@@ -254,7 +254,7 @@ function buildPendapatanSheet(
     styleHeader(top)
     for (let c = start; c <= end; c++) styleHeader(ws.getCell(h1, c))
 
-    ;['Target RKAP', 'Pendapatan', 'PPN', 'PPH', 'PBB', 'Cash In', 'No Dok (SAP)', '%'].forEach((s, j) => {
+    ;['Target RKAP', 'Pendapatan', 'PPN', 'PPH', 'PBB', 'Cash In', 'No Billing', '%'].forEach((s, j) => {
       const cell = ws.getCell(h2, start + j)
       cell.value = s
       styleHeader(cell)

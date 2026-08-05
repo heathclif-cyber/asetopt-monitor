@@ -439,7 +439,8 @@ export function buildLaporanHO(opts: {
       m.kompensasi += pokok
       m.ppn += ppn
       m.pph += pph // sudah negatif
-      m.noDokSap = pushDok(m.noDokSap, k.no_billing_sap || k.no_invoice_sap || p.no_pembayaran)
+      // No Dok SAP = No Billing saja; kosong jika belum ada
+      m.noDokSap = pushDok(m.noDokSap, k.no_billing_sap)
     })
   })
 
@@ -557,7 +558,8 @@ export function buildLaporanHO(opts: {
     invoicePokokByMonikaMonth.set(key, (invoicePokokByMonikaMonth.get(key) ?? 0) + pokok)
     m.ppn += ppn
     m.pph += pphAbs > 0 ? -pphAbs : 0 // PPH minus
-    m.noDokSap = pushDok(m.noDokSap, k.no_invoice_sap || k.no_billing_sap)
+    // No Dok SAP = No Billing saja; kosong jika belum ada
+    m.noDokSap = pushDok(m.noDokSap, k.no_billing_sap)
   })
 
   // Set pokok pendapatan: prefer akrual jika ada, else sum invoice
