@@ -302,9 +302,8 @@ export default function LaporanHO() {
       <p className="text-[11px] text-gray-400 flex items-start gap-1.5 pb-4">
         <FileSpreadsheet size={12} className="mt-0.5 shrink-0" />
         <span>
-          Kolom master mengikuti database HO (Obyek, Monika, PKS, Lokasi, Alamat, Skema, Mitra, Bidang Usaha,
-          Alas Hak, Luas, Mulai/Akhir, Total Kompensasi, RKAP/Non-RKAP). Realisasi bulanan: Target + Kompensasi +
-          Denda + PPN + PPH + <strong>PBB</strong> + Jaminan + No Dok SAP + Total + %.
+          <strong>Kompensasi = Pokok</strong> (kolom <code className="text-[10px]">nominal</code> / DPP),
+          terpisah dari PPN · PPH · PBB · Denda. Bukan total tagihan / total bayar.
         </span>
       </p>
     </div>
@@ -454,14 +453,16 @@ function CashTable({ rows, bulan, tahun }: { rows: HOMasterRow[]; bulan: number;
                 <th key={i} className={cn(i < 2 && 'sticky z-20 bg-[#163f5c]', i === 0 && 'left-0', i === 1 && 'left-9')} />
               ))}
               <th className="px-2 py-1.5 text-right border-l border-white/15 font-normal min-w-[88px]">Target</th>
-              <th className="px-2 py-1.5 text-right font-normal min-w-[92px]">Kompensasi</th>
+              <th className="px-2 py-1.5 text-right font-normal min-w-[100px]" title="Sama dengan Pokok (DPP / nominal)">
+                Kompensasi<br /><span className="text-[9px] font-normal opacity-80">(Pokok)</span>
+              </th>
               <th className="px-2 py-1.5 text-right font-normal min-w-[72px]">Denda</th>
               <th className="px-2 py-1.5 text-right font-normal min-w-[72px]">PPN</th>
               <th className="px-2 py-1.5 text-right font-normal min-w-[72px]">PPH</th>
               <th className="px-2 py-1.5 text-right font-normal min-w-[72px] bg-amber-900/40">PBB</th>
               <th className="px-2 py-1.5 text-right font-normal min-w-[72px]">Jaminan</th>
               <th className="px-2 py-1.5 text-left font-normal min-w-[100px]">No Dok (SAP)</th>
-              <th className="px-2 py-1.5 text-right font-normal min-w-[96px]">Total s.d. PBB</th>
+              <th className="px-2 py-1.5 text-right font-normal min-w-[96px]">Total</th>
               <th className="px-2 py-1.5 text-center font-normal min-w-[48px]">%</th>
             </tr>
           </thead>

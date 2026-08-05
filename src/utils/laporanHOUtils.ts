@@ -25,6 +25,7 @@ export const BULAN_LABELS_HO = [
 
 export interface HOCashMonth {
   target: number
+  /** Realisasi kompensasi = pokok (DPP / nominal), bukan total tagihan */
   kompensasi: number
   denda: number
   ppn: number
@@ -248,31 +249,42 @@ function pushDok(existing: string, next: string | null | undefined): string {
 }
 
 /**
- * Alokasi pembayaran ke komponen HO (Kompensasi/DPP, PPN, PPH) proporsional ke tagihan.
+ * Alokasi pembayaran → kolom realisasi Cash In HO.
+ *
+ * Aturan bisnis (selaras RKAP Monitor & template HO):
+ * - **Kompensasi = Pokok** = `nominal` (DPP), BUKAN total bayar / total tagihan
+ * - **PPN** = `nominal_ppn`
+ * - **PPH** ke rekening Regional hanya jika pph_mode ≠ bukti_potong
+ *   (bukti potong: PPH disetor mitra ke pajak, tidak masuk cash regional)
+ *
+ * Proporsi: bayar / efektif_tagihan (tanpa men-scale ulang ke total bayar,
+ * agar lunas penuh → Kompensasi = pokok utuh).
  */
-function allocatePayment(k: Kompensasi, bayar: number): { dpp: number; ppn: number; pph: number } {
-  const efektif = Math.max(0, (k.total_tagihan ?? 0) - (k.pengurang ?? 0))
-  if (efektif <= 0 || bayar <= 0) {
-    return { dpp: bayar, ppn: 0, pph: 0 }
-  }
-  const dppBase = Math.max(0, k.nominal ?? 0)
+function allocatePayment(k: Kompensasi, bayar: number): { pokok: number; ppn: number; pph: number } {
+  if (bayar <= 0) return { pokok: 0, ppn: 0, pph: 0 }
+
+  const pokokBase = Math.max(0, k.nominal ?? 0)
   const ppnBase = Math.max(0, k.nominal_ppn ?? 0)
   const pphBase = Math.max(0, k.nominal_pph ?? 0)
-  const parts = dppBase + ppnBase + pphBase
-  if (parts <= 0) return { dpp: bayar, ppn: 0, pph: 0 }
-  const ratio = bayar / efektif
-  // Skala ke proporsi komponen di tagihan, lalu normalisasi agar jumlah ≈ bayar
-  let dpp = dppBase * ratio
-  let ppn = ppnBase * ratio
-  let pph = pphBase * ratio
-  const sum = dpp + ppn + pph
-  if (sum > 0 && Math.abs(sum - bayar) > 1) {
-    const scale = bayar / sum
-    dpp *= scale
-    ppn *= scale
-    pph *= scale
+  const pengurang = Math.max(0, k.pengurang ?? 0)
+  const efektif = Math.max(0, (k.total_tagihan ?? 0) - pengurang)
+
+  // Tanpa struktur tagihan → seluruh pembayaran dianggap pokok (kompensasi)
+  if (efektif <= 0 || pokokBase <= 0) {
+    return { pokok: bayar, ppn: 0, pph: 0 }
   }
-  return { dpp, ppn, pph }
+
+  const ratio = Math.min(1, bayar / efektif)
+  const pokok = pokokBase * ratio
+  const ppn = ppnBase * ratio
+  // bukti_potong: PPH tidak masuk rekening Regional
+  const pphCash =
+    (k.pph_mode ?? 'none') === 'bukti_potong' ? 0 : pphBase * ratio
+
+  // Kelebihan bayar di atas efektif → masuk pokok
+  const over = bayar > efektif ? bayar - efektif : 0
+
+  return { pokok: pokok + over, ppn, pph: pphCash }
 }
 
 export function buildLaporanHO(opts: {
@@ -382,8 +394,8 @@ export function buildLaporanHO(opts: {
     const rkap = rkapByMonika.get(monikaId)
     const a = ensure(monikaId, rkap?.nama || aset?.nama_aset || monikaId)
 
-    const efektif = Math.max(0, (k.total_tagihan ?? 0) - (k.pengurang ?? 0))
-    a.totalKompensasiFix += efektif
+    // Total Kompensasi Fix (HO) = akumulasi pokok (nominal), bukan total tagihan ber-PPN
+    a.totalKompensasiFix += Math.max(0, k.nominal ?? 0)
 
     ;(k.pembayaran ?? []).forEach(p => {
       const parsed = parseYMD(p.tgl_bayar)
@@ -391,9 +403,10 @@ export function buildLaporanHO(opts: {
       if (!monthSet.has(parsed.m)) return
       const bayar = p.nominal_bayar || 0
       if (bayar <= 0) return
-      const { dpp, ppn, pph } = allocatePayment(k, bayar)
+      // Kompensasi HO = pokok
+      const { pokok, ppn, pph } = allocatePayment(k, bayar)
       const m = a.cash[parsed.m]
-      m.kompensasi += dpp
+      m.kompensasi += pokok
       m.ppn += ppn
       m.pph += pph
       m.noDokSap = pushDok(m.noDokSap, k.no_billing_sap || k.no_invoice_sap || p.no_pembayaran)
