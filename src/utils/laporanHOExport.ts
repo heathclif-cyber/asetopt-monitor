@@ -254,7 +254,7 @@ function buildPendapatanSheet(
     styleHeader(top)
     for (let c = start; c <= end; c++) styleHeader(ws.getCell(h1, c))
 
-    ;['Target RKAP', 'Pendapatan', 'PPN', 'PPH', 'PBB', 'Jumlah + pajak', 'No Dok (SAP)', '%'].forEach((s, j) => {
+    ;['Target RKAP', 'Pendapatan', 'PPN', 'PPH', 'PBB', 'Cash In', 'No Dok (SAP)', '%'].forEach((s, j) => {
       const cell = ws.getCell(h2, start + j)
       cell.value = s
       styleHeader(cell)
@@ -331,7 +331,7 @@ function buildPendapatanSheet(
   rIdx += 2
   ws.mergeCells(rIdx, 1, rIdx, Math.min(8, colCount))
   ws.getCell(rIdx, 1).value =
-    'Catatan: Semua nilai uang dalam Rp 000. Pendapatan = nilai sewa/tagihan utama. Jumlah + pajak = pendapatan + PPN + PPH + PBB. PPH dikurangi (minus). % = pendapatan dibanding target.'
+    'Catatan: Semua nilai uang dalam Rp 000. Pendapatan = nilai sewa/tagihan utama. Cash In = pendapatan + PPN + PPH + PBB. PPH dikurangi (minus). % = pendapatan dibanding target.'
   ws.getCell(rIdx, 1).font = { name: 'Calibri', size: 8, italic: true, color: { argb: 'FF64748B' } }
 
   return ws
@@ -527,9 +527,9 @@ function buildRingkasanSheet(
     { uraian: '  PPH', value: s.pendapatanPph, ket: 'Dikurangi — terpisah dari pendapatan', danger: true },
     { uraian: '  PBB', value: s.pendapatanPbb, ket: 'Pajak — terpisah dari pendapatan' },
     {
-      uraian: `Jumlah + PPN + PPH + PBB · ${periodLabel}`,
+      uraian: `Cash In ${periodLabel}`,
       value: s.totalSdPajak,
-      ket: 'Pendapatan ditambah pajak',
+      ket: 'Pendapatan + PPN + PPH + PBB',
       bold: true,
     },
     {

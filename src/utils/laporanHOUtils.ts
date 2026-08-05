@@ -102,7 +102,7 @@ export interface HOSummary {
   pendapatanPpn: number
   pendapatanPph: number
   pendapatanPbb: number
-  /** Pokok + PPN + PPH(−) + PBB — label UI: Total s.d. pajak */
+  /** Cash In = Pendapatan + PPN + PPH(−) + PBB */
   totalSdPajak: number
   saldoPiutang: number
   /** Breakdown aging piutang bulan terakhir di filter */

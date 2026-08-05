@@ -378,7 +378,8 @@ export default function LaporanHO() {
         <FileSpreadsheet size={12} className="mt-0.5 shrink-0" />
         <span>
           Angka di atas mengikuti periode: <strong>{periodLabel}</strong>.
-          PPN, PPH, dan PBB ditampilkan terpisah (bukan bagian dari angka pendapatan).
+          <strong> Pendapatan</strong> = nilai sewa/tagihan utama.
+          <strong> Cash In</strong> = pendapatan + PPN + PPH + PBB.
         </span>
       </p>
     </div>
@@ -435,7 +436,7 @@ function TotalBar({
           accent="strong"
         />
         <TotalCell
-          label={`Jumlah + PPN + PPH + PBB (${periodLabel})`}
+          label={`Cash In (${periodLabel})`}
           value={summary.totalSdPajak}
           accent="navy"
         />
@@ -612,7 +613,7 @@ function PendapatanTable({
               <th className="px-2 py-1.5 text-right font-normal min-w-[72px]">PPN</th>
               <th className="px-2 py-1.5 text-right font-normal min-w-[80px] text-red-200">PPH</th>
               <th className="px-2 py-1.5 text-right font-normal min-w-[72px] bg-amber-900/40">PBB</th>
-              <th className="px-2 py-1.5 text-right font-normal min-w-[100px]">Jumlah + pajak</th>
+              <th className="px-2 py-1.5 text-right font-normal min-w-[100px]">Cash In</th>
               <th className="px-2 py-1.5 text-left font-normal min-w-[100px]">No Dok (SAP)</th>
               <th className="px-2 py-1.5 text-center font-normal min-w-[48px]">%</th>
             </tr>
