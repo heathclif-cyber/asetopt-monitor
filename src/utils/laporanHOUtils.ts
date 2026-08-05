@@ -703,9 +703,13 @@ export function summarizeHO(rows: HOMasterRow[], months: number[]): HOSummary {
   }
 }
 
-/** Konversi Rupiah → satuan HO (Rp 000). Pertahankan tanda (PPH minus). */
+/**
+ * Konversi Rupiah penuh → satuan HO **Rp 000** (÷ 1.000).
+ * Pertahankan tanda (PPH minus).
+ * Contoh: 7_500_000 → 7_500
+ */
 export function toRp000(value: number): number {
-  if (!value) return 0
+  if (value == null || Number.isNaN(value) || value === 0) return 0
   return Math.round(value / 1000)
 }
 

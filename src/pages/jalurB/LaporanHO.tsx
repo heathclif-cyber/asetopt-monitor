@@ -186,8 +186,8 @@ export default function LaporanHO() {
 
       <ExportExcelPanel
         title="Ekspor Excel Format HO"
-        description={`2 sheet: Pendapatan · Piutang — hanya ${bulanLabel} ${tahun}. Satuan Excel: Rp 000.`}
-        meta={`${filtered.length} proker · ${bulanLabel} ${tahun}`}
+        description={`2 sheet: Pendapatan · Piutang · ${bulanLabel} ${tahun}. Semua nilai uang dalam Rp 000 (÷1.000).`}
+        meta={`${filtered.length} proker · satuan Rp 000`}
         fileNameHint={`Laporan_HO_Proker_${tahun}_….xlsx`}
         onExport={handleExport}
         loading={exporting}

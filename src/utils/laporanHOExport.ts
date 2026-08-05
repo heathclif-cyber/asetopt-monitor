@@ -38,9 +38,22 @@ function styleMeta(cell: ExcelJS.Cell, bold = false, size = 11) {
   cell.alignment = { vertical: 'middle', horizontal: 'left' }
 }
 
+/** Nilai uang sudah dalam satuan Rp 000 (÷1000). */
 function moneyCell(cell: ExcelJS.Cell, value: number, alt: boolean) {
-  cell.value = value
+  cell.value = Math.round(value || 0)
   cell.numFmt = MONEY_FMT
+  cell.alignment = { horizontal: 'right', vertical: 'middle' }
+  cell.border = thin()
+  cell.font = { name: 'Calibri', size: 9 }
+  if (value < 0) {
+    cell.font = { name: 'Calibri', size: 9, color: { argb: 'FFB91C1C' } }
+  }
+  if (alt) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: ALT } }
+}
+
+function intCell(cell: ExcelJS.Cell, value: number | null | undefined, alt: boolean) {
+  cell.value = value ?? ''
+  cell.numFmt = '0'
   cell.alignment = { horizontal: 'right', vertical: 'middle' }
   cell.border = thin()
   cell.font = { name: 'Calibri', size: 9 }
@@ -135,9 +148,23 @@ function writeTitleBlock(
   ws.mergeCells(5, 1, 5, Math.min(colCount, 10))
   const c5 = ws.getCell(5, 1)
   const bulanLabel = months.map(m => BULAN_LABELS_HO[m]).join(', ')
-  c5.value = `${subtitle} · Bulan: ${bulanLabel} · Satuan: Rp 000 · Diekspor: ${todayKey()}`
+  c5.value = `${subtitle} · Bulan: ${bulanLabel} · Diekspor: ${todayKey()}`
   c5.font = { name: 'Calibri', size: 9, italic: true, color: { argb: 'FF64748B' } }
+
+  // Banner satuan — selaras template HO Rekap
+  ws.mergeCells(6, 1, 6, Math.min(colCount, 12))
+  const c6 = ws.getCell(6, 1)
+  c6.value = 'Dalam Rp 000 (ribu rupiah), kecuali dinyatakan lain. Contoh: 7.500 = Rp 7.500.000'
+  c6.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF0F766E' } }
+  c6.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFECFDF5' } }
+  c6.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 }
+  ws.getRow(6).height = 18
 }
+
+/** Index kolom master (0-based) yang berupa uang → sudah /1000 (Rp 000) */
+const MASTER_MONEY_IDX = new Set([14, 15, 16, 17, 18, 19, 20])
+/** Index non-uang numerik: No, Luas, Jangka */
+const MASTER_INT_IDX = new Set([0, 10, 13])
 
 function writeMasterCells(ws: ExcelJS.Worksheet, rowIdx: number, r: HOMasterRow, alt: boolean) {
   const vals: (string | number | null)[] = [
@@ -165,7 +192,9 @@ function writeMasterCells(ws: ExcelJS.Worksheet, rowIdx: number, r: HOMasterRow,
   ]
   vals.forEach((v, i) => {
     const cell = ws.getCell(rowIdx, i + 1)
-    if (typeof v === 'number') moneyCell(cell, v, alt)
+    if (MASTER_MONEY_IDX.has(i) && typeof v === 'number') moneyCell(cell, v, alt)
+    else if (MASTER_INT_IDX.has(i) && typeof v === 'number') intCell(cell, v, alt)
+    else if (typeof v === 'number') intCell(cell, v, alt)
     else textCell(cell, v, alt, i === 0 ? 'center' : 'left')
   })
 }
@@ -179,7 +208,7 @@ function buildPendapatanSheet(
   months: number[],
 ) {
   const ws = wb.addWorksheet('Pendapatan', {
-    views: [{ state: 'frozen', xSplit: 3, ySplit: 8, showGridLines: false }],
+    views: [{ state: 'frozen', xSplit: 3, ySplit: 9, showGridLines: false }],
   })
 
   // Per bulan: Target | Pendapatan | PPN | PPH | PBB | Total | No Dok SAP | %
@@ -195,12 +224,14 @@ function buildPendapatanSheet(
     })
   }
 
-  writeTitleBlock(ws, 'MONITORING PENERIMAAN PENDAPATAN', 'Format HO — Realisasi Pendapatan (akrual / DPP tagihan)', tahun, months, colCount)
+  writeTitleBlock(ws, 'MONITORING PENERIMAAN PENDAPATAN', 'Format HO — Realisasi Pendapatan (pokok / akrual)', tahun, months, colCount)
 
+  // Header mulai baris 7 (setelah banner satuan di baris 6)
   const h1 = 7
   const h2 = 8
+  const h3 = 9
   MASTER_HEADERS.forEach((h, i) => {
-    ws.mergeCells(h1, i + 1, h2, i + 1)
+    ws.mergeCells(h1, i + 1, h3, i + 1)
     const cell = ws.getCell(h1, i + 1)
     cell.value = h
     styleHeader(cell)
@@ -211,7 +242,7 @@ function buildPendapatanSheet(
     const end = start + subPerMonth - 1
     ws.mergeCells(h1, start, h1, end)
     const top = ws.getCell(h1, start)
-    top.value = BULAN_LABELS_HO[m]
+    top.value = `${BULAN_LABELS_HO[m]} (Rp 000)`
     styleHeader(top)
     for (let c = start; c <= end; c++) styleHeader(ws.getCell(h1, c))
 
@@ -220,11 +251,18 @@ function buildPendapatanSheet(
       cell.value = s
       styleHeader(cell)
     })
+    // Baris satuan per kolom uang (seperti template HO)
+    ;['(Rp 000)', '(Rp 000)', '(Rp 000)', '(Rp 000)', '(Rp 000)', '(Rp 000)', '', ''].forEach((s, j) => {
+      const cell = ws.getCell(h3, start + j)
+      cell.value = s
+      styleHeader(cell)
+    })
   })
   ws.getRow(h1).height = 22
   ws.getRow(h2).height = 28
+  ws.getRow(h3).height = 16
 
-  let rIdx = 9
+  let rIdx = 10
   const totals = months.map(() => ({
     target: 0, pendapatan: 0, ppn: 0, pph: 0, pbb: 0, total: 0,
   }))
@@ -284,7 +322,7 @@ function buildPendapatanSheet(
   rIdx += 2
   ws.mergeCells(rIdx, 1, rIdx, Math.min(8, colCount))
   ws.getCell(rIdx, 1).value =
-    'Catatan: Pendapatan dari pengakuan akrual PSAK 73 (status diakui); fallback ke DPP tagihan JT di bulan tsb jika akrual belum ada. Satuan Rp 000.'
+    'Catatan: Semua kolom uang dalam Rp 000 (nilai asli ÷ 1.000). Pendapatan = pokok tagihan JT / akrual. PPH negatif. Contoh: 7.500 = Rp 7.500.000'
   ws.getCell(rIdx, 1).font = { name: 'Calibri', size: 8, italic: true, color: { argb: 'FF64748B' } }
 
   return ws
@@ -299,12 +337,10 @@ function buildPiutangSheet(
   months: number[],
 ) {
   const ws = wb.addWorksheet('Piutang', {
-    views: [{ state: 'frozen', xSplit: 3, ySplit: 8, showGridLines: false }],
+    views: [{ state: 'frozen', xSplit: 3, ySplit: 9, showGridLines: false }],
   })
 
-  // Per bulan: 1-30, 31-60, 61-90, 91-180, 181-360, >361, Saldo
   const subPerMonth = 7
-  // Master subset for piutang (HO drops Status Alas Hak from some cols — keep consistent)
   const masterCount = MASTER_HEADERS.length
   const colCount = masterCount + months.length * subPerMonth
 
@@ -327,8 +363,9 @@ function buildPiutangSheet(
 
   const h1 = 7
   const h2 = 8
+  const h3 = 9
   MASTER_HEADERS.forEach((h, i) => {
-    ws.mergeCells(h1, i + 1, h2, i + 1)
+    ws.mergeCells(h1, i + 1, h3, i + 1)
     const cell = ws.getCell(h1, i + 1)
     cell.value = h
     styleHeader(cell)
@@ -348,11 +385,17 @@ function buildPiutangSheet(
       cell.value = s
       styleHeader(cell)
     })
+    ;['(Rp 000)', '(Rp 000)', '(Rp 000)', '(Rp 000)', '(Rp 000)', '(Rp 000)', '(Rp 000)'].forEach((s, j) => {
+      const cell = ws.getCell(h3, start + j)
+      cell.value = s
+      styleHeader(cell)
+    })
   })
   ws.getRow(h1).height = 22
   ws.getRow(h2).height = 28
+  ws.getRow(h3).height = 16
 
-  let rIdx = 9
+  let rIdx = 10
   const totals = months.map(() => ({
     a1: 0, a2: 0, a3: 0, a4: 0, a5: 0, a6: 0, saldo: 0,
   }))
@@ -364,10 +407,15 @@ function buildPiutangSheet(
       const pm = r.piutangByMonth[m]
       const base = masterCount + mi * subPerMonth + 1
       const vals = [
-        pm.aging1_30, pm.aging31_60, pm.aging61_90,
-        pm.aging91_180, pm.aging181_360, pm.aging361, pm.saldo,
+        toRp000(pm.aging1_30),
+        toRp000(pm.aging31_60),
+        toRp000(pm.aging61_90),
+        toRp000(pm.aging91_180),
+        toRp000(pm.aging181_360),
+        toRp000(pm.aging361),
+        toRp000(pm.saldo),
       ]
-      vals.forEach((v, j) => moneyCell(ws.getCell(rIdx, base + j), toRp000(v), alt))
+      vals.forEach((v, j) => moneyCell(ws.getCell(rIdx, base + j), v, alt))
       totals[mi].a1 += pm.aging1_30
       totals[mi].a2 += pm.aging31_60
       totals[mi].a3 += pm.aging61_90
@@ -400,7 +448,7 @@ function buildPiutangSheet(
   rIdx += 2
   ws.mergeCells(rIdx, 1, rIdx, Math.min(8, colCount))
   ws.getCell(rIdx, 1).value =
-    'Catatan: Snapshot outstanding per akhir bulan (bukan rolling formula HO dari Pendapatan−Cash). Aging dari tgl jatuh tempo. Satuan Rp 000.'
+    'Catatan: Semua kolom uang dalam Rp 000 (nilai asli ÷ 1.000). Aging dari tgl jatuh tempo. Contoh: 50.000 = Rp 50.000.000'
   ws.getCell(rIdx, 1).font = { name: 'Calibri', size: 8, italic: true, color: { argb: 'FF64748B' } }
 
   return ws
