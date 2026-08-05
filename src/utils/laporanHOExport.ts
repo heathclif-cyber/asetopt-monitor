@@ -1,6 +1,7 @@
 /**
- * Export Excel format HO — sheet Cash, Pendapatan, Piutang
+ * Export Excel format HO — sheet Pendapatan & Piutang
  * (meniru struktur Proker Optimalisasi Aset PTPN I / Regional 8).
+ * Sheet Cash In tidak diekspor.
  *
  * Satuan nilai: Rp 000 (÷1000) sesuai template HO.
  */
@@ -167,142 +168,6 @@ function writeMasterCells(ws: ExcelJS.Worksheet, rowIdx: number, r: HOMasterRow,
     if (typeof v === 'number') moneyCell(cell, v, alt)
     else textCell(cell, v, alt, i === 0 ? 'center' : 'left')
   })
-}
-
-// ── Cash sheet ──────────────────────────────────────────────────────────────
-
-function buildCashSheet(
-  wb: ExcelJS.Workbook,
-  rows: HOMasterRow[],
-  tahun: number,
-  months: number[],
-) {
-  const ws = wb.addWorksheet('Cash', {
-    views: [{ state: 'frozen', xSplit: 3, ySplit: 8, showGridLines: false }],
-  })
-
-  // Per bulan: Target | Kompensasi | Denda | PPN | PPH | PBB | Jaminan | No Dok SAP | Total | %
-  const subPerMonth = 10
-  const masterCount = MASTER_HEADERS.length
-  const colCount = masterCount + months.length * subPerMonth
-
-  MASTER_WIDTHS.forEach((w, i) => { ws.getColumn(i + 1).width = w })
-  for (let i = 0; i < months.length; i++) {
-    const base = masterCount + i * subPerMonth
-    ;[10, 11, 10, 10, 10, 10, 10, 14, 12, 8].forEach((w, j) => {
-      ws.getColumn(base + j + 1).width = w
-    })
-  }
-
-  writeTitleBlock(ws, 'MONITORING PENERIMAAN CASH IN', 'Format HO — Realisasi Cash In per proker', tahun, months, colCount)
-
-  // Header rows 7–8
-  const h1 = 7
-  const h2 = 8
-  MASTER_HEADERS.forEach((h, i) => {
-    ws.mergeCells(h1, i + 1, h2, i + 1)
-    const cell = ws.getCell(h1, i + 1)
-    cell.value = h
-    styleHeader(cell)
-  })
-
-  months.forEach((m, mi) => {
-    const start = masterCount + mi * subPerMonth + 1
-    const end = start + subPerMonth - 1
-    ws.mergeCells(h1, start, h1, end)
-    const top = ws.getCell(h1, start)
-    top.value = BULAN_LABELS_HO[m]
-    styleHeader(top)
-    for (let c = start; c <= end; c++) styleHeader(ws.getCell(h1, c))
-
-    const subs = [
-      'Target', 'Kompensasi (Pokok)', 'Denda', 'PPN', 'PPH (−)', 'PBB', 'Jaminan', 'No Dok (SAP)', 'Total Diluar Jaminan', '%',
-    ]
-    subs.forEach((s, j) => {
-      const cell = ws.getCell(h2, start + j)
-      cell.value = s
-      styleHeader(cell)
-    })
-  })
-  ws.getRow(h1).height = 22
-  ws.getRow(h2).height = 28
-
-  // Data
-  let rIdx = 9
-  const totals = months.map(() => ({
-    target: 0, kompensasi: 0, denda: 0, ppn: 0, pph: 0, pbb: 0, jaminan: 0, total: 0,
-  }))
-
-  rows.forEach((r, ri) => {
-    const alt = ri % 2 === 1
-    writeMasterCells(ws, rIdx, r, alt)
-    months.forEach((m, mi) => {
-      const cm = r.cashByMonth[m]
-      const base = masterCount + mi * subPerMonth + 1
-      const vals = [
-        toRp000(cm.target),
-        toRp000(cm.kompensasi),
-        toRp000(cm.denda),
-        toRp000(cm.ppn),
-        toRp000(cm.pph),
-        toRp000(cm.pbb),
-        toRp000(cm.jaminan),
-      ]
-      vals.forEach((v, j) => moneyCell(ws.getCell(rIdx, base + j), v, alt))
-      textCell(ws.getCell(rIdx, base + 7), cm.noDokSap, alt)
-      moneyCell(ws.getCell(rIdx, base + 8), toRp000(cm.totalDiluarJaminan), alt)
-      pctCell(ws.getCell(rIdx, base + 9), cm.pct, alt)
-
-      totals[mi].target += cm.target
-      totals[mi].kompensasi += cm.kompensasi
-      totals[mi].denda += cm.denda
-      totals[mi].ppn += cm.ppn
-      totals[mi].pph += cm.pph
-      totals[mi].pbb += cm.pbb
-      totals[mi].jaminan += cm.jaminan
-      totals[mi].total += cm.totalDiluarJaminan
-    })
-    rIdx += 1
-  })
-
-  // Total row
-  for (let c = 1; c <= masterCount; c++) {
-    const cell = ws.getCell(rIdx, c)
-    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TOTAL_BG } }
-    cell.border = thin()
-    cell.font = { name: 'Calibri', size: 9, bold: true }
-    if (c === 2) cell.value = 'TOTAL'
-  }
-  months.forEach((_, mi) => {
-    const t = totals[mi]
-    const base = masterCount + mi * subPerMonth + 1
-    const vals = [t.target, t.kompensasi, t.denda, t.ppn, t.pph, t.pbb, t.jaminan]
-    vals.forEach((v, j) => {
-      const cell = ws.getCell(rIdx, base + j)
-      moneyCell(cell, toRp000(v), false)
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TOTAL_BG } }
-      cell.font = { name: 'Calibri', size: 9, bold: true }
-    })
-    const dok = ws.getCell(rIdx, base + 7)
-    textCell(dok, '', false)
-    dok.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TOTAL_BG } }
-    const tot = ws.getCell(rIdx, base + 8)
-    moneyCell(tot, toRp000(t.total), false)
-    tot.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TOTAL_BG } }
-    tot.font = { name: 'Calibri', size: 9, bold: true }
-    const pct = t.target > 0 ? (t.total / t.target) * 100 : null
-    const pc = ws.getCell(rIdx, base + 9)
-    pctCell(pc, pct, false)
-    pc.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: TOTAL_BG } }
-  })
-
-  rIdx += 2
-  ws.mergeCells(rIdx, 1, rIdx, Math.min(8, colCount))
-  ws.getCell(rIdx, 1).value =
-    'Catatan: Kompensasi = Pokok (DPP). PPH dicatat NEGATIF (mengurangi total). Cash In by tgl bayar. Denda dari cash_in. Satuan Rp 000.'
-  ws.getCell(rIdx, 1).font = { name: 'Calibri', size: 8, italic: true, color: { argb: 'FF64748B' } }
-
-  return ws
 }
 
 // ── Pendapatan sheet ────────────────────────────────────────────────────────
@@ -548,7 +413,6 @@ export async function exportLaporanHOExcel(
   const { tahun, months } = opts
   const sortedMonths = [...months].sort((a, b) => a - b)
   const wb = newWorkbook()
-  buildCashSheet(wb, rows, tahun, sortedMonths)
   buildPendapatanSheet(wb, rows, tahun, sortedMonths)
   buildPiutangSheet(wb, rows, tahun, sortedMonths)
 

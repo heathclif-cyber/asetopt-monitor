@@ -5,14 +5,12 @@ import {
   FileSpreadsheet,
   Filter,
   Landmark,
-  Wallet,
 } from 'lucide-react'
 import { useKompensasiStore } from '@/store/kompensasiStore'
 import { useKerjaSamaStore } from '@/store/kerjaSamaStore'
 import { usePendapatanStore } from '@/store/pendapatanStore'
 import { useRKAPStore } from '@/store/rkapStore'
 import { useAsetStore } from '@/store/asetStore'
-import { useCashInStore } from '@/store/cashInStore'
 import { usePBBStore } from '@/store/pbbStore'
 import { CurrencyDisplay } from '@/components/common/CurrencyDisplay'
 import { EmptyState } from '@/components/common/EmptyState'
@@ -27,7 +25,7 @@ import {
 } from '@/utils/laporanHOUtils'
 import { exportLaporanHOExcel } from '@/utils/laporanHOExport'
 
-type TabMode = 'cash' | 'pendapatan' | 'piutang'
+type TabMode = 'pendapatan' | 'piutang'
 
 const ALL_MONTHS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
 
@@ -59,10 +57,9 @@ export default function LaporanHO() {
   const { daftarPDDM, allPengakuan, fetchAll: fetchPDDM } = usePendapatanStore()
   const { rows: rkapRows, fetchRKAP } = useRKAPStore()
   const { daftarAset, fetchAset } = useAsetStore()
-  const { allCashIn, fetchAllCashIn } = useCashInStore()
   const { allPBB, fetchAllPBB } = usePBBStore()
 
-  const [tab, setTab] = useState<TabMode>('cash')
+  const [tab, setTab] = useState<TabMode>('pendapatan')
   const [tahun, setTahun] = useState(new Date().getFullYear())
   /** Satu bulan aktif — null sampai data load (auto pilih bulan ber-realisasi) */
   const [bulan, setBulan] = useState<number | null>(null)
@@ -75,7 +72,6 @@ export default function LaporanHO() {
     fetchKS()
     fetchPDDM()
     fetchAset()
-    fetchAllCashIn()
     fetchAllPBB()
   }, [location.key])
 
@@ -108,32 +104,26 @@ export default function LaporanHO() {
         daftarAset,
         daftarKS,
         allKompensasi,
-        allCashIn,
         allPBB,
         daftarPDDM,
         allPengakuan,
         months: ALL_MONTHS,
       }),
-    [tahun, rkapRows, daftarAset, daftarKS, allKompensasi, allCashIn, allPBB, daftarPDDM, allPengakuan],
+    [tahun, rkapRows, daftarAset, daftarKS, allKompensasi, allPBB, daftarPDDM, allPengakuan],
   )
 
-  // Auto-pilih bulan terakhir yang punya cash in / pendapatan (kecuali user sudah klik)
+  // Auto-pilih bulan terakhir yang punya pendapatan (kecuali user sudah klik)
   useEffect(() => {
     if (bulanTouched) return
     if (rows.length === 0) {
       if (bulan == null) setBulan(new Date().getMonth())
       return
     }
-    const now = new Date().getMonth()
-    let best = now
+    let best = new Date().getMonth()
     for (let m = 11; m >= 0; m--) {
       const has = rows.some(r => {
-        const c = r.cashByMonth[m]
         const p = r.pendapatanByMonth[m]
-        return Math.abs(c?.totalDiluarJaminan ?? 0) > 0.5
-          || Math.abs(p?.total ?? 0) > 0.5
-          || Math.abs(c?.kompensasi ?? 0) > 0.5
-          || Math.abs(p?.pendapatan ?? 0) > 0.5
+        return Math.abs(p?.total ?? 0) > 0.5 || Math.abs(p?.pendapatan ?? 0) > 0.5
       })
       if (has) {
         best = m
@@ -188,7 +178,7 @@ export default function LaporanHO() {
         <div>
           <h1 className="text-lg font-bold text-gray-800">Laporan Format HO</h1>
           <p className="text-xs text-gray-500 mt-1 max-w-2xl">
-            Struktur database proker mengikuti file HO (Cash · Pendapatan · Piutang).
+            Format HO: <strong>Pendapatan</strong> &amp; <strong>Piutang</strong> per proker.
             Klik satu bulan untuk menampilkan realisasi bulan tersebut saja.
           </p>
         </div>
@@ -196,7 +186,7 @@ export default function LaporanHO() {
 
       <ExportExcelPanel
         title="Ekspor Excel Format HO"
-        description={`3 sheet: Cash · Pendapatan · Piutang — hanya ${bulanLabel} ${tahun}. Satuan Excel: Rp 000.`}
+        description={`2 sheet: Pendapatan · Piutang — hanya ${bulanLabel} ${tahun}. Satuan Excel: Rp 000.`}
         meta={`${filtered.length} proker · ${bulanLabel} ${tahun}`}
         fileNameHint={`Laporan_HO_Proker_${tahun}_….xlsx`}
         onExport={handleExport}
@@ -241,8 +231,8 @@ export default function LaporanHO() {
             {ALL_MONTHS.map(m => {
               const on = bulanAktif === m
               const hasAct = rows.some(r =>
-                Math.abs(r.cashByMonth[m]?.totalDiluarJaminan ?? 0) > 0.5
-                || Math.abs(r.pendapatanByMonth[m]?.pendapatan ?? 0) > 0.5,
+                Math.abs(r.pendapatanByMonth[m]?.pendapatan ?? 0) > 0.5
+                || Math.abs(r.pendapatanByMonth[m]?.total ?? 0) > 0.5,
               )
               return (
                 <button
@@ -267,19 +257,11 @@ export default function LaporanHO() {
         </div>
       </div>
 
-      {/* Summary — bulan aktif + full year agar cash/pendapatan terlihat */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <SummaryCard
-          icon={<Wallet size={16} />}
-          label={`Cash In · ${bulanLabel}`}
-          sub={`YTD/thn ${formatShort(summaryYear.realisasiCash)} · Target bln ${formatShort(summary.targetCash)}`}
-          value={summary.realisasiCash}
-          accent="teal"
-        />
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
         <SummaryCard
           icon={<Banknote size={16} />}
           label={`Pendapatan · ${bulanLabel}`}
-          sub={`YTD/thn ${formatShort(summaryYear.realisasiPendapatan)} · Target bln ${formatShort(summary.targetPendapatan)}`}
+          sub={`Thn ${formatShort(summaryYear.realisasiPendapatan)} · Target bln ${formatShort(summary.targetPendapatan)}`}
           value={summary.realisasiPendapatan}
           accent="navy"
         />
@@ -291,22 +273,20 @@ export default function LaporanHO() {
           accent="amber"
         />
         <div className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
-          <p className="text-[11px] text-gray-500 font-medium">Proker · Capaian Cash bln</p>
+          <p className="text-[11px] text-gray-500 font-medium">Proker · Capaian Pendapatan</p>
           <p className="text-xl font-bold text-gray-900 mt-1">{summary.nProker}</p>
           <p className="text-[11px] text-gray-400 mt-0.5">
-            {summary.targetCash > 0
-              ? `${((summary.realisasiCash / summary.targetCash) * 100).toFixed(1)}% vs target ${bulanLabel}`
-              : summaryYear.realisasiCash > 0
-                ? `Ada cash ${formatShort(summaryYear.realisasiCash)} di bulan lain — pilih chip ber-titik`
+            {summary.targetPendapatan > 0
+              ? `${((summary.realisasiPendapatan / summary.targetPendapatan) * 100).toFixed(1)}% vs target ${bulanLabel}`
+              : summaryYear.realisasiPendapatan > 0
+                ? `Ada pendapatan di bulan lain — pilih chip ber-titik`
                 : '—'}
           </p>
         </div>
       </div>
 
-      {/* Tabs */}
       <div className="flex flex-wrap gap-1 rounded-lg border border-gray-200 bg-gray-50 p-1 w-fit">
         {([
-          { id: 'cash' as const, label: 'Cash In', icon: <Wallet size={13} /> },
           { id: 'pendapatan' as const, label: 'Pendapatan', icon: <Banknote size={13} /> },
           { id: 'piutang' as const, label: 'Piutang', icon: <Landmark size={13} /> },
         ]).map(t => (
@@ -332,10 +312,8 @@ export default function LaporanHO() {
       ) : filtered.length === 0 ? (
         <EmptyState
           title="Belum ada data proker"
-          description="Pastikan RKAP tahun ini sudah diisi dan ID Monika terhubung ke tagihan/pembayaran."
+          description="Pastikan RKAP tahun ini sudah diisi dan ID Monika terhubung ke tagihan."
         />
-      ) : tab === 'cash' ? (
-        <CashTable rows={filtered} bulan={bulanAktif} tahun={tahun} />
       ) : tab === 'pendapatan' ? (
         <PendapatanTable rows={filtered} bulan={bulanAktif} tahun={tahun} />
       ) : (
@@ -345,9 +323,8 @@ export default function LaporanHO() {
       <p className="text-[11px] text-gray-400 flex items-start gap-1.5 pb-4">
         <FileSpreadsheet size={12} className="mt-0.5 shrink-0" />
         <span>
-          <strong>Kompensasi = Pokok</strong> · <strong>PPH dicatat minus</strong> (mengurangi total) ·
-          Cash In by tgl bayar · Pendapatan by JT tagihan (pokok) / akrual jika ada.
-          Titik hijau di chip = bulan ada realisasi.
+          Pendapatan = pokok tagihan by JT (atau akrual jika ada) · PPN · <strong>PPH (−)</strong> · PBB.
+          Titik hijau di chip = bulan ada realisasi pendapatan.
         </span>
       </p>
     </div>
@@ -452,115 +429,6 @@ function MasterCells({ r, zebra }: { r: HOMasterRow; zebra: boolean }) {
       <td className="px-2 py-1.5 text-right"><CellRp value={r.nonRkapEksisting} /></td>
       <td className="px-2 py-1.5 text-right font-medium"><CellRp value={r.targetTahun} /></td>
     </>
-  )
-}
-
-function CashTable({ rows, bulan, tahun }: { rows: HOMasterRow[]; bulan: number; tahun: number }) {
-  const label = BULAN_LABELS_HO[bulan]
-  let tTarget = 0, tKomp = 0, tDenda = 0, tPpn = 0, tPph = 0, tPbb = 0, tJam = 0, tTotal = 0
-  rows.forEach(r => {
-    const c = r.cashByMonth[bulan]
-    tTarget += c.target
-    tKomp += c.kompensasi
-    tDenda += c.denda
-    tPpn += c.ppn
-    tPph += c.pph
-    tPbb += c.pbb
-    tJam += c.jaminan
-    tTotal += c.totalDiluarJaminan
-  })
-
-  return (
-    <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
-      <div className="px-3 py-2 border-b bg-gray-50 flex items-center justify-between gap-2">
-        <div>
-          <p className="text-sm font-semibold text-gray-800">Monitoring Penerimaan Cash In</p>
-          <p className="text-[11px] text-gray-500">
-            PROGRAM KERJA OPTIMALISASI ASET · Regional 8 · {label} {tahun}
-          </p>
-        </div>
-        <span className="text-[11px] font-medium text-teal-800 bg-teal-50 border border-teal-100 rounded-full px-2.5 py-0.5">
-          {label} saja
-        </span>
-      </div>
-      <div className="overflow-auto max-h-[min(72vh,760px)]">
-        <table className="text-[11px] w-max min-w-full border-separate border-spacing-0">
-          <thead className="sticky top-0 z-30">
-            <tr className="bg-[#1B4F72] text-white">
-              <MasterHead />
-              <th colSpan={10} className="px-2 py-2 text-center border-l border-white/25 font-semibold bg-[#0f766e]">
-                Realisasi Cash In · {label}
-              </th>
-            </tr>
-            <tr className="bg-[#163f5c] text-white/95">
-              {Array.from({ length: 18 }).map((_, i) => (
-                <th key={i} className={cn(i < 2 && 'sticky z-20 bg-[#163f5c]', i === 0 && 'left-0', i === 1 && 'left-9')} />
-              ))}
-              <th className="px-2 py-1.5 text-right border-l border-white/15 font-normal min-w-[88px]">Target</th>
-              <th className="px-2 py-1.5 text-right font-normal min-w-[100px]" title="Sama dengan Pokok (DPP / nominal)">
-                Kompensasi<br /><span className="text-[9px] font-normal opacity-80">(Pokok)</span>
-              </th>
-              <th className="px-2 py-1.5 text-right font-normal min-w-[72px]">Denda</th>
-              <th className="px-2 py-1.5 text-right font-normal min-w-[72px]">PPN</th>
-              <th className="px-2 py-1.5 text-right font-normal min-w-[80px] text-red-200">PPH (−)</th>
-              <th className="px-2 py-1.5 text-right font-normal min-w-[72px] bg-amber-900/40">PBB</th>
-              <th className="px-2 py-1.5 text-right font-normal min-w-[72px]">Jaminan</th>
-              <th className="px-2 py-1.5 text-left font-normal min-w-[100px]">No Dok (SAP)</th>
-              <th className="px-2 py-1.5 text-right font-normal min-w-[96px]">Total</th>
-              <th className="px-2 py-1.5 text-center font-normal min-w-[48px]">%</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r, i) => {
-              const zebra = i % 2 === 1
-              const c = r.cashByMonth[bulan]
-              return (
-                <tr key={r.kodeMonika} className={zebra ? 'bg-slate-50/80' : 'bg-white'}>
-                  <MasterCells r={r} zebra={zebra} />
-                  <td className="px-2 py-1.5 text-right text-gray-400 border-l border-gray-100">
-                    <CellRp value={c.target} />
-                  </td>
-                  <td className="px-2 py-1.5 text-right text-teal-700 font-medium">
-                    <CellRp value={c.kompensasi} />
-                  </td>
-                  <td className="px-2 py-1.5 text-right text-red-600"><CellRp value={c.denda} /></td>
-                  <td className="px-2 py-1.5 text-right text-gray-600"><CellRp value={c.ppn} /></td>
-                  <td className="px-2 py-1.5 text-right text-gray-600"><CellRp value={c.pph} /></td>
-                  <td className="px-2 py-1.5 text-right text-amber-800 font-medium bg-amber-50/50">
-                    <CellRp value={c.pbb} />
-                  </td>
-                  <td className="px-2 py-1.5 text-right text-gray-500"><CellRp value={c.jaminan} /></td>
-                  <td className="px-2 py-1.5 text-gray-500 font-mono text-[10px] max-w-[120px] truncate" title={c.noDokSap}>
-                    {c.noDokSap || '—'}
-                  </td>
-                  <td className="px-2 py-1.5 text-right font-semibold text-gray-900">
-                    <CellRp value={c.totalDiluarJaminan} />
-                  </td>
-                  <td className="px-2 py-1.5 text-center text-gray-500">{pctLabel(c.pct)}</td>
-                </tr>
-              )
-            })}
-          </tbody>
-          <tfoot>
-            <tr className="bg-amber-50 font-semibold text-gray-800 border-t-2 border-amber-200">
-              <td colSpan={18} className="px-2 py-2 sticky left-0 bg-amber-50">TOTAL · {label}</td>
-              <td className="px-2 py-2 text-right border-l border-amber-100"><CellRp value={tTarget} /></td>
-              <td className="px-2 py-2 text-right"><CellRp value={tKomp} /></td>
-              <td className="px-2 py-2 text-right"><CellRp value={tDenda} /></td>
-              <td className="px-2 py-2 text-right"><CellRp value={tPpn} /></td>
-              <td className="px-2 py-2 text-right"><CellRp value={tPph} /></td>
-              <td className="px-2 py-2 text-right text-amber-900"><CellRp value={tPbb} /></td>
-              <td className="px-2 py-2 text-right"><CellRp value={tJam} /></td>
-              <td className="px-2 py-2" />
-              <td className="px-2 py-2 text-right"><CellRp value={tTotal} /></td>
-              <td className="px-2 py-2 text-center">
-                {tTarget > 0 ? pctLabel((tTotal / tTarget) * 100) : '—'}
-              </td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-    </div>
   )
 }
 
