@@ -13,6 +13,7 @@ import { usePendapatanStore } from '@/store/pendapatanStore'
 import { useRKAPStore } from '@/store/rkapStore'
 import { useAsetStore } from '@/store/asetStore'
 import { usePBBStore } from '@/store/pbbStore'
+import { useCashInStore } from '@/store/cashInStore'
 import { CurrencyDisplay } from '@/components/common/CurrencyDisplay'
 import { EmptyState } from '@/components/common/EmptyState'
 import { TableSkeleton } from '@/components/common/LoadingSkeleton'
@@ -70,6 +71,7 @@ export default function LaporanHO() {
   const { rows: rkapRows, fetchRKAP } = useRKAPStore()
   const { daftarAset, fetchAset } = useAsetStore()
   const { allPBB, fetchAllPBB } = usePBBStore()
+  const { allCashIn, fetchAllCashIn } = useCashInStore()
 
   const [tab, setTab] = useState<TabMode>('cash')
   const [tahun, setTahun] = useState(new Date().getFullYear())
@@ -89,6 +91,7 @@ export default function LaporanHO() {
     fetchPDDM()
     fetchAset()
     fetchAllPBB()
+    fetchAllCashIn()
   }, [location.key])
 
   useEffect(() => {
@@ -120,12 +123,13 @@ export default function LaporanHO() {
         daftarAset,
         daftarKS,
         allKompensasi,
+        allCashIn,
         allPBB,
         daftarPDDM,
         allPengakuan,
         months: ALL_MONTHS,
       }),
-    [tahun, rkapRows, daftarAset, daftarKS, allKompensasi, allPBB, daftarPDDM, allPengakuan],
+    [tahun, rkapRows, daftarAset, daftarKS, allKompensasi, allCashIn, allPBB, daftarPDDM, allPengakuan],
   )
 
   // Auto-pilih bulan terakhir yang punya pendapatan (kecuali user sudah klik)
@@ -769,9 +773,9 @@ function CashInTable({
         </table>
       </div>
       <div className="px-3 py-2 border-t border-teal-100 text-[10px] text-gray-500">
-        Format HO: Target · Kompensasi · Denda · PPN · PPH · PBB · Jaminan · Total · No Billing · %.
-        Ringkasan TOTAL di atas tabel selalu terlihat (tidak perlu scroll).
-        No Billing = no_billing_sap saja; kosong biarkan kosong.
+        <strong>Total = Σ uang masuk</strong> (nominal_bayar + denda + PBB) — SSOT, sama dengan Cash In di Laporan Pendapatan (filter by tgl bayar).
+        Kolom Kompensasi/PPN/PPH = alokasi internal (jumlahnya = Total). PPH negatif hanya jika mode bukti potong.
+        No Billing = no_billing_sap saja.
       </div>
     </div>
   )

@@ -337,7 +337,7 @@ function buildCashSheet(
   rIdx += 2
   ws.mergeCells(rIdx, 1, rIdx, Math.min(10, colCount))
   ws.getCell(rIdx, 1).value =
-    'Format HO (copy-paste): Target · Kompensasi · Denda · PPN · PPH · PBB · Jaminan · Total · No Billing · %. No Billing = no_billing_sap saja; kosong biarkan kosong (bukan invoice SAP / kontrak). Kompensasi = Pokok (DPP). PPH negatif. Cash by tgl bayar. Satuan Rp 000.'
+    'SSOT: Total Cash In = Σ nominal_bayar (+ denda + PBB). Kompensasi+PPN+PPH+… = Total. PPH negatif hanya jika bukti_potong. No Billing = no_billing_sap saja. Satuan Rp 000.'
   ws.getCell(rIdx, 1).font = { name: 'Calibri', size: 8, italic: true, color: { argb: 'FF64748B' } }
 
   return ws

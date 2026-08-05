@@ -17,6 +17,11 @@ import type {
 import type { RKAPTargetRow } from '@/store/rkapStore'
 import { BULAN_COLS } from '@/store/rkapStore'
 import { resolveMonikaId, KATEGORI_BY_KODE } from '@/utils/laporanProgramUtils'
+import {
+  alokasiPembayaranKeHO,
+  hitungPendapatan,
+  hitungTagihan,
+} from '@/utils/accountingTerms'
 
 export const BULAN_LABELS_HO = [
   'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
@@ -225,7 +230,15 @@ function emptyPiutangMonth(): HOPiutangMonth {
 }
 
 function finalizeCash(m: HOCashMonth): HOCashMonth {
-  m.totalDiluarJaminan = m.kompensasi + m.denda + m.ppn + m.pph + m.pbb
+  // Total Cash In SSOT = Σ uang masuk (sudah di-akumulasi ke totalDiluarJaminan
+  // saat bayar/denda/PBB). Fallback: jumlah komponen (setelah alokasi SSOT).
+  const fromParts = m.kompensasi + m.denda + m.ppn + m.pph + m.pbb
+  if (Math.abs((m.totalDiluarJaminan ?? 0)) < 0.5 && Math.abs(fromParts) > 0.5) {
+    m.totalDiluarJaminan = fromParts
+  } else if (Math.abs((m.totalDiluarJaminan ?? 0) - fromParts) > 1) {
+    // Koreksi residual ke kompensasi agar breakdown = total SSOT
+    m.kompensasi += (m.totalDiluarJaminan ?? 0) - fromParts
+  }
   m.pct = m.target > 0 ? (m.totalDiluarJaminan / m.target) * 100 : null
   return m
 }
@@ -294,39 +307,6 @@ function pushDok(existing: string, next: string | null | undefined): string {
   if (!existing) return n
   if (existing.split('; ').includes(n)) return existing
   return `${existing}; ${n}`
-}
-
-/**
- * Alokasi pembayaran → kolom realisasi Cash In HO.
- *
- * - **Kompensasi = Pokok** = `nominal` (DPP)
- * - **PPN** = `nominal_ppn` (positif)
- * - **PPH** = **minus** (−`nominal_pph`) — potongan, mengurangi total cash in
- *
- * Proporsi: bayar / efektif_tagihan. Lunas penuh → Kompensasi = pokok utuh.
- * Total ≈ pokok + PPN + PPH(−) [= efektif saat bukti potong].
- */
-function allocatePayment(k: Kompensasi, bayar: number): { pokok: number; ppn: number; pph: number } {
-  if (bayar <= 0) return { pokok: 0, ppn: 0, pph: 0 }
-
-  const pokokBase = Math.max(0, k.nominal ?? 0)
-  const ppnBase = Math.max(0, k.nominal_ppn ?? 0)
-  const pphBase = Math.max(0, k.nominal_pph ?? 0)
-  const pengurang = Math.max(0, k.pengurang ?? 0)
-  const efektif = Math.max(0, (k.total_tagihan ?? 0) - pengurang)
-
-  if (efektif <= 0 || pokokBase <= 0) {
-    return { pokok: bayar, ppn: 0, pph: 0 }
-  }
-
-  const ratio = Math.min(1, bayar / efektif)
-  const pokok = pokokBase * ratio
-  const ppn = ppnBase * ratio
-  // PPH selalu dicatat negatif (mengurangi total)
-  const pph = pphBase > 0 ? -pphBase * ratio : 0
-  const over = bayar > efektif ? bayar - efektif : 0
-
-  return { pokok: pokok + over, ppn, pph }
 }
 
 /** Resolusi ID Monika lebih longgar: rkap_kode → aset KS → aset_id lookup */
@@ -442,7 +422,8 @@ export function buildLaporanHO(opts: {
     ensure(kode, r.nama || aset?.nama_aset || kode)
   })
 
-  // ── Cash In dari pembayaran (by tgl_bayar) — Kompensasi=Pokok, PPH minus ─
+  // ── Cash In dari pembayaran (by tgl_bayar) — SSOT = nominal_bayar ────────
+  // Breakdown HO via alokasiPembayaranKeHO (invariant: komponen sum = bayar).
   allKompensasi.forEach(k => {
     const ks = ksMap.get(k.ks_id) ?? k.kerja_sama
     const monikaId = resolveMonikaIdHO(k, ks, asetById)
@@ -452,8 +433,8 @@ export function buildLaporanHO(opts: {
     const rkap = rkapByMonika.get(monikaId)
     const a = ensure(monikaId, rkap?.nama || aset?.nama_aset || monikaId)
 
-    // Total Kompensasi Fix (HO) = akumulasi pokok
-    a.totalKompensasiFix += Math.max(0, k.nominal ?? 0)
+    // Total Kompensasi Fix (master HO) = akumulasi DPP seluruh tagihan proker
+    a.totalKompensasiFix += hitungPendapatan(k)
 
     ;(k.pembayaran ?? []).forEach(p => {
       const parsed = parseYMD(p.tgl_bayar)
@@ -461,21 +442,24 @@ export function buildLaporanHO(opts: {
       if (!monthSet.has(parsed.m)) return
       const bayar = p.nominal_bayar || 0
       if (bayar <= 0) return
-      const { pokok, ppn, pph } = allocatePayment(k, bayar)
+      const alokasi = alokasiPembayaranKeHO(k, bayar)
       const m = a.cash[parsed.m]
-      m.kompensasi += pokok
-      m.ppn += ppn
-      m.pph += pph // sudah negatif
-      // No Billing = no_billing_sap saja (bukan invoice / kontrak)
+      m.kompensasi += alokasi.kompensasi
+      m.ppn += alokasi.ppn
+      m.pph += alokasi.pph
+      // SSOT Total Cash In = uang masuk aktual
+      m.totalDiluarJaminan += alokasi.total
       m.noDokSap = pushDok(m.noDokSap, onlyNoBilling(k.no_billing_sap))
     })
   })
 
-  // ── Denda & cash_in lain ────────────────────────────────────────────────
+  // ── Denda & cash_in lain (SSOT: +nominal ke total) ──────────────────────
   allCashIn.forEach(ci => {
     const parsed = parseYMD(ci.tgl_terima)
     if (!parsed || parsed.y !== tahun) return
     if (!monthSet.has(parsed.m)) return
+    const nominal = ci.nominal || 0
+    if (nominal <= 0) return
 
     const ks = ksMap.get(ci.ks_id) ?? ci.kerja_sama
     let monikaId = ci.rkap_kode?.trim() || null
@@ -493,10 +477,11 @@ export function buildLaporanHO(opts: {
     const a = ensure(monikaId, rkapByMonika.get(monikaId)?.nama || monikaId)
     const m = a.cash[parsed.m]
     if (ci.jenis === 'denda') {
-      m.denda += ci.nominal || 0
+      m.denda += nominal
     } else {
-      m.kompensasi += ci.nominal || 0
+      m.kompensasi += nominal
     }
+    m.totalDiluarJaminan += nominal
   })
 
   // ── PBB (cash in) ───────────────────────────────────────────────────────
@@ -532,8 +517,9 @@ export function buildLaporanHO(opts: {
     if (nominalPbb <= 0) return
 
     const a = ensure(monikaId, rkapByMonika.get(monikaId)?.nama || monikaId)
-    // PBB hanya di Cash In (format HO) — tidak diisi di tab Pendapatan
+    // PBB hanya di Cash In (format HO) — SSOT: +nominal ke total
     a.cash[monthIdx].pbb += nominalPbb
+    a.cash[monthIdx].totalDiluarJaminan += nominalPbb
   })
 
   // ── Pendapatan: primari dari tagihan JT (pokok), selaras Laporan Pendapatan ─
@@ -629,7 +615,7 @@ export function buildLaporanHO(opts: {
       const monikaId = resolveMonikaIdHO(k, ks, asetById)
       if (!monikaId) return
 
-      const efektif = Math.max(0, (k.total_tagihan ?? 0) - (k.pengurang ?? 0))
+      const efektif = hitungTagihan(k)
       const dibayar = (k.pembayaran ?? [])
         .filter(p => dateKey(p.tgl_bayar) && dateKey(p.tgl_bayar) <= asOf)
         .reduce((s, p) => s + (p.nominal_bayar || 0), 0)

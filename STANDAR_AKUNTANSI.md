@@ -81,13 +81,26 @@ Satu baris = satu **ID Monika**.
 
 | Kolom | Isi |
 |-------|-----|
-| Pendapatan | Σ `nominal` di periode (bulan / Jan s.d. bulan) by JT |
-| Cash In | Σ pembayaran by **tgl bayar** di periode (alokasi komponen internal; total ≈ uang masuk) |
+| Pendapatan | Σ `nominal` (DPP) di periode by **tgl JT** — **tanpa** PPN/PPH/PBB |
+| Cash In **Total** | **SSOT** = Σ `pembayaran.nominal_bayar` (by **tgl bayar**) + denda `cash_in` + PBB dibayar di periode |
+| Kompensasi / PPN / PPH | Alokasi internal dari Total via `alokasiPembayaranKeHO()` — **jumlah komponen = Total** |
+| PPH (kolom) | Negatif **hanya** jika `pph_mode = bukti_potong`; jika `none` → 0 (tidak mengurangi Total) |
 | No Billing | Hanya `no_billing_sap`; kosong jika kosong |
-| Capaian | Cash In ÷ Target RKAP |
-| Piutang | Snapshot sisa outstanding akhir bulan acuan |
+| Capaian | Cash In Total ÷ Target RKAP |
+| Piutang | Snapshot sisa = Tagihan − Σ bayar s.d. akhir bulan |
+
+**Invariant wajib:** `Kompensasi + Denda + PPN + PPH + PBB (+ Jaminan) = Total Cash In`  
+**Jangan** hitung Total dari pajak terpisah dari uang masuk — Total selalu = uang masuk aktual.
+
+Helper SSOT: `src/utils/accountingTerms.ts`  
+(`hitungTagihan`, `hitungPendapatan`, `hitungCashInPembayaran`, `alokasiPembayaranKeHO`)
 
 Periode selalu disebut jelas, contoh: **Pendapatan Januari s.d. Juli 2026**.
+
+> Angka **51 jt** vs **69 jt** biasanya beda metrik/filter, bukan bug data:
+> - Pendapatan (DPP akrual by JT) ≠ Cash In (uang masuk by tgl bayar)
+> - Periode “Juli saja” ≠ “Januari s.d. Juli”
+> - Bandingkan selalu metrik + periode + basis yang sama.
 
 ### 3.4 RKAP Monitor
 

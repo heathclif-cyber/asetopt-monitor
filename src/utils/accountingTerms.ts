@@ -1,8 +1,9 @@
 /**
- * Standar istilah keuangan AsetOpt — single source of truth untuk label UI.
+ * Standar istilah keuangan AsetOpt — single source of truth (SSOT).
+ * Semua laporan (HO, Pendapatan, Monitoring, Piutang) WAJIB memakai helper ini.
  * Lihat STANDAR_AKUNTANSI.md di root proyek.
  */
-import type { Kompensasi, Pembayaran, CashIn } from '@/types'
+import type { Kompensasi, Pembayaran, CashIn, PPHMode } from '@/types'
 
 /** Label resmi — jangan hardcode string lain di UI keuangan */
 export const AK = {
@@ -29,6 +30,72 @@ export function hitungTagihan(k: Pick<Kompensasi, 'total_tagihan' | 'pengurang'>
 /** Pendapatan (akrual) = DPP / nominal sewa */
 export function hitungPendapatan(k: Pick<Kompensasi, 'nominal'>): number {
   return Math.max(0, k.nominal ?? 0)
+}
+
+/** Hasil alokasi 1 pembayaran ke kolom format HO */
+export interface AlokasiPembayaranHO {
+  /** Porsi DPP (pokok) */
+  kompensasi: number
+  /** Porsi PPN (positif) */
+  ppn: number
+  /** Porsi PPH — negatif hanya jika pph_mode = bukti_potong; selain itu 0 */
+  pph: number
+  /**
+   * Total Cash In SSOT = **nominal_bayar** (uang masuk aktual).
+   * Invariant: kompensasi + ppn + pph === total (selisih pembulatan ke kompensasi).
+   */
+  total: number
+}
+
+/**
+ * Alokasi pembayaran → kolom HO (Kompensasi / PPN / PPH).
+ *
+ * **SSOT Total = `bayar` (uang masuk), bukan hasil hitung ulang pajak.**
+ *
+ * - `pph_mode = bukti_potong`: mitra transfer DPP+PPN−PPH → PPH dicatat negatif
+ * - `pph_mode = none` (atau lain): PPH **tidak** mengurangi Cash In → pph kolom = 0
+ * - Kelebihan bayar di atas tagihan → ditambahkan ke kompensasi
+ */
+export function alokasiPembayaranKeHO(
+  k: Pick<Kompensasi, 'nominal' | 'nominal_ppn' | 'nominal_pph' | 'total_tagihan' | 'pengurang' | 'pph_mode'>,
+  bayar: number,
+): AlokasiPembayaranHO {
+  if (!(bayar > 0)) return { kompensasi: 0, ppn: 0, pph: 0, total: 0 }
+
+  const dpp = hitungPendapatan(k)
+  const ppnBase = Math.max(0, k.nominal_ppn ?? 0)
+  const pphAbs = Math.max(0, k.nominal_pph ?? 0)
+  const mode = (k.pph_mode ?? 'none') as PPHMode
+  const pphReduces = mode === 'bukti_potong'
+  const tagihan = hitungTagihan(k)
+
+  // Tidak ada tagihan efektif → seluruh bayar = kompensasi (Cash In tetap = bayar)
+  if (tagihan <= 0.5) {
+    return { kompensasi: bayar, ppn: 0, pph: 0, total: bayar }
+  }
+
+  const ratio = Math.min(1, bayar / tagihan)
+  let kompensasi = dpp * ratio
+  let ppn = ppnBase * ratio
+  let pph = pphReduces && pphAbs > 0 ? -pphAbs * ratio : 0
+
+  // Kelebihan bayar di atas tagihan → ke kompensasi
+  if (bayar > tagihan + 0.5) {
+    kompensasi += bayar - tagihan
+  }
+
+  // Kunci invariant: komponen wajib menjumlah ke bayar (SSOT)
+  const drift = bayar - (kompensasi + ppn + pph)
+  if (Math.abs(drift) > 0.005) {
+    kompensasi += drift
+  }
+
+  return {
+    kompensasi,
+    ppn,
+    pph,
+    total: bayar,
+  }
 }
 
 /** Cash In dari daftar pembayaran */
