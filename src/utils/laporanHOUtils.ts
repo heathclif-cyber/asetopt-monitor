@@ -828,6 +828,41 @@ export function sumCashInMonths(r: HOMasterRow, months: number[]): number {
   return s
 }
 
+/** Agregasi rincian Cash In format HO (Kompensasi, Denda, PPN, PPH, PBB, Jaminan) */
+export function sumCashBreakdownMonths(r: HOMasterRow, months: number[]): HOCashMonth {
+  const out: HOCashMonth = {
+    target: 0,
+    kompensasi: 0,
+    denda: 0,
+    ppn: 0,
+    pph: 0,
+    pbb: 0,
+    jaminan: 0,
+    noDokSap: '',
+    totalDiluarJaminan: 0,
+    pct: null,
+  }
+  const doks = new Set<string>()
+  months.forEach(m => {
+    const c = r.cashByMonth[m]
+    if (!c) return
+    out.target += c.target
+    out.kompensasi += c.kompensasi
+    out.denda += c.denda
+    out.ppn += c.ppn
+    out.pph += c.pph
+    out.pbb += c.pbb
+    out.jaminan += c.jaminan
+    out.totalDiluarJaminan += c.totalDiluarJaminan
+    if (c.noDokSap) {
+      c.noDokSap.split('; ').forEach(d => { if (d.trim()) doks.add(d.trim()) })
+    }
+  })
+  out.noDokSap = Array.from(doks).join('; ')
+  out.pct = out.target > 0 ? (out.totalDiluarJaminan / out.target) * 100 : null
+  return out
+}
+
 /** Piutang s.d. bulan = snapshot akhir bulan terakhir (bukan jumlah aging) */
 export function piutangAsOf(r: HOMasterRow, endMonth: number): HOPiutangMonth {
   return r.piutangByMonth[endMonth] ?? {

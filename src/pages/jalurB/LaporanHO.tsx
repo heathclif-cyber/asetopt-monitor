@@ -22,13 +22,12 @@ import {
   buildLaporanHO,
   monthsThrough,
   piutangAsOf,
-  sumCashInMonths,
+  sumCashBreakdownMonths,
   sumPendapatanMonths,
   summarizeHO,
   type HOMasterRow,
   type HOSummary,
 } from '@/utils/laporanHOUtils'
-import { AK } from '@/utils/accountingTerms'
 import { exportLaporanHOExcel } from '@/utils/laporanHOExport'
 
 type TabMode = 'pendapatan' | 'piutang'
@@ -381,8 +380,8 @@ export default function LaporanHO() {
         <FileSpreadsheet size={12} className="mt-0.5 shrink-0" />
         <span>
           Periode: <strong>{periodLabel}</strong>.
-          Istilah standar: <strong>{AK.pendapatan}</strong> (akrual) · <strong>{AK.cashIn}</strong> (kas) · <strong>{AK.tagihan}</strong> (invoice).
-          Lihat STANDAR_AKUNTANSI.md.
+          Format HO Cash In: <strong>Kompensasi · Denda · PPN · PPH · PBB · Jaminan · Total · No Billing</strong>
+          {' '}— siap copy-paste ke report HO. Excel satuan Rp 000.
         </span>
       </p>
     </div>
@@ -433,40 +432,15 @@ function TotalBar({
           {capaian != null ? ` · Capaian vs target ${capaian.toFixed(1)}%` : ''}
         </p>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-px bg-gray-200">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-px bg-gray-200">
         <TotalCell label={periodTarget} value={summary.targetPendapatan} />
-        <TotalCell
-          label={periodPendapatan}
-          value={summary.realisasiPendapatan}
-          accent="strong"
-        />
-        <TotalCell
-          label={`${AK.cashIn} (${periodLabel})`}
-          value={summary.cashIn}
-          accent="navy"
-        />
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-px bg-gray-200 border-t border-gray-200">
+        <TotalCell label={periodPendapatan} value={summary.realisasiPendapatan} accent="strong" />
+        <TotalCell label={`Cash In (${periodLabel})`} value={summary.cashIn} accent="navy" />
         <TotalCell label={periodPiutang} value={summary.saldoPiutang} accent="amber" />
-        <TotalCell label="Piutang 1–30 hari" value={summary.piutang1_30} compact />
-        <TotalCell
-          label="Piutang lebih dari 90 hari"
-          value={summary.piutang91_180 + summary.piutang181_360 + summary.piutang361}
-          compact
-        />
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-px bg-gray-200 border-t border-gray-200">
-        <TotalCell label={periodFullYear} value={summaryYear.realisasiPendapatan} compact />
-        <TotalCell
-          label={`${AK.cashIn} Januari s.d. Desember ${tahun}`}
-          value={summaryYear.cashIn}
-          compact
-        />
       </div>
       <p className="px-3 py-2 text-[11px] text-gray-600 bg-white border-t border-gray-100 leading-relaxed">
-        <strong>{AK.pendapatan}</strong> = pengakuan akrual (DPP) di periode.
-        <strong> {AK.cashIn}</strong> = uang masuk (pembayaran) di periode.
-        Keduanya berbeda: pendapatan bisa belum dibayar; cash in bisa melunasi tagihan tahun lalu.
+        Format HO Cash In (copy-paste): <strong>Kompensasi · Denda · PPN · PPH · PBB · Jaminan · Total · No Billing</strong>.
+        Satuan Excel: Rp 000.
       </p>
     </div>
   )
@@ -579,27 +553,40 @@ function PendapatanTable({
   periodPendapatan: string
   totals: HOSummary
 }) {
-  const tTarget = totals.targetPendapatan
-  const tPendapatan = totals.realisasiPendapatan
-  const tCashIn = totals.cashIn
+  // Totals format HO Cash In breakdown
+  let tTarget = 0, tKomp = 0, tDenda = 0, tPpn = 0, tPph = 0, tPbb = 0, tJam = 0, tTotal = 0
+  let tPendapatan = 0
+  rows.forEach(r => {
+    const c = sumCashBreakdownMonths(r, months)
+    const p = sumPendapatanMonths(r, months)
+    tTarget += c.target
+    tKomp += c.kompensasi
+    tDenda += c.denda
+    tPpn += c.ppn
+    tPph += c.pph
+    tPbb += c.pbb
+    tJam += c.jaminan
+    tTotal += c.totalDiluarJaminan
+    tPendapatan += p.pendapatan
+  })
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
       <div className="px-3 py-2 border-b bg-gray-50 flex flex-wrap items-center justify-between gap-2">
         <div>
-          <p className="text-sm font-semibold text-gray-800">{periodPendapatan}</p>
+          <p className="text-sm font-semibold text-gray-800">Monitoring Cash In — format HO</p>
           <p className="text-[11px] text-gray-500">
-            Regional 8 · {rows.length} proker
-            {months.length > 1 ? ` · dijumlah ${months.length} bulan` : ''}
-            {' · '}{AK.pendapatan} (akrual) · {AK.cashIn} (kas)
+            Regional 8 · {periodLabel} · {rows.length} proker
+            {months.length > 1 ? ` · ${months.length} bulan` : ''}
+            {' · '}siap copy-paste ke HO
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-[11px]">
-          <span className="font-semibold text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-full px-2.5 py-0.5">
-            {AK.pendapatan} {formatShort(tPendapatan)}
-          </span>
           <span className="font-semibold text-teal-800 bg-teal-50 border border-teal-100 rounded-full px-2.5 py-0.5">
-            {AK.cashIn} {formatShort(tCashIn)}
+            Cash In {formatShort(tTotal)}
+          </span>
+          <span className="font-medium text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-full px-2.5 py-0.5">
+            Pendapatan {formatShort(tPendapatan)}
           </span>
         </div>
       </div>
@@ -608,43 +595,51 @@ function PendapatanTable({
           <thead className="sticky top-0 z-30">
             <tr className="bg-[#1B4F72] text-white">
               <MasterHead />
-              <th colSpan={5} className="px-2 py-2 text-center border-l border-white/25 font-semibold bg-[#5B2C6F]">
-                {periodLabel}
+              <th colSpan={10} className="px-2 py-2 text-center border-l border-white/25 font-semibold bg-[#0f766e]">
+                Realisasi Cash In · {periodLabel}
               </th>
             </tr>
             <tr className="bg-[#163f5c] text-white/95">
               {Array.from({ length: 18 }).map((_, i) => (
                 <th key={i} className={cn(i < 2 && 'sticky z-20 bg-[#163f5c]', i === 0 && 'left-0', i === 1 && 'left-9')} />
               ))}
-              <th className="px-2 py-1.5 text-right border-l border-white/15 font-normal min-w-[96px]">{AK.targetRkap}</th>
-              <th className="px-2 py-1.5 text-right font-normal min-w-[110px]">{AK.pendapatan}</th>
-              <th className="px-2 py-1.5 text-right font-normal min-w-[110px]">{AK.cashIn}</th>
-              <th className="px-2 py-1.5 text-left font-normal min-w-[100px]">{AK.noBilling}</th>
-              <th className="px-2 py-1.5 text-center font-normal min-w-[56px]">{AK.capaian}</th>
+              <th className="px-2 py-1.5 text-right border-l border-white/15 font-normal min-w-[88px]">Target</th>
+              <th className="px-2 py-1.5 text-right font-normal min-w-[96px]">Kompensasi</th>
+              <th className="px-2 py-1.5 text-right font-normal min-w-[80px]">Denda</th>
+              <th className="px-2 py-1.5 text-right font-normal min-w-[80px]">PPN</th>
+              <th className="px-2 py-1.5 text-right font-normal min-w-[80px]">PPH</th>
+              <th className="px-2 py-1.5 text-right font-normal min-w-[80px]">PBB</th>
+              <th className="px-2 py-1.5 text-right font-normal min-w-[80px]">Jaminan</th>
+              <th className="px-2 py-1.5 text-right font-normal min-w-[96px]">Total</th>
+              <th className="px-2 py-1.5 text-left font-normal min-w-[100px]">No Billing</th>
+              <th className="px-2 py-1.5 text-center font-normal min-w-[48px]">%</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((r, i) => {
               const zebra = i % 2 === 1
-              const p = sumPendapatanMonths(r, months)
-              const cash = sumCashInMonths(r, months)
-              const pct = p.target > 0 ? (cash / p.target) * 100 : null
+              const c = sumCashBreakdownMonths(r, months)
               return (
                 <tr key={r.kodeMonika} className={zebra ? 'bg-slate-50/80' : 'bg-white'}>
                   <MasterCells r={r} zebra={zebra} />
                   <td className="px-2 py-1.5 text-right text-gray-400 border-l border-gray-100">
-                    <CellRp value={p.target} />
+                    <CellRp value={c.target} />
                   </td>
-                  <td className="px-2 py-1.5 text-right text-emerald-800 font-semibold">
-                    <CellRp value={p.pendapatan} />
+                  <td className="px-2 py-1.5 text-right text-teal-800 font-semibold">
+                    <CellRp value={c.kompensasi} />
                   </td>
-                  <td className="px-2 py-1.5 text-right text-teal-800 font-medium">
-                    <CellRp value={cash} />
+                  <td className="px-2 py-1.5 text-right text-red-600"><CellRp value={c.denda} /></td>
+                  <td className="px-2 py-1.5 text-right text-gray-700"><CellRp value={c.ppn} /></td>
+                  <td className="px-2 py-1.5 text-right text-red-600"><CellRp value={c.pph} /></td>
+                  <td className="px-2 py-1.5 text-right text-amber-800"><CellRp value={c.pbb} /></td>
+                  <td className="px-2 py-1.5 text-right text-gray-600"><CellRp value={c.jaminan} /></td>
+                  <td className="px-2 py-1.5 text-right font-bold text-gray-900">
+                    <CellRp value={c.totalDiluarJaminan} />
                   </td>
-                  <td className="px-2 py-1.5 text-gray-500 font-mono text-[10px] max-w-[120px] truncate" title={p.noDokSap}>
-                    {p.noDokSap || '—'}
+                  <td className="px-2 py-1.5 text-gray-500 font-mono text-[10px] max-w-[120px] truncate" title={c.noDokSap}>
+                    {c.noDokSap || ''}
                   </td>
-                  <td className="px-2 py-1.5 text-center text-gray-500">{pctLabel(pct)}</td>
+                  <td className="px-2 py-1.5 text-center text-gray-500">{pctLabel(c.pct)}</td>
                 </tr>
               )
             })}
@@ -652,18 +647,27 @@ function PendapatanTable({
           <tfoot className="sticky bottom-0 z-20">
             <tr className="bg-[#FEF3C7] font-bold text-gray-900 border-t-2 border-amber-400 shadow-[0_-2px_6px_rgba(0,0,0,0.06)]">
               <td colSpan={18} className="px-2 py-2.5 sticky left-0 bg-[#FEF3C7]">
-                Jumlah · {periodLabel}
+                TOTAL · {periodLabel}
               </td>
               <td className="px-2 py-2.5 text-right border-l border-amber-200"><CellRp value={tTarget} /></td>
-              <td className="px-2 py-2.5 text-right text-emerald-800 text-sm"><CellRp value={tPendapatan} /></td>
-              <td className="px-2 py-2.5 text-right text-teal-800 text-sm"><CellRp value={tCashIn} /></td>
+              <td className="px-2 py-2.5 text-right text-teal-800"><CellRp value={tKomp} /></td>
+              <td className="px-2 py-2.5 text-right"><CellRp value={tDenda} /></td>
+              <td className="px-2 py-2.5 text-right"><CellRp value={tPpn} /></td>
+              <td className="px-2 py-2.5 text-right"><CellRp value={tPph} /></td>
+              <td className="px-2 py-2.5 text-right"><CellRp value={tPbb} /></td>
+              <td className="px-2 py-2.5 text-right"><CellRp value={tJam} /></td>
+              <td className="px-2 py-2.5 text-right text-sm"><CellRp value={tTotal} /></td>
               <td className="px-2 py-2.5" />
               <td className="px-2 py-2.5 text-center">
-                {tTarget > 0 ? pctLabel((tCashIn / tTarget) * 100) : '—'}
+                {tTarget > 0 ? pctLabel((tTotal / tTarget) * 100) : '—'}
               </td>
             </tr>
           </tfoot>
         </table>
+      </div>
+      <div className="px-3 py-2 border-t border-gray-100 text-[10px] text-gray-500">
+        Format HO: Target · Kompensasi · Denda · PPN · PPH · PBB · Jaminan · Total · No Billing · %.
+        {periodPendapatan ? ` Pendapatan akrual periode: ${formatShort(tPendapatan)}.` : ''}
       </div>
     </div>
   )
