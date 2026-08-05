@@ -888,3 +888,53 @@ export function findLatestActiveMonth(rows: HOMasterRow[]): number {
   }
   return new Date().getMonth()
 }
+
+const TX_EPS = 0.5
+
+/** Ada Cash In di periode (komponen HO manapun / total) */
+export function rowHasCashTx(r: HOMasterRow, months: number[]): boolean {
+  return months.some(m => {
+    const c = r.cashByMonth[m]
+    if (!c) return false
+    return (
+      Math.abs(c.totalDiluarJaminan) > TX_EPS
+      || Math.abs(c.kompensasi) > TX_EPS
+      || Math.abs(c.denda) > TX_EPS
+      || Math.abs(c.ppn) > TX_EPS
+      || Math.abs(c.pph) > TX_EPS
+      || Math.abs(c.pbb) > TX_EPS
+      || Math.abs(c.jaminan) > TX_EPS
+    )
+  })
+}
+
+/** Ada Pendapatan akrual di periode */
+export function rowHasPendapatanTx(r: HOMasterRow, months: number[]): boolean {
+  return months.some(m => {
+    const p = r.pendapatanByMonth[m]
+    if (!p) return false
+    return (
+      Math.abs(p.pendapatan) > TX_EPS
+      || Math.abs(p.total) > TX_EPS
+      || Math.abs(p.ppn) > TX_EPS
+      || Math.abs(p.pph) > TX_EPS
+      || Math.abs(p.pbb) > TX_EPS
+    )
+  })
+}
+
+/** Ada sisa piutang di snapshot akhir bulan */
+export function rowHasPiutang(r: HOMasterRow, endMonth: number): boolean {
+  return Math.abs(piutangAsOf(r, endMonth).saldo ?? 0) > TX_EPS
+}
+
+/** Ada transaksi (cash atau pendapatan) di bulan m — untuk highlight filter bulan */
+export function monthHasActivity(rows: HOMasterRow[], m: number): boolean {
+  return rows.some(r =>
+    Math.abs(r.cashByMonth[m]?.totalDiluarJaminan ?? 0) > TX_EPS
+    || Math.abs(r.cashByMonth[m]?.kompensasi ?? 0) > TX_EPS
+    || Math.abs(r.pendapatanByMonth[m]?.pendapatan ?? 0) > TX_EPS
+    || Math.abs(r.pendapatanByMonth[m]?.total ?? 0) > TX_EPS
+    || Math.abs(r.piutangByMonth[m]?.saldo ?? 0) > TX_EPS,
+  )
+}
