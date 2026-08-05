@@ -433,8 +433,12 @@ export function buildLaporanHO(opts: {
     const rkap = rkapByMonika.get(monikaId)
     const a = ensure(monikaId, rkap?.nama || aset?.nama_aset || monikaId)
 
-    // Total Kompensasi Fix (master HO) = akumulasi DPP seluruh tagihan proker
-    a.totalKompensasiFix += hitungPendapatan(k)
+    // Total Kompensasi Fix (master HO) = Σ DPP tagihan dengan JT di **tahun laporan**.
+    // JANGAN jumlahkan seluruh multi-tahun (ex Mini Soccer 12 invoice → 254 jt).
+    const jtParsed = parseYMD(k.tgl_jatuh_tempo)
+    if (jtParsed && jtParsed.y === tahun) {
+      a.totalKompensasiFix += hitungPendapatan(k)
+    }
 
     ;(k.pembayaran ?? []).forEach(p => {
       const parsed = parseYMD(p.tgl_bayar)

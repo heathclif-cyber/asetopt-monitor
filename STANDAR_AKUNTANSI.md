@@ -82,6 +82,7 @@ Satu baris = satu **ID Monika**.
 | Kolom | Isi |
 |-------|-----|
 | Pendapatan | Σ `nominal` (DPP) di periode by **tgl JT** — **tanpa** PPN/PPH/PBB |
+| **Komp. Fix Tahun** (master) | Σ `nominal` tagihan dengan **JT di tahun laporan** saja — **bukan** jumlah multi-tahun |
 | Cash In **Total** | **SSOT** = Σ `pembayaran.nominal_bayar` (by **tgl bayar**) + denda `cash_in` + PBB dibayar di periode |
 | Kompensasi / PPN / PPH | Alokasi internal dari Total via `alokasiPembayaranKeHO()` — **jumlah komponen = Total** |
 | PPH (kolom) | Negatif **hanya** jika `pph_mode = bukti_potong`; jika `none` → 0 (tidak mengurangi Total) |

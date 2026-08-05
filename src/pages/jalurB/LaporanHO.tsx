@@ -554,7 +554,9 @@ function MasterHead({ className }: { className?: string }) {
       <th className="px-2 py-2 text-center min-w-[90px]">Mulai KS</th>
       <th className="px-2 py-2 text-center min-w-[90px]">Berakhir KS</th>
       <th className="px-2 py-2 text-right min-w-[70px]">Jangka (Th)</th>
-      <th className="px-2 py-2 text-right min-w-[100px]">Total Komp. Fix</th>
+      <th className="px-2 py-2 text-right min-w-[100px]" title="Σ DPP tagihan jatuh tempo di tahun laporan (bukan multi-tahun)">
+        Komp. Fix Thn
+      </th>
       <th className="px-2 py-2 text-right min-w-[90px]">RKAP Eksisting</th>
       <th className="px-2 py-2 text-right min-w-[90px]">NON RKAP</th>
       <th className="px-2 py-2 text-right min-w-[90px]">Target Tahun</th>

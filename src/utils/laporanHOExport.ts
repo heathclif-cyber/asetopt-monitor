@@ -105,7 +105,7 @@ const MASTER_HEADERS = [
   'Mulai Kerjasama',
   'Berakhir Kerjasama',
   'Jangka Waktu (Tahun)',
-  'Total Kompensasi Fix (Rp 000)',
+  'Komp. Fix Tahun (Rp 000)',
   'Total Kompensasi Variable (Rp 000)',
   'RKAP Eksisting (Rp 000)',
   'RKAP New Project (Rp 000)',
