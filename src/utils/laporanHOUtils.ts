@@ -427,26 +427,51 @@ export function buildLaporanHO(opts: {
     }
   })
 
-  // ── PBB dibayar ─────────────────────────────────────────────────────────
+  // ── PBB (cash in pajak ke rekening regional) ────────────────────────────
+  // HO: kolom PBB di realisasi bulanan. Ambil dari tgl_bayar_pbb bila ada;
+  // fallback tgl_jatuh_tempo jika sudah ada jumlah dibayar / status lunas·sebagian.
   allPBB.forEach(pbb => {
-    if (pbb.status_bayar !== 'lunas' && !(pbb.jumlah_pbb_dibayar && pbb.jumlah_pbb_dibayar > 0)) return
+    const dibayar = Math.max(0, pbb.jumlah_pbb_dibayar ?? 0)
+    const nilai = Math.max(0, pbb.nilai_pbb ?? 0)
+    const status = (pbb.status_bayar ?? '').toLowerCase()
+    const isPaid =
+      dibayar > 0
+      || status === 'lunas'
+      || status === 'sebagian'
+    if (!isPaid && dibayar <= 0) return
+
     const tgl = pbb.tgl_bayar_pbb || pbb.tgl_jatuh_tempo
     const parsed = parseYMD(tgl ?? '')
-    if (!parsed || parsed.y !== tahun) return
-    if (!monthSet.has(parsed.m)) return
+    // Juga coba cocokkan tahun PBB master (pbb.tahun) jika tanggal tidak di tahun laporan
+    let monthIdx = parsed && parsed.y === tahun ? parsed.m : -1
+    if (monthIdx < 0 && pbb.tahun === tahun && pbb.tgl_jatuh_tempo) {
+      const jt = parseYMD(pbb.tgl_jatuh_tempo)
+      if (jt && jt.y === tahun) monthIdx = jt.m
+    }
+    if (monthIdx < 0 || !monthSet.has(monthIdx)) return
 
     let monikaId = pbb.rkap_kode?.trim() || ''
     if (!monikaId && pbb.aset_id) {
       monikaId = asetById.get(pbb.aset_id)?.kode_aset?.trim() || ''
     }
     if (!monikaId && pbb.aset?.kode_aset) monikaId = pbb.aset.kode_aset.trim()
+    // Fallback: aset dari KS yang pakai aset_id ini
+    if (!monikaId && pbb.aset_id) {
+      const ksHit = daftarKS.find(k => k.aset_id === pbb.aset_id)
+      monikaId = (ksHit?.aset as Aset | undefined)?.kode_aset?.trim()
+        || (ksHit?.aset_id ? asetById.get(ksHit.aset_id)?.kode_aset?.trim() : '')
+        || ''
+    }
     if (!monikaId) return
 
-    const nominal = pbb.jumlah_pbb_dibayar ?? pbb.nilai_pbb ?? 0
+    // Lunas → full nilai/dibayar; sebagian → jumlah_pbb_dibayar; else nilai jika status lunas
+    let nominal = dibayar
+    if (nominal <= 0 && (status === 'lunas' || status === 'sebagian')) nominal = nilai
     if (nominal <= 0) return
+
     const a = ensure(monikaId, rkapByMonika.get(monikaId)?.nama || monikaId)
-    a.cash[parsed.m].pbb += nominal
-    a.pendapatan[parsed.m].pbb += nominal
+    a.cash[monthIdx].pbb += nominal
+    a.pendapatan[monthIdx].pbb += nominal
   })
 
   // ── Pendapatan akrual (pengakuan diakui) ────────────────────────────────
