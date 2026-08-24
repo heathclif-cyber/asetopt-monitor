@@ -18,6 +18,7 @@ export function hitungRKAP(
   items: RKAPItem[],
   cashInPerBulan: number[],
   bulanSekarang: number = new Date().getMonth(),
+  prognosaManual: Array<number | null> = [],
 ): MonthSummary[] {
   const results: MonthSummary[] = []
   let carryOver = 0
@@ -37,7 +38,11 @@ export function hitungRKAP(
     //   • bulan lewat          → realisasi aktual
     //   • bulan berjalan       → realisasi (jika ada), atau target (jika belum)
     //   • bulan mendatang      → targetOriginal saja (BUKAN targetAdjusted agar tidak akumulasi)
-    const prognosa = isFuture ? targetOriginal : isCurrent ? Math.max(realisasi, targetOriginal) : realisasi
+    // Prognosis manual hasil evaluasi dapat berlaku juga untuk bulan yang telah
+    // lewat (mis. Juli dievaluasi pada Agustus). Null berarti belum ada override.
+    const manual = prognosaManual[i]
+    const prognosa = manual != null ? manual
+      : isFuture ? targetOriginal : isCurrent ? Math.max(realisasi, targetOriginal) : realisasi
 
     results.push({
       bulanIdx: i,

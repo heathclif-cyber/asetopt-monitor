@@ -26,6 +26,15 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 
+type PrognosaRow = {
+  tahun: number
+  kode: string
+  nama: string
+  cash_jul: number; cash_agu: number; cash_sep: number; cash_okt: number; cash_nov: number; cash_des: number
+  pendapatan_jul: number; pendapatan_agu: number; pendapatan_sep: number; pendapatan_okt: number; pendapatan_nov: number; pendapatan_des: number
+}
+const PROGNOSA_COLS = ['jul', 'agu', 'sep', 'okt', 'nov', 'des'] as const
+
 // ── Excel export ──────────────────────────────────────────────────────────────
 function exportRKAPExcel(
   tahun: number,
@@ -38,6 +47,8 @@ function exportRKAPExcel(
   pendapatanPerNama?: Record<string, number[]>,
   nonaktifCashIn?: Set<string>,
   nonaktifPsak?: Set<string>,
+  prognosaManualCash?: Record<string, Array<number | null>>,
+  prognosaManualPendapatan?: Record<string, Array<number | null>>,
 ) {
   const nonaktifCI = nonaktifCashIn ?? new Set<string>()
   const nonaktifPD = nonaktifPsak ?? new Set<string>()
@@ -107,6 +118,7 @@ function exportRKAPExcel(
     titleLabel: string,
     sheetName: string,
     nonaktif: Set<string> = new Set(),
+    prognosaManual: Record<string, Array<number | null>> = {},
   ) {
     const sh: any[][] = [
       [`${titleLabel} ${tahun} (Rp)`],
@@ -125,7 +137,9 @@ function exportRKAPExcel(
         const isFuture = i > efektifBulan
         const isCurrent = i === efektifBulan
         // Nonaktif: prognosa masa depan = 0, bulan lewat tetap realisasi
+        const manual = prognosaManual[item.kode ?? '']?.[i]
         const prog = isNonaktif && (isFuture || isCurrent) ? 0
+          : manual != null ? manual
           : isFuture ? target
           : isCurrent ? Math.max(realPerBulan[i], target)
           : realPerBulan[i]
@@ -173,7 +187,7 @@ function exportRKAPExcel(
   XLSX.utils.book_append_sheet(wb, ws2, `Target Per Obyek ${tahun}`)
 
   // ── Sheet 3: Prognosa Per Obyek Cash In ────────────────────────────────────
-  buildPerObyekSheet(cashInPerNama, 'Prognosa Per Obyek Cash In', `Prog Cash In Per Obyek ${tahun}`, nonaktifCI)
+  buildPerObyekSheet(cashInPerNama, 'Prognosa Per Obyek Cash In', `Prog Cash In Per Obyek ${tahun}`, nonaktifCI, prognosaManualCash)
 
   // ── Sheet 4: Ringkasan Prognosa Pendapatan (PSAK 73) ───────────────────────
   if (rkapDataPendapatan) {
@@ -182,7 +196,7 @@ function exportRKAPExcel(
 
   // ── Sheet 5: Prognosa Per Obyek Pendapatan (PSAK 73) ───────────────────────
   if (pendapatanPerNama) {
-    buildPerObyekSheet(pendapatanPerNama, 'Prognosa Per Obyek Pendapatan (PSAK 73)', `Prog Pendapatan Per Obyek ${tahun}`, nonaktifPD)
+    buildPerObyekSheet(pendapatanPerNama, 'Prognosa Per Obyek Pendapatan (PSAK 73)', `Prog Pendapatan Per Obyek ${tahun}`, nonaktifPD, prognosaManualPendapatan)
   }
 
   XLSX.writeFile(wb, `RKAP_Prognosa_${tahun}_${new Date().toISOString().slice(0, 10)}.xlsx`)
@@ -280,8 +294,8 @@ async function fetchPerbandinganData(
     fetchRKAPForYear(tahunPrev),
     fetchRKAPForYear(tahunNext),
   ])
-  const itemsPrev = rowsPrev.map(rowToRKAPItem)
-  const itemsNext = rowsNext.map(rowToRKAPItem)
+  const itemsPrev = rowsPrev.map(row => rowToRKAPItem(row))
+  const itemsNext = rowsNext.map(row => rowToRKAPItem(row))
 
   const allKodes = new Set<string>()
   rkapItems.forEach(it => { if (it.kode) allKodes.add(it.kode) })
@@ -455,6 +469,7 @@ export function RKAPMonitor() {
   // Nonaktif proker — terpisah per mode (Cash In vs PSAK 73)
   const [nonaktifCashIn, setNonaktifCashIn] = useState<Set<string>>(new Set())
   const [nonaktifPsak, setNonaktifPsak] = useState<Set<string>>(new Set())
+  const [prognosaRows, setPrognosaRows] = useState<PrognosaRow[]>([])
 
   const nonaktifAktif = prognosaType === 'cash_in' ? nonaktifCashIn : nonaktifPsak
   const setNonaktifAktif = prognosaType === 'cash_in' ? setNonaktifCashIn : setNonaktifPsak
@@ -478,6 +493,13 @@ export function RKAPMonitor() {
   useEffect(() => { fetchPendapatan() }, [])
   useEffect(() => { fetchAset() }, [])
   useEffect(() => { fetchRKAP(tahunAktif) }, [tahunAktif])
+  useEffect(() => {
+    supabase.from('rkap_prognosa').select('*').eq('tahun', tahunAktif)
+      .then(({ data, error }) => {
+        if (error) console.error('[fetch prognosa]', error)
+        setPrognosaRows((data ?? []) as PrognosaRow[])
+      })
+  }, [tahunAktif])
 
   const monikaOptions = useMemo(() => {
     const map = new Map<string, { value: string; label: string; searchText: string; description?: string }>()
@@ -520,7 +542,22 @@ export function RKAPMonitor() {
   )
 
   // ── Computed data ──────────────────────────────────────────────────────────
-  const rkapItems = useMemo(() => rows.map(rowToRKAPItem), [rows])
+  // Target resmi tetap dari Distribusi RKAP Sales. Obyek prognosis tanpa target
+  // resmi (mis. Cafe) tetap tampil dengan target 0 agar total worksheet utuh.
+  const rkapItems = useMemo(() => {
+    const targetItems = rows.map(row => rowToRKAPItem(row, 'cash_in'))
+    const known = new Set(targetItems.map(item => item.kode))
+    return [...targetItems, ...prognosaRows.filter(row => !known.has(row.kode)).map((row, index) => ({
+      no: targetItems.length + index + 1, kode: row.kode, nama: row.nama, total: 0, bulan: Array(12).fill(0),
+    }))]
+  }, [rows, prognosaRows])
+  const rkapItemsPendapatan = useMemo(() => {
+    const targetItems = rows.map(row => rowToRKAPItem(row, 'pendapatan'))
+    const known = new Set(targetItems.map(item => item.kode))
+    return [...targetItems, ...prognosaRows.filter(row => !known.has(row.kode)).map((row, index) => ({
+      no: targetItems.length + index + 1, kode: row.kode, nama: row.nama, total: 0, bulan: Array(12).fill(0),
+    }))]
+  }, [rows, prognosaRows])
 
   const cashIn = useMemo(() =>
     getCashInPerBulanByYear(allKompensasi, tahunAktif, allCashIn),
@@ -543,24 +580,37 @@ export function RKAPMonitor() {
     [rkapItems, nonaktifCashIn]
   )
   const activeItemsPsak = useMemo(
-    () => rkapItems.filter(item => !nonaktifPsak.has(item.kode)),
-    [rkapItems, nonaktifPsak]
+    () => rkapItemsPendapatan.filter(item => !nonaktifPsak.has(item.kode)),
+    [rkapItemsPendapatan, nonaktifPsak]
   )
 
+  const prognosaManualCash = useMemo(() => {
+    const result: Record<string, Array<number | null>> = {}
+    prognosaRows.forEach(row => { result[row.kode] = [null, null, null, null, null, null, ...PROGNOSA_COLS.map(col => row[`cash_${col}` as keyof PrognosaRow] as number)] })
+    return result
+  }, [prognosaRows])
+  const prognosaManualPendapatan = useMemo(() => {
+    const result: Record<string, Array<number | null>> = {}
+    prognosaRows.forEach(row => { result[row.kode] = [null, null, null, null, null, null, ...PROGNOSA_COLS.map(col => row[`pendapatan_${col}` as keyof PrognosaRow] as number)] })
+    return result
+  }, [prognosaRows])
+  const totalManual = (items: RKAPItem[], manual: Record<string, Array<number | null>>) =>
+    Array.from({ length: 12 }, (_, i) => i < 6 ? null : items.reduce((sum, item) => sum + (manual[item.kode]?.[i] ?? 0), 0))
+
   const rkapDataCashIn = useMemo(
-    () => hitungRKAP(activeItemsCashIn, cashIn, efektifBulan),
-    [activeItemsCashIn, cashIn, efektifBulan]
+    () => hitungRKAP(activeItemsCashIn, cashIn, efektifBulan, totalManual(activeItemsCashIn, prognosaManualCash)),
+    [activeItemsCashIn, cashIn, efektifBulan, prognosaManualCash]
   )
 
   const rkapDataPendapatan = useMemo(
-    () => hitungRKAP(activeItemsPsak, pendapatanPerBulan, efektifBulan),
-    [activeItemsPsak, pendapatanPerBulan, efektifBulan]
+    () => hitungRKAP(activeItemsPsak, pendapatanPerBulan, efektifBulan, totalManual(activeItemsPsak, prognosaManualPendapatan)),
+    [activeItemsPsak, pendapatanPerBulan, efektifBulan, prognosaManualPendapatan]
   )
 
   const rkapData = prognosaType === 'cash_in' ? rkapDataCashIn : rkapDataPendapatan
   const activeRealisasiPerBulan = prognosaType === 'cash_in' ? cashIn : pendapatanPerBulan
 
-  const totalTarget = useMemo(() => rkapItems.reduce((s, i) => s + i.total, 0), [rkapItems])
+  const totalTarget = useMemo(() => (prognosaType === 'cash_in' ? rkapItems : rkapItemsPendapatan).reduce((s, i) => s + i.total, 0), [prognosaType, rkapItems, rkapItemsPendapatan])
 
   const ytdTargetOri = rkapData.slice(0, efektifBulan + 1).reduce((s, m) => s + m.targetOriginal, 0)
   const ytdRealisasi = activeRealisasiPerBulan.slice(0, efektifBulan + 1).reduce((s, v) => s + v, 0)
@@ -782,7 +832,7 @@ export function RKAPMonitor() {
             size="sm"
             variant="outline"
             className="border-white/30 bg-white/10 text-white hover:bg-white/20 hover:text-white"
-            onClick={() => exportRKAPExcel(tahunAktif, rkapDataCashIn, rkapItems, totalTarget, efektifBulan, cashInPerNama, rkapDataPendapatan, pendapatanPerNama, nonaktifCashIn, nonaktifPsak)}
+            onClick={() => exportRKAPExcel(tahunAktif, rkapDataCashIn, rkapItems, totalTarget, efektifBulan, cashInPerNama, rkapDataPendapatan, pendapatanPerNama, nonaktifCashIn, nonaktifPsak, prognosaManualCash, prognosaManualPendapatan)}
           >
             <FileDown size={14} /> Export Excel
           </Button>

@@ -16,16 +16,22 @@ export interface RKAPTargetRow {
   jan: number; feb: number; mar: number; apr: number
   mei: number; jun: number; jul: number; agu: number
   sep: number; okt: number; nov: number; des: number
+  /** Target laba-rugi/Pendapatan; sumber: Distribusi RKAP 2026 - Sales. */
+  pendapatan_total?: number
+  pendapatan_jan?: number; pendapatan_feb?: number; pendapatan_mar?: number; pendapatan_apr?: number
+  pendapatan_mei?: number; pendapatan_jun?: number; pendapatan_jul?: number; pendapatan_agu?: number
+  pendapatan_sep?: number; pendapatan_okt?: number; pendapatan_nov?: number; pendapatan_des?: number
   created_at?: string
 }
 
-export function rowToRKAPItem(row: RKAPTargetRow): RKAPItem {
+export function rowToRKAPItem(row: RKAPTargetRow, basis: 'cash_in' | 'pendapatan' = 'cash_in'): RKAPItem {
+  const isPendapatan = basis === 'pendapatan'
   return {
     no: row.no,
     kode: row.kode ?? '',
     nama: row.nama,
-    total: row.total,
-    bulan: BULAN_COLS.map(col => row[col] ?? 0),
+    total: isPendapatan ? (row.pendapatan_total ?? row.total) : row.total,
+    bulan: BULAN_COLS.map(col => isPendapatan ? (row[`pendapatan_${col}` as keyof RKAPTargetRow] as number ?? row[col] ?? 0) : (row[col] ?? 0)),
   }
 }
 

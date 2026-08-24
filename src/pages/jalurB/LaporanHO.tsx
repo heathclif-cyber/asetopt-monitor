@@ -19,6 +19,7 @@ import { EmptyState } from '@/components/common/EmptyState'
 import { TableSkeleton } from '@/components/common/LoadingSkeleton'
 import { ExportExcelPanel } from '@/components/common/ExportExcelPanel'
 import { cn, formatTanggal } from '@/lib/utils'
+import { supabase } from '@/lib/supabase'
 import {
   BULAN_LABELS_HO,
   buildLaporanHO,
@@ -35,7 +36,7 @@ import {
   type HOSummary,
 } from '@/utils/laporanHOUtils'
 import { exportLaporanHOExcel } from '@/utils/laporanHOExport'
-import { exportEvaluasiKinerjaExcel } from '@/utils/evaluasiKinerjaExport'
+import { exportEvaluasiKinerjaExcel, type PrognosaEvaluasi } from '@/utils/evaluasiKinerjaExport'
 
 type TabMode = 'cash' | 'pendapatan' | 'piutang'
 /** bulan = hanya bulan terpilih · sd = Januari s.d. bulan terpilih */
@@ -85,6 +86,7 @@ export default function LaporanHO() {
   const [onlyWithTx, setOnlyWithTx] = useState(true)
   const [exporting, setExporting] = useState(false)
   const [exportingEvaluasi, setExportingEvaluasi] = useState(false)
+  const [prognosaEvaluasi, setPrognosaEvaluasi] = useState<PrognosaEvaluasi[]>([])
   const [q, setQ] = useState('')
 
   useEffect(() => {
@@ -99,6 +101,17 @@ export default function LaporanHO() {
   useEffect(() => {
     fetchRKAP(tahun)
   }, [tahun, location.key])
+
+  useEffect(() => {
+    supabase.from('rkap_prognosa').select('*').eq('tahun', tahun).then(({ data, error }) => {
+      if (error) console.error('[fetch prognosa evaluasi]', error)
+      setPrognosaEvaluasi((data ?? []).map((row: any) => ({
+        kode: row.kode,
+        cash: Array.from({ length: 12 }, (_, month) => month < 6 ? 0 : Number(row[`cash_${['jul', 'agu', 'sep', 'okt', 'nov', 'des'][month - 6]}`] ?? 0)),
+        pendapatan: Array.from({ length: 12 }, (_, month) => month < 6 ? 0 : Number(row[`pendapatan_${['jul', 'agu', 'sep', 'okt', 'nov', 'des'][month - 6]}`] ?? 0)),
+      })))
+    })
+  }, [tahun])
 
   const tahunList = useMemo(() => {
     const years = new Set<number>()
@@ -205,7 +218,10 @@ export default function LaporanHO() {
   const handleExportEvaluasi = async () => {
     setExportingEvaluasi(true)
     try {
-      await exportEvaluasiKinerjaExcel(rows, { tahun, endMonth: bulanAktif })
+      await exportEvaluasiKinerjaExcel(rows, { tahun, endMonth: bulanAktif, prognosa: prognosaEvaluasi })
+    } catch (error) {
+      console.error('[export evaluasi kinerja]', error)
+      window.alert(`Excel Evaluasi Kinerja belum dapat dibuat: ${error instanceof Error ? error.message : 'terjadi kesalahan tidak dikenal'}`)
     } finally {
       setExportingEvaluasi(false)
     }

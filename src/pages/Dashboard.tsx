@@ -252,7 +252,7 @@ export function Dashboard() {
 
   const rkapSummary = useMemo(() => {
     const tahun = new Date().getFullYear()
-    const items = rkapRows.map(rowToRKAPItem)
+    const items = rkapRows.map(row => rowToRKAPItem(row))
     const totalTarget = items.reduce((s, i) => s + i.total, 0)
     const cashIn = getCashInPerBulanByYear(allKompensasi, tahun, allCashIn)
     const months = hitungRKAP(items, cashIn)
