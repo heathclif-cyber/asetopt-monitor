@@ -10,6 +10,7 @@ from routers.r_documents import router as documents_router
 from routers.r_pembayaran import router as pembayaran_router
 from routers.r_rest import router as rest_router
 from routers.r_superman import router as superman_router
+from routers.r_integrasi import router as integrasi_router
 from services.auth_service import ensure_app_users_table, seed_default_users
 
 logging.basicConfig(level=logging.INFO)
@@ -32,6 +33,7 @@ app.include_router(rest_router)
 app.include_router(pembayaran_router)
 app.include_router(documents_router)
 app.include_router(superman_router)
+app.include_router(integrasi_router)
 
 
 @app.on_event("startup")

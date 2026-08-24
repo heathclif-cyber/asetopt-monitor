@@ -1,5 +1,8 @@
 # Design System & Architecture Reference
 
+> Bagian dari Layer Zero PTPN I Regional 8. Standar lintas aplikasi dan kontrak
+> integrasi: [Layer Zero](https://github.com/heathclif-cyber/Monitoringpemasaran/tree/main/docs/platform).
+
 Panduan pola desain, arsitektur, dan konvensi kode yang bisa diadopsi untuk aplikasi React + TypeScript.
 
 ---

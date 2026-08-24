@@ -1,6 +1,6 @@
 /** Role & path access helpers */
 
-export type AppRole = 'admin' | 'viewer'
+export type AppRole = 'admin' | 'viewer' | 'integrasi'
 
 export interface AuthUser {
   id: string

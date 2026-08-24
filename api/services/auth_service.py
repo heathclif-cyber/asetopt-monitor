@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
-ROLES = ("admin", "viewer")
+ROLES = ("admin", "viewer", "integrasi")
 JWT_ALG = "HS256"
 TOKEN_TTL_HOURS = int(os.getenv("AUTH_TOKEN_TTL_HOURS", "72"))
 
@@ -72,6 +72,27 @@ def ensure_app_users_table(db: Session) -> None:
     db.execute(text(
         "CREATE INDEX IF NOT EXISTS idx_app_users_username ON app_users (username)"
     ))
+    db.execute(text("""
+        DO $$
+        BEGIN
+          IF EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'app_users_role_check'
+              AND conrelid = 'app_users'::regclass
+          ) THEN
+            ALTER TABLE app_users DROP CONSTRAINT app_users_role_check;
+          END IF;
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'app_users_role_check'
+              AND conrelid = 'app_users'::regclass
+          ) THEN
+            ALTER TABLE app_users
+              ADD CONSTRAINT app_users_role_check
+              CHECK (role IN ('admin', 'viewer', 'integrasi'));
+          END IF;
+        END $$;
+    """))
     db.commit()
 
 
@@ -148,6 +169,16 @@ def seed_default_users(db: Session) -> None:
         role="viewer",
         full_name=os.getenv("AUTH_SEED_VIEWER_NAME") or "Viewer Laporan",
     )
+    integration_user = (os.getenv("AUTH_SEED_INTEGRATION_USER") or "").strip().lower()
+    integration_pass = (os.getenv("AUTH_SEED_INTEGRATION_PASSWORD") or "").strip()
+    if integration_user and integration_pass:
+        _upsert_user(
+            db,
+            username=integration_user,
+            password=integration_pass,
+            role="integrasi",
+            full_name=os.getenv("AUTH_SEED_INTEGRATION_NAME") or "Akun Integrasi",
+        )
     db.commit()
 
 

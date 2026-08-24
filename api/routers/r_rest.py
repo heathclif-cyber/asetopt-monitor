@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 
 from database import get_db
-from services.auth_deps import get_current_user, require_admin
+from services.auth_deps import require_admin, require_app_read
 from services.rest_query import (
     ALLOWED_TABLES,
     delete_rows,
@@ -44,7 +44,7 @@ def rest_select(
     request: Request,
     response: Response,
     db: Session = Depends(get_db),
-    _user: dict[str, Any] = Depends(get_current_user),
+    _user: dict[str, Any] = Depends(require_app_read),
     accept: str | None = Header(default=None),
     prefer: str | None = Header(default=None),
 ):

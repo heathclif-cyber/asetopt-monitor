@@ -66,5 +66,19 @@ def require_admin(user: Annotated[dict[str, Any], Depends(get_current_user)]) ->
     return user
 
 
+def require_app_read(user: Annotated[dict[str, Any], Depends(get_current_user)]) -> dict[str, Any]:
+    """Akses baca aplikasi untuk admin dan viewer; akun integrasi dikecualikan."""
+    if user.get("role") not in {"admin", "viewer"}:
+        raise HTTPException(status_code=403, detail="Akses aplikasi diperlukan")
+    return user
+
+
+def require_integration_read(user: Annotated[dict[str, Any], Depends(get_current_user)]) -> dict[str, Any]:
+    """Akses baca terbatas bagi aplikasi internal melalui Layer Zero."""
+    if user.get("role") not in {"admin", "integrasi"}:
+        raise HTTPException(status_code=403, detail="Akses integrasi diperlukan")
+    return user
+
+
 CurrentUser = Annotated[dict[str, Any], Depends(get_current_user)]
 AdminUser = Annotated[dict[str, Any], Depends(require_admin)]

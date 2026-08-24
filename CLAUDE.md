@@ -1,5 +1,7 @@
 # AsetOpt Monitor — Project Reference
 
+> **Layer Zero:** wajib baca [standar lintas aplikasi](https://github.com/heathclif-cyber/Monitoringpemasaran/tree/main/docs/platform) sebelum mengubah desain, data master, atau API. AsetOpt adalah sumber pendapatan akrual aset melalui `GET /api/integrasi/v1/revenue`.
+
 ## Stack
 React 18 · Vite · TypeScript · Tailwind CSS · shadcn/ui (Radix UI) · Zustand · Supabase · Recharts · React Hook Form + Zod · Lucide Icons · jsPDF
 
