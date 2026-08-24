@@ -35,6 +35,7 @@ import {
   type HOSummary,
 } from '@/utils/laporanHOUtils'
 import { exportLaporanHOExcel } from '@/utils/laporanHOExport'
+import { exportEvaluasiKinerjaExcel } from '@/utils/evaluasiKinerjaExport'
 
 type TabMode = 'cash' | 'pendapatan' | 'piutang'
 /** bulan = hanya bulan terpilih · sd = Januari s.d. bulan terpilih */
@@ -83,6 +84,7 @@ export default function LaporanHO() {
   /** Default: hanya proker yang ada transaksi di tab & periode aktif */
   const [onlyWithTx, setOnlyWithTx] = useState(true)
   const [exporting, setExporting] = useState(false)
+  const [exportingEvaluasi, setExportingEvaluasi] = useState(false)
   const [q, setQ] = useState('')
 
   useEffect(() => {
@@ -200,6 +202,15 @@ export default function LaporanHO() {
     }
   }
 
+  const handleExportEvaluasi = async () => {
+    setExportingEvaluasi(true)
+    try {
+      await exportEvaluasiKinerjaExcel(rows, { tahun, endMonth: bulanAktif })
+    } finally {
+      setExportingEvaluasi(false)
+    }
+  }
+
   const selectBulan = (m: number) => {
     setBulanTouched(true)
     setBulan(m)
@@ -238,6 +249,16 @@ export default function LaporanHO() {
         onExport={handleExport}
         loading={exporting}
         disabled={filtered.length === 0}
+      />
+
+      <ExportExcelPanel
+        title="Bahan PPT Evaluasi Kinerja"
+        description="Format persis template Evaluasi Kinerja: Opset Cash, Opset Pendapatan, dan Piutang · nilai dalam Rp Juta"
+        meta={`Periode s.d. ${bulanLabel} ${tahun} · seluruh data aplikasi (bukan hanya hasil pencarian/filter)`}
+        fileNameHint={`Evaluasi Kinerja s.d. ${bulanLabel} ${tahun}.xlsx`}
+        onExport={handleExportEvaluasi}
+        loading={exportingEvaluasi}
+        disabled={rows.length === 0}
       />
 
       {/* Filters */}
