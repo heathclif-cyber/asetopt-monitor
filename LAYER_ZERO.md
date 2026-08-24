@@ -4,6 +4,17 @@ Repository ini berpartisipasi dalam Layer Zero PTPN I Regional 8. Standar
 resmi, katalog pemilik data, kontrak API, dan desain lintas aplikasi tersedia
 di repository pusat: [Monitoring Pemasaran / docs/platform](https://github.com/heathclif-cyber/Monitoringpemasaran/tree/main/docs/platform).
 
+## Status akses saat ini
+
+- Pengguna login normal di AsetOpt. Browser otomatis mengirim token sesi ke
+  API; pengguna tidak pernah melihat atau menyalin token.
+- API dan REST aplikasi memeriksa token. Endpoint data tidak ditujukan untuk
+  akses publik.
+- Role `integrasi` adalah akun mesin dan hanya dapat memakai
+  `/api/integrasi/v1/*`; ia tidak dapat membuka UI AsetOpt.
+- Sesi AsetOpt dan Pemasaran masih terpisah. SSO Layer Zero belum aktif dan
+  akan menggantikan user store lokal setelah identity provider pusat tersedia.
+
 ## Peran AsetOpt
 
 - Pemilik data aset, kerja sama aset, kompensasi, cash-in aset, dan pendapatan
