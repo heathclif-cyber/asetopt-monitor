@@ -30,6 +30,7 @@ export function isViewerPath(pathname: string): boolean {
 export function canAccessPath(role: AppRole | null | undefined, pathname: string): boolean {
   if (!role) return false
   if (role === 'admin') return true
+  if (role === 'integrasi') return false
   if (pathname === '/login') return true
   return isViewerPath(pathname)
 }

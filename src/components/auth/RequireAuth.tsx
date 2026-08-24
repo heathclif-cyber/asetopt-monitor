@@ -28,7 +28,7 @@ export function RequireAuth() {
   }
 
   if (!canAccessPath(user.role, location.pathname)) {
-    return <Navigate to={user.role === 'viewer' ? VIEWER_HOME : '/'} replace />
+    return <Navigate to={user.role === 'viewer' ? VIEWER_HOME : '/login'} replace />
   }
 
   return <Outlet />

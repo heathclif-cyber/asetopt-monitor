@@ -21,6 +21,7 @@ import { PenilaianKJPP } from './pages/master/PenilaianKJPP'
 import { RKAPMonitor } from './pages/RKAPMonitor'
 import { KatalogAset } from './pages/katalog/KatalogAset'
 import KatalogFactsheetPage from './pages/KatalogAset'
+import AdminUsers from './pages/AdminUsers'
 
 function App() {
   return (
@@ -45,6 +46,7 @@ function App() {
           <Route path="/master/aset" element={<DataAset />} />
           <Route path="/master/njop" element={<DataNJOP />} />
           <Route path="/master/kjpp" element={<PenilaianKJPP />} />
+          <Route path="/admin/users" element={<AdminUsers />} />
           <Route path="/rkap" element={<RKAPMonitor />} />
           <Route path="/katalog" element={<KatalogAset />} />
           <Route path="/katalog/factsheet" element={<KatalogFactsheetPage />} />

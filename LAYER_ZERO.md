@@ -14,6 +14,12 @@ di repository pusat: [Monitoring Pemasaran / docs/platform](https://github.com/h
   `akrual_psak_73`.
 - Akun teknis role `integrasi` hanya boleh memanggil endpoint Layer Zero;
   akun tersebut tidak bisa memakai REST aplikasi atau mengubah data.
+- Pengguna lokal sementara dikelola admin melalui menu **Kelola Pengguna** dan
+  `/api/users`; target Layer Zero tetap identity provider bersama, bukan akun
+  yang dibuat ulang di setiap aplikasi.
+- Akses browser ke tabel database secara langsung dicabut lewat migrasi
+  `023_revoke_anon_data_access.sql`. Frontend harus selalu memakai API aplikasi
+  dengan token pengguna.
 
 Pemasaran dan AsetOpt tidak mengakses database satu sama lain. Keuangan memakai
 API masing-masing sumber dan menyimpan ID referensi sumber pada jurnal atau

@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard, GitBranch, Handshake, Database,
-  Building2, ChevronDown, ChevronRight, Target, BookOpen
+  Building2, ChevronDown, ChevronRight, Target, BookOpen, Users
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useMemo, useState } from 'react'
@@ -59,6 +59,7 @@ const navItems: NavItem[] = [
       { label: 'Penilaian KJPP', to: '/master/kjpp' },
     ],
   },
+  { label: 'Kelola Pengguna', to: '/admin/users', icon: <Users size={15} /> },
 ]
 
 function filterNav(items: NavItem[], role: AppRole | null | undefined): NavItem[] {

@@ -214,4 +214,103 @@ def public_user(user: dict[str, Any]) -> dict[str, Any]:
         "username": user["username"],
         "full_name": user.get("full_name") or user["username"],
         "role": user["role"],
+        "is_active": bool(user.get("is_active", True)),
     }
+
+
+def list_users(db: Session) -> list[dict[str, Any]]:
+    rows = db.execute(text("""
+        SELECT id, username, full_name, role, is_active, created_at, updated_at
+        FROM app_users
+        ORDER BY username
+    """)).mappings().all()
+    return [dict(row) for row in rows]
+
+
+def create_user(
+    db: Session,
+    *,
+    username: str,
+    password: str,
+    full_name: str,
+    role: str,
+) -> dict[str, Any]:
+    username = username.strip().lower()
+    if not username:
+        raise ValueError("Username wajib diisi")
+    if role not in ROLES:
+        raise ValueError("Role tidak valid")
+    exists = db.execute(
+        text("SELECT 1 FROM app_users WHERE lower(username) = :username"),
+        {"username": username},
+    ).first()
+    if exists:
+        raise ValueError("Username sudah digunakan")
+
+    row = db.execute(text("""
+        INSERT INTO app_users (id, username, password_hash, full_name, role, is_active)
+        VALUES (:id, :username, :password_hash, :full_name, :role, true)
+        RETURNING id, username, full_name, role, is_active, created_at, updated_at
+    """), {
+        "id": str(uuid.uuid4()),
+        "username": username,
+        "password_hash": hash_password(password),
+        "full_name": full_name.strip() or username,
+        "role": role,
+    }).mappings().one()
+    db.commit()
+    return dict(row)
+
+
+def update_user(
+    db: Session,
+    user_id: str,
+    *,
+    full_name: str | None = None,
+    role: str | None = None,
+    is_active: bool | None = None,
+) -> dict[str, Any] | None:
+    existing = get_user_by_id(db, user_id)
+    if not existing:
+        return None
+    if role is not None and role not in ROLES:
+        raise ValueError("Role tidak valid")
+
+    row = db.execute(text("""
+        UPDATE app_users
+        SET full_name = COALESCE(:full_name, full_name),
+            role = COALESCE(:role, role),
+            is_active = COALESCE(:is_active, is_active),
+            updated_at = now()
+        WHERE id = :user_id
+        RETURNING id, username, full_name, role, is_active, created_at, updated_at
+    """), {
+        "user_id": user_id,
+        "full_name": full_name.strip() if full_name is not None else None,
+        "role": role,
+        "is_active": is_active,
+    }).mappings().one()
+    db.commit()
+    return dict(row)
+
+
+def reset_password(db: Session, user_id: str, password: str) -> dict[str, Any] | None:
+    row = db.execute(text("""
+        UPDATE app_users
+        SET password_hash = :password_hash, updated_at = now()
+        WHERE id = :user_id
+        RETURNING id, username, full_name, role, is_active, created_at, updated_at
+    """), {
+        "user_id": user_id,
+        "password_hash": hash_password(password),
+    }).mappings().first()
+    if not row:
+        return None
+    db.commit()
+    return dict(row)
+
+
+def active_admin_count(db: Session) -> int:
+    return int(db.execute(text("""
+        SELECT count(*) FROM app_users WHERE role = 'admin' AND is_active = true
+    """)).scalar_one())

@@ -158,7 +158,10 @@ aset ──┬── njop (1:N, per tahun)
 - **pbb_objek**: pbb_id, nama_objek, no_sppt, nilai_pbb_objek, luas_tanah_sppt, luas_tanah_ks, njop_tanah_per_m2, luas_bangunan_sppt, luas_bangunan_ks, njop_bangunan_per_m2
 
 ### Auth model
-**No authentication.** All tables have RLS policies: `FOR ALL TO anon USING (true) WITH CHECK (true)`. This is an internal tool.
+API memakai JWT aplikasi. Role `admin` mengelola data dan pengguna, `viewer`
+hanya membaca halaman yang diizinkan, sedangkan `integrasi` hanya boleh
+mengakses API Layer Zero. Browser tidak boleh mengakses tabel database secara
+langsung dengan role `anon`; lihat `LAYER_ZERO.md` dan migrasi `023_*`.
 
 ### Migration conventions
 - Files in `supabase/migrations/` numbered sequentially: `001_`, `002_`, etc.
