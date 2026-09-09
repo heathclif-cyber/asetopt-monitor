@@ -19,7 +19,6 @@ import { BULAN_LABELS } from '@/data/rkap2026'
 import { useRKAPStore, rowToRKAPItem } from '@/store/rkapStore'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-  ComposedChart, Area, Line, ReferenceLine,
 } from 'recharts'
 import { Building2, Handshake, Clock, TrendingUp, AlertTriangle, Banknote, ReceiptText, Percent, Target, ChevronRight, WalletCards, CalendarRange, FileText, CheckCircle } from 'lucide-react'
 import { usePendapatanStore } from '@/store/pendapatanStore'
@@ -135,6 +134,15 @@ export function Dashboard() {
     return Array.from(map.values())
   }, [spAktif])
 
+  // Kerja sama yang akan berakhir dalam <30 hari (belum putus/selesai)
+  const ksAkanBerakhir = useMemo(() => {
+    return daftarKS
+      .filter(ks => ks.status !== 'putus' && ks.status !== 'selesai')
+      .map(ks => ({ ks, sisaHari: hitungSisaHari(ks.tgl_selesai) }))
+      .filter(item => item.sisaHari >= 0 && item.sisaHari <= 30)
+      .sort((a, b) => a.sisaHari - b.sisaHari)
+  }, [daftarKS])
+
   // Piutang: list per tagihan (bukan per mitra) — hanya periode jatuh tempo yang belum lunas
   const piutangList = useMemo(() => {
     const today = new Date()
@@ -227,29 +235,6 @@ export function Dashboard() {
     return rows.sort((a, b) => b.tahun - a.tahun || b.pbbProporsional - a.pbbProporsional)
   }, [daftarKS, allPBB])
 
-  const potensiChartData = daftarAset
-    .map(a => {
-      const njopList = dataNJOP[a.id]
-      let potensiNJOP = 0
-      if (njopList && njopList.length > 0) {
-        const njop = njopList[0]
-        const { totalPotensi } = hitungPotensiNJOP({
-          njopTanahPerM2: njop.nilai_tanah_per_m2,
-          luasTanahM2: a.luas_tanah_m2 ?? 0,
-          njopBangunanPerM2: njop.nilai_bangunan_per_m2,
-          luasBangunanM2: a.luas_bangunan_m2 ?? 0,
-        })
-        potensiNJOP = totalPotensi
-      }
-      return {
-        name: a.kode_aset,
-        potensiNJOP: Math.round(potensiNJOP / 1000000),
-      }
-    })
-    .filter(d => d.potensiNJOP > 0)
-    .sort((a, b) => b.potensiNJOP - a.potensiNJOP)
-    .slice(0, 8)
-
   const rkapSummary = useMemo(() => {
     const tahun = new Date().getFullYear()
     const items = rkapRows.map(row => rowToRKAPItem(row))
@@ -279,36 +264,6 @@ export function Dashboard() {
     return { totalTarget, ytdTarget, ytdRealisasi, achievement, currentCarryOver, chartData, triwulan }
   }, [allKompensasi, rkapRows, allCashIn])
 
-  const cashFlowData = useMemo(() => {
-    const byBulan: Record<string, { tagihan: number; cashIn: number }> = {}
-    allKompensasi.forEach(k => {
-      const bulan = k.tgl_jatuh_tempo.slice(0, 7)
-      if (!byBulan[bulan]) byBulan[bulan] = { tagihan: 0, cashIn: 0 }
-      byBulan[bulan].tagihan += k.total_tagihan ?? 0
-        ; (k.pembayaran ?? []).forEach(p => {
-          const bln = p.tgl_bayar.slice(0, 7)
-          if (!byBulan[bln]) byBulan[bln] = { tagihan: 0, cashIn: 0 }
-          byBulan[bln].cashIn += p.nominal_bayar ?? 0
-        })
-    })
-
-    allCashIn.forEach(ci => {
-      const bln = ci.tgl_terima.slice(0, 7)
-      if (!byBulan[bln]) byBulan[bln] = { tagihan: 0, cashIn: 0 }
-      byBulan[bln].cashIn += ci.nominal
-      byBulan[bln].tagihan += ci.nominal
-    })
-
-    return Object.entries(byBulan)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .slice(-12)
-      .map(([bulan, { tagihan, cashIn }]) => ({
-        bulan: new Date(bulan + '-01').toLocaleDateString('id-ID', { month: 'short', year: '2-digit' }),
-        tagihan: Math.round(tagihan / 1_000_000),
-        cashIn: Math.round(cashIn / 1_000_000),
-      }))
-  }, [allKompensasi, allCashIn])
-
   // PSAK 73 — Pendapatan Akrual Stats
   const akrualStats = useMemo(() => {
     const tahun = new Date().getFullYear()
@@ -325,69 +280,6 @@ export function Dashboard() {
     })
     return hitungPendapatanAkrualStats(daftarPDDM, allPengakuan, cashPerBulan, tahun)
   }, [daftarPDDM, allPengakuan, allKompensasi, allCashIn])
-
-  // Proyeksi cash in 18 bulan — berdasarkan jadwal jatuh tempo KS eksisting
-  const proyeksiCashInData = useMemo(() => {
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const currentYM = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
-
-    // Kumpulkan semua tagihan per bulan jatuh tempo
-    const byBulan: Record<string, { tagihan: number; cashIn: number; sisaTagihan: number }> = {}
-
-    allKompensasi.forEach(k => {
-      const bulan = k.tgl_jatuh_tempo.slice(0, 7)
-      if (!byBulan[bulan]) byBulan[bulan] = { tagihan: 0, cashIn: 0, sisaTagihan: 0 }
-      const totalDibayar = (k.pembayaran ?? []).reduce((s, p) => s + p.nominal_bayar, 0)
-      const sisa = Math.max(0, ((k.total_tagihan ?? 0) - (k.pengurang ?? 0)) - totalDibayar)
-      byBulan[bulan].tagihan     += k.total_tagihan ?? 0
-      byBulan[bulan].sisaTagihan += sisa
-      // Cash in aktual per bulan bayar
-      ;(k.pembayaran ?? []).forEach(p => {
-        const bln = p.tgl_bayar.slice(0, 7)
-        if (!byBulan[bln]) byBulan[bln] = { tagihan: 0, cashIn: 0, sisaTagihan: 0 }
-        byBulan[bln].cashIn += p.nominal_bayar
-      })
-    })
-
-    allCashIn.forEach(ci => {
-      const bln = ci.tgl_terima.slice(0, 7)
-      if (!byBulan[bln]) byBulan[bln] = { tagihan: 0, cashIn: 0, sisaTagihan: 0 }
-      byBulan[bln].cashIn += ci.nominal
-      byBulan[bln].tagihan += ci.nominal
-    })
-
-    // Ambil 6 bulan lewat + bulan ini + 12 bulan ke depan
-    const months: string[] = []
-    for (let i = -6; i <= 12; i++) {
-      const d = new Date(today.getFullYear(), today.getMonth() + i, 1)
-      months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
-    }
-
-    let cumRealisasi = 0
-    let cumProyeksi  = 0
-    return months.map(ym => {
-      const d     = byBulan[ym] ?? { tagihan: 0, cashIn: 0, sisaTagihan: 0 }
-      const label = new Date(ym + '-01').toLocaleDateString('id-ID', { month: 'short', year: '2-digit' })
-      const isPast = ym < currentYM
-      const isCurrent = ym === currentYM
-
-      if (isPast || isCurrent) cumRealisasi += d.cashIn
-      else cumProyeksi += d.sisaTagihan
-
-      return {
-        bulan: label,
-        ym,
-        isFuture: ym > currentYM,
-        isCurrent,
-        realisasi:   isPast || isCurrent ? Math.round(d.cashIn / 1_000_000) : null,
-        proyeksi:    ym >= currentYM     ? Math.round(d.sisaTagihan / 1_000_000) : null,
-        tagihan:     Math.round(d.tagihan / 1_000_000),
-        cumRealisasi: Math.round(cumRealisasi / 1_000_000),
-        cumProyeksi:  Math.round((cumRealisasi + cumProyeksi) / 1_000_000),
-      }
-    })
-  }, [allKompensasi, allCashIn])
 
   return (
     <div className="space-y-6">
@@ -716,7 +608,7 @@ export function Dashboard() {
         </>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* KS dengan SP aktif */}
         <Card>
           <CardHeader className="pb-3">
@@ -771,6 +663,38 @@ export function Dashboard() {
                       <CurrencyDisplay value={k.total_tagihan} size="sm" className="font-semibold text-red-700" />
                       <p className="text-xs text-red-500">
                         {hitungSisaHari(k.tgl_jatuh_tempo)} hari lagi
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* KS akan berakhir <30 hari */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <CalendarRange size={16} className="text-purple-500" />
+              Kerja Sama Akan Berakhir ≤30 Hari
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {ksAkanBerakhir.length === 0 ? (
+              <p className="text-sm text-gray-500 text-center py-4">Tidak ada yang akan berakhir dalam 30 hari</p>
+            ) : (
+              <div className="space-y-2">
+                {ksAkanBerakhir.slice(0, 5).map(({ ks, sisaHari }) => (
+                  <div key={ks.id} className="flex items-center justify-between p-3 rounded-lg bg-purple-50">
+                    <div>
+                      <p className="text-sm font-medium">{ks.nama_mitra}</p>
+                      <p className="text-xs text-gray-500">{(ks.aset as any)?.nama_aset ?? '-'}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs text-gray-500">{formatTanggal(ks.tgl_selesai)}</p>
+                      <p className="text-xs font-semibold text-purple-700">
+                        {sisaHari === 0 ? 'Berakhir hari ini' : `${sisaHari} hari lagi`}
                       </p>
                     </div>
                   </div>
@@ -944,116 +868,6 @@ export function Dashboard() {
         </CardContent>
       </Card>
 
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Bar chart potensi */}
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Potensi Pendapatan Berdasarkan NJOP (Juta Rp)</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {potensiChartData.length === 0 ? (
-              <p className="text-sm text-gray-500 text-center py-8">Belum ada data NJOP</p>
-            ) : (
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={potensiChartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis dataKey="name" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} />
-                  <Tooltip formatter={(v: number) => [`Rp ${v}jt`, 'Potensi NJOP']} />
-                  <Bar dataKey="potensiNJOP" fill="#117A65" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Bar chart cash in vs tagihan */}
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Tagihan vs Cash In per Bulan (Juta Rp)</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {cashFlowData.length === 0 ? (
-              <p className="text-sm text-gray-500 text-center py-8">Belum ada data kompensasi</p>
-            ) : (
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={cashFlowData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis dataKey="bulan" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} />
-                  <Tooltip formatter={(v: number, name: string) => [`Rp ${v}jt`, name === 'tagihan' ? 'Tagihan' : 'Cash In']} />
-                  <Legend formatter={(value) => value === 'tagihan' ? 'Tagihan' : 'Cash In'} />
-                  <Bar dataKey="tagihan" fill="#1B4F72" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="cashIn" fill="#117A65" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Grafik Proyeksi Cash In KS Eksisting */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <CalendarRange size={16} className="text-[#5B2C6F]" />
-            Proyeksi Cash In — Kerja Sama Eksisting
-            <span className="ml-auto text-xs font-normal text-gray-400">6 bulan lewat + 12 bulan ke depan</span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {proyeksiCashInData.length === 0 ? (
-            <p className="text-sm text-gray-500 text-center py-8">Belum ada data kompensasi</p>
-          ) : (
-            <>
-              <ResponsiveContainer width="100%" height={260}>
-                <ComposedChart data={proyeksiCashInData} margin={{ top: 10, right: 10, left: 0, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis dataKey="bulan" tick={{ fontSize: 10 }} />
-                  <YAxis yAxisId="bar" tick={{ fontSize: 10 }} tickFormatter={v => `${v}jt`} />
-                  <YAxis yAxisId="line" orientation="right" tick={{ fontSize: 10 }} tickFormatter={v => `${v}jt`} />
-                  <Tooltip
-                    formatter={(v: any, name: string) => [
-                      v != null ? `Rp ${v}jt` : '—',
-                      name === 'realisasi'   ? 'Cash In Aktual'
-                      : name === 'proyeksi' ? 'Proyeksi (Sisa Tagihan)'
-                      : name === 'cumRealisasi' ? 'Kumulatif Realisasi'
-                      : 'Kumulatif Proyeksi',
-                    ]}
-                  />
-                  <Legend
-                    formatter={v =>
-                      v === 'realisasi'    ? 'Cash In Aktual'
-                      : v === 'proyeksi' ? 'Proyeksi Tagihan'
-                      : v === 'cumRealisasi' ? 'Kumulatif Realisasi'
-                      : 'Kumulatif Proyeksi'
-                    }
-                    wrapperStyle={{ fontSize: 11 }}
-                  />
-                  {/* Garis pemisah bulan ini */}
-                  {proyeksiCashInData.find(d => d.isCurrent) && (
-                    <ReferenceLine
-                      yAxisId="bar"
-                      x={proyeksiCashInData.find(d => d.isCurrent)?.bulan}
-                      stroke="#1B4F72"
-                      strokeDasharray="4 2"
-                      label={{ value: 'Sekarang', position: 'top', fontSize: 10, fill: '#1B4F72' }}
-                    />
-                  )}
-                  <Bar yAxisId="bar" dataKey="realisasi"  fill="#117A65" radius={[3,3,0,0]} name="realisasi" />
-                  <Bar yAxisId="bar" dataKey="proyeksi"   fill="#3B82F6" radius={[3,3,0,0]} name="proyeksi" opacity={0.7} />
-                  <Line yAxisId="line" type="monotone" dataKey="cumRealisasi" stroke="#117A65" strokeWidth={2} dot={false} name="cumRealisasi" />
-                  <Line yAxisId="line" type="monotone" dataKey="cumProyeksi"  stroke="#3B82F6" strokeWidth={2} dot={false} strokeDasharray="4 2" name="cumProyeksi" />
-                </ComposedChart>
-              </ResponsiveContainer>
-              <p className="text-[10px] text-gray-400 mt-2 text-center">
-                * Proyeksi = sisa tagihan belum dibayar berdasarkan jadwal jatuh tempo KS eksisting. Garis putus-putus = proyeksi kumulatif.
-              </p>
-            </>
-          )}
-        </CardContent>
-      </Card>
 
       {/* ─── Drill-down SlideOver ─────────────────────────────── */}
       <SlideOver open={!!drillDown} onClose={() => setDrillDown(null)} title={drillDown?.title ?? ''} width="max-w-2xl">
