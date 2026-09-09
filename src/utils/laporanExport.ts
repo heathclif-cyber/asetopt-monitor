@@ -33,7 +33,7 @@ export interface LaporanDetailExportRow {
 
 export async function exportLaporanDetailExcel(
   rows: LaporanDetailExportRow[],
-  opts: { tahun: number; bulanBasis: string; monthsLabel?: string },
+  opts: { tahunLabel: string; bulanBasis: string; monthsLabel?: string },
 ): Promise<void> {
   const today = todayKey()
   const columns: ExcelColumn[] = [
@@ -73,7 +73,7 @@ export async function exportLaporanDetailExcel(
   const wb = newWorkbook()
   addTemplatedSheet(wb, {
     sheetName: 'Detail Tagihan',
-    title: `Laporan Pendapatan — Detail Tagihan ${opts.tahun}`,
+    title: `Laporan Pendapatan — Detail Tagihan ${opts.tahunLabel}`,
     subtitle: 'Rekap kompensasi & cash in per tahap tagihan',
     metaLines: [
       `Basis filter: ${opts.bulanBasis === 'diterima' ? 'Tanggal bayar (diterima)' : 'Jatuh tempo'}`,
@@ -87,12 +87,12 @@ export async function exportLaporanDetailExcel(
     totalLabelCol: 0,
   })
 
-  await downloadWorkbook(wb, `Laporan_Pendapatan_Detail_${opts.tahun}_${today}.xlsx`)
+  await downloadWorkbook(wb, `Laporan_Pendapatan_Detail_${opts.tahunLabel}_${today}.xlsx`)
 }
 
 export async function exportLaporanProgramExcel(
   rows: ProgramLaporanRow[],
-  opts: { tahun: number; horizon: string },
+  opts: { tahunLabel: string; horizon: string },
 ): Promise<void> {
   const today = todayKey()
   const columns: ExcelColumn[] = [
@@ -120,7 +120,7 @@ export async function exportLaporanProgramExcel(
   const wb = newWorkbook()
   addTemplatedSheet(wb, {
     sheetName: 'Per Proker',
-    title: `Laporan Pendapatan — Per Proker ${opts.tahun}`,
+    title: `Laporan Pendapatan — Per Proker ${opts.tahunLabel}`,
     subtitle: 'Rekap Optimalisasi Aset per ID Monika',
     metaLines: [
       `Cakupan: ${opts.horizon === 'ytd' ? 'YTD s.d. hari ini' : 'Full year'}`,
@@ -133,5 +133,5 @@ export async function exportLaporanProgramExcel(
     totalLabelCol: 2,
   })
 
-  await downloadWorkbook(wb, `Laporan_Pendapatan_Proker_${opts.tahun}_${today}.xlsx`)
+  await downloadWorkbook(wb, `Laporan_Pendapatan_Proker_${opts.tahunLabel}_${today}.xlsx`)
 }

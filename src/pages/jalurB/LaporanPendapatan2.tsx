@@ -3,10 +3,11 @@ import { useLocation } from 'react-router-dom'
 import { useKompensasiStore } from '@/store/kompensasiStore'
 import { useKerjaSamaStore } from '@/store/kerjaSamaStore'
 import { usePendapatanStore } from '@/store/pendapatanStore'
-import { useRKAPStore } from '@/store/rkapStore'
+import { RKAPTargetRow } from '@/store/rkapStore'
 import { useAsetStore } from '@/store/asetStore'
 import { CurrencyDisplay } from '@/components/common/CurrencyDisplay'
 import { SearchableSelect } from '@/components/common/SearchableSelect'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { formatTanggal, formatRupiah, cn } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
 import { ChevronUp, ChevronDown, ChevronsUpDown, Filter, LayoutList, Table2 } from 'lucide-react'
@@ -114,7 +115,6 @@ export default function LaporanPendapatan() {
   const { allKompensasi, fetchAllKompensasi } = useKompensasiStore()
   const { daftarKS, fetchKS } = useKerjaSamaStore()
   const { daftarPDDM, allPengakuan, fetchAll: fetchPDDM } = usePendapatanStore()
-  const { rows: rkapRows, fetchRKAP } = useRKAPStore()
   const { daftarAset, fetchAset } = useAsetStore()
 
   const [viewMode, setViewMode] = useState<ViewMode>('detail')
@@ -128,10 +128,21 @@ export default function LaporanPendapatan() {
   // ── Filters ───────────────────────────────────────────────────────────────
   const [bulanBasis, setBulanBasis] = useState<BulanBasis>('jatuh_tempo')
 
+  // Tahun yang punya data RKAP — dipakai lengkapi opsi di dropdown (fetch ringan, cuma kolom tahun)
+  const [rkapYears, setRkapYears] = useState<number[]>([])
+  useEffect(() => {
+    supabase
+      .from('rkap_target')
+      .select('tahun')
+      .then(({ data }) => {
+        if (data) setRkapYears(Array.from(new Set(data.map((r: { tahun: number }) => r.tahun))))
+      })
+  }, [location.key])
+
   const tahunList = useMemo(() => {
     const years = new Set<number>()
     years.add(new Date().getFullYear())
-    rkapRows.forEach(r => years.add(r.tahun))
+    rkapYears.forEach(y => years.add(y))
     allKompensasi.forEach(k => {
       if (k.tgl_jatuh_tempo) years.add(parseTglParts(k.tgl_jatuh_tempo).year)
       ;(k.pembayaran ?? []).forEach(p => {
@@ -139,9 +150,11 @@ export default function LaporanPendapatan() {
       })
     })
     return Array.from(years).sort((a, b) => b - a)
-  }, [allKompensasi, rkapRows])
+  }, [allKompensasi, rkapYears])
 
-  const [tahun, setTahun] = useState(new Date().getFullYear())
+  /** 'all' = tanpa batasan tahun sama sekali; array = daftar tahun yang dipilih */
+  const [tahunFilter, setTahunFilter] = useState<number[] | 'all'>([new Date().getFullYear()])
+  const yearInScope = (y: number) => tahunFilter === 'all' || tahunFilter.includes(y)
   const [filterMitra, setFilterMitra] = useState('all')
   const [filterStatus, setFilterStatus] = useState<StatusFilter>('all')
   const [periodeMode, setPeriodeMode] = useState<PeriodeMode>('semua')
@@ -167,13 +180,21 @@ export default function LaporanPendapatan() {
     fetchAset()
   }, [location.key])
 
+  // RKAP untuk tahun (atau beberapa tahun / semua tahun) yang sedang difilter —
+  // di-fetch lokal di halaman ini saja (rkapStore cuma cache 1 tahun, dipakai RKAPMonitor.tsx).
+  const [rkapRowsScoped, setRkapRowsScoped] = useState<RKAPTargetRow[]>([])
   useEffect(() => {
-    fetchRKAP(tahun)
-  }, [tahun, location.key])
+    let q = supabase.from('rkap_target').select('*').order('no', { ascending: true })
+    if (tahunFilter !== 'all') q = q.in('tahun', tahunFilter)
+    q.then(({ data }) => setRkapRowsScoped((data ?? []) as RKAPTargetRow[]))
+  }, [tahunFilter, location.key])
 
-  // Keep tahun in sync when kompensasi loads
+  // Keep tahunFilter in sync when data tahun berubah — buang tahun yang sudah tidak ada
   useEffect(() => {
-    if (tahunList.length && !tahunList.includes(tahun)) setTahun(tahunList[0])
+    if (tahunFilter === 'all' || !tahunList.length) return
+    const valid = tahunFilter.filter(y => tahunList.includes(y))
+    if (valid.length === 0) setTahunFilter([tahunList[0]])
+    else if (valid.length !== tahunFilter.length) setTahunFilter(valid)
   }, [tahunList])
 
   // ── Build rows ────────────────────────────────────────────────────────────
@@ -188,7 +209,7 @@ export default function LaporanPendapatan() {
           .filter(p => p.tgl_bayar)
           .map(p => dateKey(p.tgl_bayar))
         const paymentsInYear: PaymentInYear[] = pembayaran
-          .filter(p => p.tgl_bayar && parseTglParts(p.tgl_bayar).year === tahun)
+          .filter(p => p.tgl_bayar && yearInScope(parseTglParts(p.tgl_bayar).year))
           .map(p => ({
             month: parseTglParts(p.tgl_bayar).month,
             nominal: p.nominal_bayar || 0,
@@ -198,7 +219,7 @@ export default function LaporanPendapatan() {
         const inScope =
           bulanBasis === 'diterima'
             ? paymentsInYear.length > 0
-            : !!k.tgl_jatuh_tempo && parseTglParts(k.tgl_jatuh_tempo).year === tahun
+            : !!k.tgl_jatuh_tempo && yearInScope(parseTglParts(k.tgl_jatuh_tempo).year)
         if (!inScope) return null
 
         const ks = daftarKS.find(x => x.id === k.ks_id) ?? k.kerja_sama
@@ -250,7 +271,7 @@ export default function LaporanPendapatan() {
         }
       })
       .filter((r): r is NonNullable<typeof r> => r !== null)
-  }, [allKompensasi, daftarKS, tahun, bulanBasis])
+  }, [allKompensasi, daftarKS, tahunFilter, bulanBasis])
 
   // ── Mitra list for dropdown ───────────────────────────────────────────────
   const mitraList = useMemo(() => {
@@ -404,11 +425,11 @@ export default function LaporanPendapatan() {
           sisa: r.sisa,
           status: r.status,
         })),
-        rkapRows: rkapRows.filter(r => r.tahun === tahun),
+        rkapRows: rkapRowsScoped,
         daftarAset,
         daftarKS,
       }),
-    [detailForProgram, rkapRows, daftarAset, daftarKS, tahun],
+    [detailForProgram, rkapRowsScoped, daftarAset, daftarKS],
   )
 
   const kategoriList = useMemo(() => {
@@ -489,20 +510,35 @@ export default function LaporanPendapatan() {
       ? 'Semua bulan'
       : selectedMonths.map(m => monthLabels[m]).join(', ')
 
+  /** Label tampilan: "2026" (1 tahun) · "2025–2026" (berurutan) · "2025, 2027" (tidak berurutan) · "Semua Tahun" */
+  const tahunLabel = useMemo(() => {
+    if (tahunFilter === 'all') return 'Semua Tahun'
+    const sorted = [...tahunFilter].sort((a, b) => a - b)
+    if (sorted.length <= 1) return String(sorted[0] ?? '')
+    const isConsecutive = sorted.every((y, i) => i === 0 || y === sorted[i - 1] + 1)
+    return isConsecutive ? `${sorted[0]}–${sorted[sorted.length - 1]}` : sorted.join(', ')
+  }, [tahunFilter])
+
+  /** Versi aman untuk nama file (tanpa koma/spasi/en-dash) */
+  const tahunFileLabel = useMemo(() => {
+    if (tahunFilter === 'all') return 'SemuaTahun'
+    return [...tahunFilter].sort((a, b) => a - b).join('-')
+  }, [tahunFilter])
+
   const handleExportExcel = async () => {
     setExportingExcel(true)
     try {
       if (viewMode === 'detail') {
         if (rows.length === 0) return
         await exportLaporanDetailExcel(rows, {
-          tahun,
+          tahunLabel: tahunFileLabel,
           bulanBasis,
           monthsLabel,
         })
       } else {
         if (programRows.length === 0) return
         await exportLaporanProgramExcel(programRows, {
-          tahun,
+          tahunLabel: tahunFileLabel,
           horizon: selectedMonths.length < 12 ? 'bulan_filter' : 'full_year',
         })
       }
@@ -515,7 +551,7 @@ export default function LaporanPendapatan() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-lg font-bold text-gray-800">Laporan Pendapatan — {tahun}</h1>
+          <h1 className="text-lg font-bold text-gray-800">Laporan Pendapatan — {tahunLabel}</h1>
           <p className="text-xs text-gray-500 mt-1">
             {viewMode === 'detail'
               ? bulanBasis === 'diterima'
@@ -561,13 +597,13 @@ export default function LaporanPendapatan() {
         }
         meta={
           viewMode === 'detail'
-            ? `${rows.length} baris · ${tahun} · ${monthsLabel}`
-            : `${programRows.length} program · ${tahun} · ${monthsLabel}`
+            ? `${rows.length} baris · ${tahunLabel} · ${monthsLabel}`
+            : `${programRows.length} program · ${tahunLabel} · ${monthsLabel}`
         }
         fileNameHint={
           viewMode === 'detail'
-            ? `Laporan_Pendapatan_Detail_${tahun}.xlsx`
-            : `Laporan_Pendapatan_Proker_${tahun}.xlsx`
+            ? `Laporan_Pendapatan_Detail_${tahunFileLabel}.xlsx`
+            : `Laporan_Pendapatan_Proker_${tahunFileLabel}.xlsx`
         }
         onExport={handleExportExcel}
         loading={exportingExcel}
@@ -580,13 +616,53 @@ export default function LaporanPendapatan() {
 
         <div className="flex items-center gap-1.5">
           <label className="text-xs text-gray-500 whitespace-nowrap">Tahun</label>
-          <select
-            value={tahun}
-            onChange={e => setTahun(Number(e.target.value))}
-            className="text-xs border rounded-md px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-[#1B4F72]"
-          >
-            {tahunList.map(y => <option key={y} value={y}>{y}</option>)}
-          </select>
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 text-xs border rounded-md px-2 py-1 bg-white hover:bg-gray-50 focus:outline-none focus:ring-1 focus:ring-[#1B4F72] min-w-[90px] justify-between"
+              >
+                <span>{tahunLabel}</span>
+                <ChevronDown size={12} className="text-gray-400" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-48 p-2">
+              <label className="flex items-center gap-2 cursor-pointer select-none px-1.5 py-1 rounded hover:bg-gray-50">
+                <input
+                  type="checkbox"
+                  checked={tahunFilter === 'all'}
+                  onChange={e => setTahunFilter(e.target.checked ? 'all' : [new Date().getFullYear()])}
+                  className="w-3.5 h-3.5 rounded border-gray-300 accent-[#1B4F72] cursor-pointer"
+                />
+                <span className="text-xs font-medium">Semua Tahun</span>
+              </label>
+              <div className="my-1.5 border-t" />
+              <div className="max-h-48 overflow-y-auto space-y-0.5">
+                {tahunList.map(y => {
+                  const checked = tahunFilter !== 'all' && tahunFilter.includes(y)
+                  return (
+                    <label key={y} className="flex items-center gap-2 cursor-pointer select-none px-1.5 py-1 rounded hover:bg-gray-50">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={tahunFilter === 'all'}
+                        onChange={e => {
+                          setTahunFilter(prev => {
+                            const cur = prev === 'all' ? [] : prev
+                            if (e.target.checked) return [...cur, y]
+                            const next = cur.filter(v => v !== y)
+                            return next.length ? next : [y]
+                          })
+                        }}
+                        className="w-3.5 h-3.5 rounded border-gray-300 accent-[#1B4F72] cursor-pointer disabled:opacity-40"
+                      />
+                      <span className="text-xs">{y}</span>
+                    </label>
+                  )
+                })}
+              </div>
+            </PopoverContent>
+          </Popover>
         </div>
 
         {viewMode === 'program' && (
@@ -784,7 +860,7 @@ export default function LaporanPendapatan() {
         <ProgramView
           rows={programRows}
           summary={programSummary}
-          tahun={tahun}
+          tahun={tahunLabel}
           monthsLabel={monthsLabel}
           detailPendapatanMonika={totalPendapatanMonika}
           detailCashInMonika={totalCashInMonika}
@@ -1020,7 +1096,7 @@ function ProgramView({
 }: {
   rows: ProgramLaporanRow[]
   summary: ReturnType<typeof summarizeProgramRows>
-  tahun: number
+  tahun: string
   monthsLabel: string
   detailPendapatanMonika: number
   detailCashInMonika: number
