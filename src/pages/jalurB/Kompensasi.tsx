@@ -667,21 +667,25 @@ export function Kompensasi() {
 
                 return (
                   <>
-                    <tr key={k.id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-4 py-3">
+                    <tr key={k.id} className="hover:bg-gray-50 transition-colors align-top">
+                      <td className="px-4 py-2.5 align-top">
                         <p className="font-medium text-gray-900">{ks?.nama_mitra ?? '-'}</p>
                         <p className="text-xs text-gray-500">{(ks?.aset as any)?.nama_aset ?? '-'}</p>
-                        {k.rkap_kode && (
-                          <span className="inline-block font-mono text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded mt-0.5">{k.rkap_kode}</span>
-                        )}
-                        {k.no_invoice && (
-                          <span className="inline-block text-[10px] text-gray-500 mt-0.5">{k.no_invoice}</span>
-                        )}
-                        {k.superman && (
-                          <span className="inline-block text-[10px] text-green-700 bg-green-50 px-1.5 py-0.5 rounded mt-0.5">{k.superman}</span>
+                        {(k.rkap_kode || k.no_invoice || k.superman) && (
+                          <div className="flex flex-wrap items-center gap-1 mt-1">
+                            {k.rkap_kode && (
+                              <span className="font-mono text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">{k.rkap_kode}</span>
+                            )}
+                            {k.no_invoice && (
+                              <span className="text-[10px] text-gray-500">{k.no_invoice}</span>
+                            )}
+                            {k.superman && (
+                              <span className="text-[10px] text-green-700 bg-green-50 px-1.5 py-0.5 rounded">{k.superman}</span>
+                            )}
+                          </div>
                         )}
                         {ws.dendaAkumulasi.hariTerlambat > 0 && (
-                          <p className="text-xs text-red-600 mt-0.5">
+                          <p className="text-xs text-red-600 mt-1">
                             {ws.statusBayar === 'lunas' ? 'Dibayar terlambat' : 'Terlambat'}{' '}
                             {ws.dendaAkumulasi.hariTerlambat} hari
                             {ws.dendaAkumulasi.nominalDenda > 0.5 && (
@@ -690,8 +694,8 @@ export function Kompensasi() {
                           </p>
                         )}
                       </td>
-                      <td className="px-4 py-3 hidden md:table-cell text-gray-600">{k.periode_label ?? '-'}</td>
-                      <td className="px-4 py-3 text-right font-semibold">
+                      <td className="px-4 py-2.5 align-top hidden md:table-cell text-gray-600">{k.periode_label ?? '-'}</td>
+                      <td className="px-4 py-2.5 align-top text-right font-semibold">
                         <CurrencyDisplay value={ws.efektifTagihan} size="sm" />
                         {(k.pengurang ?? 0) > 0 && (
                           <p className="text-[10px] text-gray-400 font-normal mt-0.5">
@@ -699,23 +703,23 @@ export function Kompensasi() {
                           </p>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-right hidden md:table-cell">
+                      <td className="px-4 py-2.5 align-top text-right hidden md:table-cell">
                         <CurrencyDisplay value={k.nominal ?? 0} size="sm" className="text-[#5B2C6F]" />
                       </td>
-                      <td className="px-4 py-3 text-right hidden lg:table-cell text-green-700">
+                      <td className="px-4 py-2.5 align-top text-right hidden lg:table-cell text-green-700">
                         <CurrencyDisplay value={ws.totalDibayar} size="sm" />
                       </td>
-                      <td className="px-4 py-3 text-right hidden lg:table-cell text-red-700">
+                      <td className="px-4 py-2.5 align-top text-right hidden lg:table-cell text-red-700">
                         <CurrencyDisplay value={ws.sisaTagihan} size="sm" />
                       </td>
-                      <td className="px-4 py-3 hidden lg:table-cell text-gray-600 text-xs">
+                      <td className="px-4 py-2.5 align-top hidden lg:table-cell text-gray-600 text-xs">
                         {k.invoice_tgl ? formatTanggal(k.invoice_tgl) : <span className="text-gray-300">—</span>}
                       </td>
-                      <td className="px-4 py-3 hidden md:table-cell text-gray-600 text-xs">{formatTanggal(k.tgl_jatuh_tempo)}</td>
-                      <td className="px-4 py-3 text-center">
+                      <td className="px-4 py-2.5 align-top hidden md:table-cell text-gray-600 text-xs">{formatTanggal(k.tgl_jatuh_tempo)}</td>
+                      <td className="px-4 py-2.5 align-top text-center">
                         <StatusBadge type="bayar" value={ws.statusBayar} />
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-2.5 align-top">
                         <div className="flex items-center justify-end gap-1">
                           <Button variant="ghost" size="icon" title="Edit kompensasi" onClick={() => openEdit(k)}>
                             <Pencil size={14} />
