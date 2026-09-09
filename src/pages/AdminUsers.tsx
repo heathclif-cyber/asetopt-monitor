@@ -56,7 +56,7 @@ export default function AdminUsers() {
   const loadUsers = useCallback(async () => {
     setLoading(true)
     try {
-      const result = await usersRequest<{ data: ManagedUser[] }>('/')
+      const result = await usersRequest<{ data: ManagedUser[] }>('')
       setUsers(result.data)
       setError(null)
     } catch (err) {
@@ -92,7 +92,7 @@ export default function AdminUsers() {
           body: JSON.stringify({ full_name: form.full_name, role: form.role }),
         })
       } else {
-        await usersRequest('/', { method: 'POST', body: JSON.stringify(form) })
+        await usersRequest('', { method: 'POST', body: JSON.stringify(form) })
       }
       setDialogOpen(false)
       await loadUsers()
