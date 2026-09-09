@@ -7,7 +7,7 @@ restricted to a local administrator and is never exposed through generic REST.
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -22,14 +22,27 @@ from services.auth_service import (
 )
 
 router = APIRouter(prefix="/api/users", tags=["Users"])
-Role = Literal["admin", "viewer", "integrasi"]
+Role = Literal["admin", "viewer", "integrasi", "staf"]
+
+
+def _min_password_length(role: str) -> int:
+    # Staf: akun operasional bervolume tinggi, admin sengaja izinkan kata sandi
+    # pendek (mis. "123") untuk kemudahan reset massal. Role lain tetap 12 karakter.
+    return 3 if role == "staf" else 12
 
 
 class UserCreateBody(BaseModel):
     username: str = Field(min_length=3, max_length=64, pattern=r"^[A-Za-z0-9._-]+$")
-    password: str = Field(min_length=12, max_length=128)
+    password: str = Field(min_length=3, max_length=128)
     full_name: str = Field(min_length=1, max_length=255)
     role: Role = "viewer"
+
+    @model_validator(mode="after")
+    def _check_password_length(self):
+        minimum = _min_password_length(self.role)
+        if len(self.password) < minimum:
+            raise ValueError(f"Kata sandi minimal {minimum} karakter untuk role {self.role}")
+        return self
 
 
 class UserUpdateBody(BaseModel):
@@ -39,7 +52,7 @@ class UserUpdateBody(BaseModel):
 
 
 class PasswordResetBody(BaseModel):
-    password: str = Field(min_length=12, max_length=128)
+    password: str = Field(min_length=3, max_length=128)
 
 
 def _ensure_admin_remains(
@@ -105,6 +118,15 @@ def post_reset_password(
     db: Session = Depends(get_db),
     _admin: dict = Depends(require_admin),
 ):
+    target = next((user for user in list_users(db) if str(user["id"]) == user_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Pengguna tidak ditemukan")
+    minimum = _min_password_length(target["role"])
+    if len(body.password) < minimum:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Kata sandi minimal {minimum} karakter untuk role {target['role']}",
+        )
     user = reset_password(db, user_id, body.password)
     if not user:
         raise HTTPException(status_code=404, detail="Pengguna tidak ditemukan")

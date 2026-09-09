@@ -1,6 +1,9 @@
 /** Role & path access helpers */
 
-export type AppRole = 'admin' | 'viewer' | 'integrasi'
+export type AppRole = 'admin' | 'staf' | 'viewer' | 'integrasi'
+
+/** Staf: akses sama seperti admin, kecuali halaman Kelola Pengguna */
+const STAF_BLOCKED_PATHS = ['/admin/users'] as const
 
 export interface AuthUser {
   id: string
@@ -32,6 +35,9 @@ export function canAccessPath(role: AppRole | null | undefined, pathname: string
   if (role === 'admin') return true
   if (role === 'integrasi') return false
   if (pathname === '/login') return true
+  if (role === 'staf') {
+    return !STAF_BLOCKED_PATHS.some(p => pathname === p || pathname.startsWith(p + '/'))
+  }
   return isViewerPath(pathname)
 }
 

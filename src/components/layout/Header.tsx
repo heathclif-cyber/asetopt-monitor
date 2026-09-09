@@ -52,7 +52,7 @@ export function Header() {
       </div>
 
       <div className="flex items-center gap-3">
-        {user?.role === 'admin' && (
+        {(user?.role === 'admin' || user?.role === 'staf') && (
           <div className="relative cursor-pointer group">
             <Bell size={17} className="text-gray-400 group-hover:text-gray-600 transition-colors" />
             {totalAlert > 0 && (

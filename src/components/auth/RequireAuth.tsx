@@ -28,7 +28,8 @@ export function RequireAuth() {
   }
 
   if (!canAccessPath(user.role, location.pathname)) {
-    return <Navigate to={user.role === 'viewer' ? VIEWER_HOME : '/login'} replace />
+    const fallback = user.role === 'viewer' ? VIEWER_HOME : user.role === 'staf' ? '/' : '/login'
+    return <Navigate to={fallback} replace />
   }
 
   return <Outlet />

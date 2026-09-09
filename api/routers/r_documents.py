@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 import models
 import schemas
 from database import get_db
-from services.auth_deps import get_current_user, require_admin
+from services.auth_deps import get_current_user, require_write
 from services.storage import (
     StorageError,
     delete_file,
@@ -239,7 +239,7 @@ def download_document(document_id: UUID, db: Session = Depends(get_db)):
     )
 
 
-@router.post("/upload", response_model=schemas.DocumentUploadOut, dependencies=[Depends(require_admin)])
+@router.post("/upload", response_model=schemas.DocumentUploadOut, dependencies=[Depends(require_write)])
 async def upload_document(
     entity_type: str = Form(...),
     entity_id: str = Form(...),
@@ -313,7 +313,7 @@ async def upload_document(
     return _upload_to_out(record)
 
 
-@router.delete("/{document_id}", dependencies=[Depends(require_admin)])
+@router.delete("/{document_id}", dependencies=[Depends(require_write)])
 def delete_document(document_id: UUID, db: Session = Depends(get_db)):
     record = db.query(models.DocumentUpload).filter(models.DocumentUpload.id == document_id).first()
     if not record:

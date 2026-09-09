@@ -67,7 +67,7 @@ export default function MonitoringKompensasi() {
   const [exporting, setExporting] = useState<string | null>(null)
   const [exportingExcel, setExportingExcel] = useState(false)
   const user = useAuthStore(s => s.user)
-  const isAdmin = user?.role === 'admin'
+  const isAdmin = user?.role === 'admin' || user?.role === 'staf'
 
   useEffect(() => {
     fetchAllKompensasi()

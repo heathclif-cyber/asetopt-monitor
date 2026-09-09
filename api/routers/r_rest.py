@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 
 from database import get_db
-from services.auth_deps import require_admin, require_app_read
+from services.auth_deps import require_app_read, require_write
 from services.rest_query import (
     ALLOWED_TABLES,
     delete_rows,
@@ -62,7 +62,7 @@ async def rest_insert(
     request: Request,
     response: Response,
     db: Session = Depends(get_db),
-    _admin: dict[str, Any] = Depends(require_admin),
+    _admin: dict[str, Any] = Depends(require_write),
     prefer: str | None = Header(default=None),
 ):
     _table_or_404(table)
@@ -91,7 +91,7 @@ async def rest_update(
     table: str,
     request: Request,
     db: Session = Depends(get_db),
-    _admin: dict[str, Any] = Depends(require_admin),
+    _admin: dict[str, Any] = Depends(require_write),
     prefer: str | None = Header(default=None),
 ):
     _table_or_404(table)
@@ -108,7 +108,7 @@ def rest_delete(
     table: str,
     request: Request,
     db: Session = Depends(get_db),
-    _admin: dict[str, Any] = Depends(require_admin),
+    _admin: dict[str, Any] = Depends(require_write),
 ):
     _table_or_404(table)
     params = dict(request.query_params)

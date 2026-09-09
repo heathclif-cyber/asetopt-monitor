@@ -31,7 +31,14 @@ async function usersRequest<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 function roleLabel(role: AppRole) {
-  return role === 'admin' ? 'Admin' : role === 'integrasi' ? 'Integrasi API' : 'Viewer'
+  if (role === 'admin') return 'Admin'
+  if (role === 'staf') return 'Staf'
+  if (role === 'integrasi') return 'Integrasi API'
+  return 'Viewer'
+}
+
+function minPasswordLength(role: AppRole) {
+  return role === 'staf' ? 3 : 12
 }
 
 export default function AdminUsers() {
@@ -166,15 +173,15 @@ export default function AdminUsers() {
             <DialogHeader><DialogTitle>{editing ? 'Ubah Pengguna' : 'Tambah Pengguna'}</DialogTitle></DialogHeader>
             <div><Label htmlFor="user-full-name">Nama lengkap</Label><Input id="user-full-name" className="mt-1" value={form.full_name} onChange={e => setForm({ ...form, full_name: e.target.value })} required /></div>
             {!editing && <div><Label htmlFor="user-username">Username</Label><Input id="user-username" className="mt-1" value={form.username} onChange={e => setForm({ ...form, username: e.target.value })} pattern="[A-Za-z0-9._-]+" required /></div>}
-            <div><Label>Role</Label><Select value={form.role} onValueChange={value => setForm({ ...form, role: value as AppRole })}><SelectTrigger className="mt-1"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="admin">Admin</SelectItem><SelectItem value="viewer">Viewer</SelectItem><SelectItem value="integrasi">Integrasi API</SelectItem></SelectContent></Select></div>
-            {!editing && <div><Label htmlFor="user-password">Kata sandi</Label><Input id="user-password" type="password" minLength={12} className="mt-1" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} required /><p className="mt-1 text-xs text-gray-500">Minimal 12 karakter.</p></div>}
+            <div><Label>Role</Label><Select value={form.role} onValueChange={value => setForm({ ...form, role: value as AppRole })}><SelectTrigger className="mt-1"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="admin">Admin</SelectItem><SelectItem value="staf">Staf</SelectItem><SelectItem value="viewer">Viewer</SelectItem><SelectItem value="integrasi">Integrasi API</SelectItem></SelectContent></Select></div>
+            {!editing && <div><Label htmlFor="user-password">Kata sandi</Label><Input id="user-password" type="password" minLength={minPasswordLength(form.role)} className="mt-1" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} required /><p className="mt-1 text-xs text-gray-500">Minimal {minPasswordLength(form.role)} karakter.</p></div>}
             <DialogFooter><Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Batal</Button><Button type="submit" disabled={saving}>{saving ? 'Menyimpan...' : 'Simpan'}</Button></DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
 
       <Dialog open={passwordOpen} onOpenChange={setPasswordOpen}>
-        <DialogContent className="max-w-md"><form onSubmit={resetPassword} className="space-y-4"><DialogHeader><DialogTitle>Reset Kata Sandi</DialogTitle></DialogHeader><p className="text-sm text-gray-500">Tetapkan kata sandi baru untuk {editing?.username}.</p><div><Label htmlFor="reset-password">Kata sandi baru</Label><Input id="reset-password" type="password" minLength={12} className="mt-1" value={newPassword} onChange={e => setNewPassword(e.target.value)} required /></div><DialogFooter><Button type="button" variant="outline" onClick={() => setPasswordOpen(false)}>Batal</Button><Button type="submit" disabled={saving}>Reset</Button></DialogFooter></form></DialogContent>
+        <DialogContent className="max-w-md"><form onSubmit={resetPassword} className="space-y-4"><DialogHeader><DialogTitle>Reset Kata Sandi</DialogTitle></DialogHeader><p className="text-sm text-gray-500">Tetapkan kata sandi baru untuk {editing?.username}.</p><div><Label htmlFor="reset-password">Kata sandi baru</Label><Input id="reset-password" type="password" minLength={editing ? minPasswordLength(editing.role) : 12} className="mt-1" value={newPassword} onChange={e => setNewPassword(e.target.value)} required /><p className="mt-1 text-xs text-gray-500">Minimal {editing ? minPasswordLength(editing.role) : 12} karakter.</p></div><DialogFooter><Button type="button" variant="outline" onClick={() => setPasswordOpen(false)}>Batal</Button><Button type="submit" disabled={saving}>Reset</Button></DialogFooter></form></DialogContent>
       </Dialog>
 
       <ConfirmDialog open={!!deactivateTarget} onOpenChange={open => !open && setDeactivateTarget(null)} title="Nonaktifkan pengguna?" description={`Pengguna ${deactivateTarget?.username ?? ''} tidak lagi dapat masuk. Data bisnis tidak dihapus.`} confirmLabel="Nonaktifkan" isDestructive onConfirm={() => void deactivateUser()} />

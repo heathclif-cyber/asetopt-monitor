@@ -66,9 +66,19 @@ def require_admin(user: Annotated[dict[str, Any], Depends(get_current_user)]) ->
     return user
 
 
+def require_write(user: Annotated[dict[str, Any], Depends(get_current_user)]) -> dict[str, Any]:
+    """Akses tulis data bisnis untuk admin dan staf; staf tidak dapat mengelola pengguna."""
+    if user.get("role") not in {"admin", "staf"}:
+        raise HTTPException(
+            status_code=403,
+            detail="Akses ditolak: hanya admin/staf yang dapat mengubah data",
+        )
+    return user
+
+
 def require_app_read(user: Annotated[dict[str, Any], Depends(get_current_user)]) -> dict[str, Any]:
-    """Akses baca aplikasi untuk admin dan viewer; akun integrasi dikecualikan."""
-    if user.get("role") not in {"admin", "viewer"}:
+    """Akses baca aplikasi untuk admin, staf, dan viewer; akun integrasi dikecualikan."""
+    if user.get("role") not in {"admin", "staf", "viewer"}:
         raise HTTPException(status_code=403, detail="Akses aplikasi diperlukan")
     return user
 

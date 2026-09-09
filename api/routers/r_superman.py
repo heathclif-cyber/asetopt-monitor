@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 import schemas
 from database import get_db
-from services.auth_deps import require_admin
+from services.auth_deps import require_write
 from services.superman.agent_registry import heartbeat as agent_heartbeat
 from services.superman.auth import SupermanCaptchaError, SupermanCaptchaRequired
 from services.superman.documents import superman_doc_requirements_for_kompensasi
@@ -35,7 +35,7 @@ from services.superman.runner import (
 router = APIRouter(
     prefix="/api/superman",
     tags=["Superman"],
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(require_write)],
 )
 
 

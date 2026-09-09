@@ -53,7 +53,7 @@ export default function Piutang() {
   const { spAktif, fetchSPAktif } = useNotifikasiStore()
   const user = useAuthStore(s => s.user)
   const isViewer = user?.role === 'viewer'
-  const isAdmin = user?.role === 'admin'
+  const isAdmin = user?.role === 'admin' || user?.role === 'staf'
 
   const [filterMitra, setFilterMitra] = useState('all')
   const [filterAging, setFilterAging] = useState<AgingFilter>('all')

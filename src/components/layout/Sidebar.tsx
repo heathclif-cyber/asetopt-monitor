@@ -65,6 +65,7 @@ const navItems: NavItem[] = [
 function filterNav(items: NavItem[], role: AppRole | null | undefined): NavItem[] {
   if (!role) return []
   if (role === 'admin') return items
+  if (role === 'staf') return items.filter(item => item.to !== '/admin/users')
 
   return items
     .map(item => {
