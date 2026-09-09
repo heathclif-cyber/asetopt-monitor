@@ -10,6 +10,7 @@ import schemas
 from database import get_db
 from services.auth_deps import require_admin
 from services.superman.documents import superman_doc_requirements_for_kompensasi
+from services.superman.payload import sppb_pph_ready, sppn_ready
 from services.superman.runner import start_deklarasi_job
 
 router = APIRouter(
@@ -19,8 +20,15 @@ router = APIRouter(
 )
 
 
-def _kompensasi_has_superman(kompensasi: models.Kompensasi | None) -> bool:
-    return bool(kompensasi and (kompensasi.superman or "").strip())
+def _kompensasi_fully_declared(kompensasi: models.Kompensasi | None) -> bool:
+    """SPPn sudah dibuat, dan PPh (kalau relevan) juga sudah — baru boleh dikunci penuh."""
+    if not kompensasi:
+        return False
+    if not (kompensasi.sppn_no or "").strip():
+        return False
+    if str(kompensasi.pph_mode or "none") != "bukti_potong":
+        return True
+    return bool((kompensasi.sppb_pph_no or "").strip())
 
 
 def _efektif_tagihan(kompensasi: models.Kompensasi) -> float:
@@ -85,17 +93,23 @@ def _pembayaran_out(p: models.Pembayaran) -> schemas.PembayaranOut:
 
 
 def _maybe_trigger_superman(db: Session, kompensasi: models.Kompensasi) -> dict | None:
-    """Auto-deklarasi hanya jika lunas DAN dokumen Superman sudah lengkap.
+    """Auto-deklarasi SPPn dan/atau SPPb PPh — masing-masing independen, begitu
+    komponennya siap (tidak perlu menunggu yang lain) DAN dokumen Superman lengkap.
 
     Simpan cash in sendiri tidak mewajibkan dokumen — gate dokumen hanya
     untuk alur deklarasi Superman (manual tombol atau auto di sini).
     """
-    if _kompensasi_has_superman(kompensasi):
+    if _kompensasi_fully_declared(kompensasi):
         return None
-    efektif = _efektif_tagihan(kompensasi)
-    paid = _paid_total(db, kompensasi.id)
-    if paid + 0.5 < efektif:
+
+    sppn_done = bool((kompensasi.sppn_no or "").strip())
+    sppb_done = bool((kompensasi.sppb_pph_no or "").strip())
+    pay_rows = list(kompensasi.pembayaran or [])
+    sppn_ok = (not sppn_done) and sppn_ready(kompensasi, pay_rows)
+    sppb_ok = (not sppb_done) and sppb_pph_ready(kompensasi, pay_rows)
+    if not sppn_ok and not sppb_ok:
         return None
+
     _, docs_ready = superman_doc_requirements_for_kompensasi(db, str(kompensasi.id))
     if not docs_ready:
         return None
@@ -117,7 +131,7 @@ def create_pembayaran(body: schemas.PembayaranCreate, db: Session = Depends(get_
     if not kompensasi:
         raise HTTPException(status_code=404, detail="Kompensasi tidak ditemukan")
 
-    if _kompensasi_has_superman(kompensasi):
+    if _kompensasi_fully_declared(kompensasi):
         raise HTTPException(
             status_code=400,
             detail="Kompensasi sudah punya nomor Superman — pembayaran tidak bisa ditambah",
@@ -183,7 +197,7 @@ def update_pembayaran(
     if not kompensasi:
         raise HTTPException(status_code=404, detail="Kompensasi tidak ditemukan")
 
-    if _kompensasi_has_superman(kompensasi):
+    if _kompensasi_fully_declared(kompensasi):
         raise HTTPException(
             status_code=400,
             detail="Kompensasi sudah punya nomor Superman — pembayaran tidak bisa diubah",
@@ -222,7 +236,7 @@ def delete_pembayaran(pembayaran_id: UUID, db: Session = Depends(get_db)):
     if not pay:
         raise HTTPException(status_code=404, detail="Pembayaran tidak ditemukan")
 
-    if _kompensasi_has_superman(pay.kompensasi):
+    if _kompensasi_fully_declared(pay.kompensasi):
         raise HTTPException(
             status_code=400,
             detail="Kompensasi sudah punya nomor Superman — pembayaran tidak bisa dihapus",

@@ -57,20 +57,47 @@ EMBEDS: dict[str, dict[str, dict[str, Any]]] = {
     },
 }
 
-EMBED_RE = re.compile(r"^(?:(\w+):)?(\w+)\(([^)]*)\)$")
+EMBED_HEAD_RE = re.compile(r"^(?:(\w+):)?(\w+)\(")
+
+
+def _split_top_level(select: str) -> list[str]:
+    """Split by comma, tapi abaikan koma di dalam tanda kurung nested — mis.
+    'kerja_sama(*, aset(*))' harus tetap 1 bagian, bukan kepotong di koma dalamnya."""
+    parts: list[str] = []
+    depth = 0
+    current = ""
+    for ch in select:
+        if ch == "(":
+            depth += 1
+            current += ch
+        elif ch == ")":
+            depth -= 1
+            current += ch
+        elif ch == "," and depth == 0:
+            parts.append(current.strip())
+            current = ""
+        else:
+            current += ch
+    if current.strip():
+        parts.append(current.strip())
+    return [p for p in parts if p]
 
 
 def parse_select(select: str | None) -> tuple[list[str], list[tuple[str, str, str]]]:
     """Return (base_cols, embeds) where embed = (alias, table, inner_select)."""
     if not select or select.strip() == "*":
         return ["*"], []
-    parts = [p.strip() for p in select.split(",") if p.strip()]
+    parts = _split_top_level(select)
     base_cols: list[str] = []
     embeds: list[tuple[str, str, str]] = []
     for part in parts:
-        m = EMBED_RE.match(part)
-        if m:
-            alias, table, inner = m.group(1) or m.group(2), m.group(2), m.group(3).strip() or "*"
+        m = EMBED_HEAD_RE.match(part)
+        # `_split_top_level` menjaga kurung tetap seimbang per bagian, jadi karakter
+        # terakhir dari `part` sudah pasti penutup kurung pembuka di `m` — aman
+        # dipotong langsung tanpa regex `[^)]*` yang tidak tahan kurung nested.
+        if m and part.endswith(")"):
+            alias, table = m.group(1) or m.group(2), m.group(2)
+            inner = part[m.end():-1].strip() or "*"
             embeds.append((alias, table, inner))
         elif part == "*":
             base_cols = ["*"]

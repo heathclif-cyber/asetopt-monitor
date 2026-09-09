@@ -326,6 +326,168 @@ def _upload_support_docs(page: Page, support_docs: list[Path], *, combined: bool
     page.wait_for_timeout(1200)
 
 
+def _upload_support_docs_sppb_only(page: Page, support_docs: list[Path]) -> None:
+    """Mode `jenis_form=sppb` murni — tab SPPn tidak ada, upload cuma ke tab SPPb."""
+    paths = [str(path) for path in support_docs if path.exists()]
+    if not paths:
+        raise RuntimeError(
+            "File dokumen pendukung tidak ditemukan di server API. "
+            "Upload ulang dokumen pendukung PPh di Input Pembayaran."
+        )
+
+    page.locator('a[href="#tab-informasi-sppb"]').click(force=True)
+    page.wait_for_timeout(500)
+    _upload_files_to_input(
+        page,
+        "#dokumen_pendukung_sppb",
+        paths,
+        tab_selector="#tab-informasi-sppb",
+    )
+    _wait_doc_markers(
+        page,
+        tab_selector="#tab-informasi-sppb",
+        input_selector="#dokumen_pendukung_sppb",
+        minimum=1,
+        timeout=90000,
+    )
+
+
+def _fill_shared_informasi_sppb_only(page: Page, payload: DeklarasiPayload, cfg: SupermanConfig) -> None:
+    """Mode `jenis_form=sppb` murni — field pakai suffix `_sppb`, bukan `_spp` generik."""
+    page.fill("#kwitansi_sppb", payload.mitra_pembeli)
+    page.fill("#referensi_sppb", payload.referensi or "-")
+    page.fill("#berita_acara_sppb", payload.ba_au58 or payload.no_pembayaran or payload.no_do or "-")
+    page.fill("#sp_opl_sppb", payload.no_kontrak or "-")
+    page.select_option("#bagian_sppb", cfg.bagian)
+    if payload.tanggal_transfer:
+        _set_readonly_input(page, "#tanggal_sppb", payload.tanggal_transfer)
+    page.evaluate(
+        """([kppName]) => {
+            const metode = document.querySelector('#metode_pembayaran_sppb');
+            if (metode) {
+                metode.value = 'tidak_transfer';
+                metode.dispatchEvent(new Event('change', { bubbles: true }));
+                if (window.jQuery) jQuery(metode).trigger('change');
+            }
+            const catatan = document.querySelector('#alasan_tidak_transfer');
+            if (catatan) {
+                catatan.value = `Setoran PPh ke ${kppName}`;
+                catatan.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+        }""",
+        [payload.kpp_recipient],
+    )
+    page.wait_for_timeout(400)
+
+
+def fill_sppb_only_draft(
+    page: Page,
+    cfg: SupermanConfig,
+    payload: DeklarasiPayload,
+    *,
+    support_docs: list[Path] | None = None,
+    on_progress: ProgressCallback | None = None,
+) -> None:
+    """Isi form Superman untuk `jenis_form=sppb` murni (tanpa SPPn)."""
+
+    def report(percent: int, stage: str) -> None:
+        if on_progress:
+            on_progress(percent, stage)
+
+    if not payload.sppb_item:
+        raise RuntimeError("Payload SPPb kosong — tidak ada baris PPh untuk diisi.")
+
+    report(25, "Membuka form SPPb di Superman")
+    page.goto(cfg.base_url.rstrip("/") + TAMBAH_URL, wait_until="networkidle", timeout=90000)
+    _wait_loaded(page)
+
+    report(35, "Mengisi informasi umum SPPb")
+    _select_form(page, cfg, "sppb")
+    _fill_shared_informasi_sppb_only(page, payload, cfg)
+
+    report(50, "Mengisi baris SPPb (PPh)")
+    page.locator('a[href="#tab-isi-sppb"]').click(force=True)
+    page.wait_for_timeout(1000)
+    _fill_isi_sppb_block(page, 1, payload.sppb_item)
+
+    if support_docs:
+        existing = [doc for doc in support_docs if doc.exists()]
+        if existing:
+            report(78, "Mengunggah dokumen pendukung")
+            _upload_support_docs_sppb_only(page, existing)
+
+    report(82, "Memvalidasi isian form")
+    page.locator('a[href="#tab-informasi-sppb"]').click(force=True)
+    page.wait_for_timeout(600)
+    missing = _audit_empty_fields_sppb(page)
+    if missing:
+        raise RuntimeError(
+            "Validasi lokal gagal sebelum simpan — kolom Superman belum terisi: "
+            + ", ".join(missing)
+        )
+
+
+def _audit_empty_fields_sppb(page: Page) -> list[str]:
+    return page.evaluate(
+        """() => {
+            const missing = [];
+            const val = (sel) => {
+                const el = document.querySelector(sel);
+                if (!el) return '';
+                if (el.type === 'file') return (el.files && el.files.length) ? 'ok' : '';
+                return String(el.value || '').trim();
+            };
+            const shared = [
+                ['#kwitansi_sppb', 'Kwitansi/Invoice SPPb'],
+                ['#berita_acara_sppb', 'BA/dokumen pendukung SPPb'],
+                ['#sp_opl_sppb', 'Nomor SP/OPL/SPK SPPb'],
+                ['#tanggal_sppb', 'Tanggal SPPb'],
+                ['#bagian_sppb', 'Bagian SPPb'],
+                ['#metode_pembayaran_sppb', 'Metode Pembayaran SPPb'],
+            ];
+            for (const [sel, label] of shared) {
+                if (!val(sel)) missing.push(label);
+            }
+            const tab = document.querySelector('#tab-informasi-sppb') || document.body;
+            const fileInput = document.querySelector('#dokumen_pendukung_sppb');
+            const fileCount = fileInput && fileInput.files ? fileInput.files.length : 0;
+            const uploadedMarkers = tab.querySelectorAll(
+                '.file-row, .dz-preview, .dz-success, .uploaded-file, [data-filename], .list-dokumen li, table tbody tr'
+            ).length;
+            const hiddenDocs = tab.querySelectorAll(
+                'input[type="hidden"][name*="dokumen"], input[type="hidden"][id*="dokumen"]'
+            ).length;
+            if (uploadedMarkers < 1 && fileCount < 1 && hiddenDocs < 1) {
+                missing.push('Upload Dokumen Pendukung SPPb (belum ter-upload ke Superman)');
+            }
+            const glHidden = document.querySelector('#sap_gl_sppb_id_1');
+            if (glHidden && !String(glHidden.value || '').trim()) missing.push('GL baris SPPb');
+            const pcHiddenIds = [
+                'profit_center_sppb_id_1',
+                'select_profit_center_sppb_id_1',
+                'master_profit_center_id_sppb_1',
+            ];
+            const pcHidden = pcHiddenIds.map(id => document.getElementById(id)).find(Boolean);
+            if (pcHidden && !String(pcHidden.value || '').trim()) missing.push('Profit Center baris SPPb');
+            const cfSel = document.querySelector('#cash_flow_sppb_1');
+            if (cfSel && !String(cfSel.value || '').trim()) missing.push('Cash Flow baris SPPb');
+            const uraianId = 'ckeditor_1_1';
+            let uraianOk = false;
+            if (window.CKEDITOR && CKEDITOR.instances[uraianId]) {
+                const data = CKEDITOR.instances[uraianId].getData() || '';
+                uraianOk = data.replace(/<[^>]+>/g, '').trim().length > 0;
+            } else {
+                const el = document.getElementById(uraianId);
+                uraianOk = !!(el && String(el.value || '').trim());
+            }
+            if (!uraianOk) missing.push('Uraian baris SPPb');
+            const nominalEl = document.querySelector('#nominal_sppb_1_1');
+            if (!nominalEl || !String(nominalEl.value || '').trim()) missing.push('Nominal baris SPPb');
+            return missing;
+        }"""
+    )
+
+
 def fill_sppn_draft(
     page: Page,
     cfg: SupermanConfig,

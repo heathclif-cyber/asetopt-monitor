@@ -10,6 +10,8 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
+import models
+from database import SessionLocal
 from services.superman.agent_registry import agent_status_summary, is_agent_online
 from services.superman.auth import (
     SupermanCaptchaError,
@@ -25,12 +27,23 @@ from services.superman.captcha_challenge import (
 )
 from services.superman.config import SupermanConfig
 from services.superman.documents import resolve_support_docs_from_kompensasi
-from services.superman.filler import fill_sppn_draft, submit_sppn_draft
-from services.superman.payload import DeklarasiPayload, build_payload_from_kompensasi
+from services.superman.filler import fill_sppb_only_draft, fill_sppn_draft, submit_sppn_draft
+from services.superman.payload import (
+    DeklarasiPayload,
+    build_payload_from_kompensasi,
+    build_sppb_pph_payload,
+    build_sppn_payload,
+    sppb_pph_ready,
+    sppn_ready,
+)
 from services.superman.persist import (
     assert_kompensasi_not_submitted,
     format_superman_ref,
     get_kompensasi_superman,
+    get_sppb_pph_no,
+    get_sppn_no,
+    save_sppb_pph_ref,
+    save_sppn_ref,
     save_superman_to_kompensasi,
 )
 from services.superman.progress import (
@@ -200,7 +213,15 @@ def get_status() -> dict[str, Any]:
 
 
 def preview_deklarasi(*, kompensasi_id: str) -> dict[str, Any]:
-    payload = build_payload_from_kompensasi(kompensasi_id)
+    sppn_ok, sppb_ok = _sppn_sppb_readiness(kompensasi_id)
+    if sppn_ok and sppb_ok:
+        payload = build_payload_from_kompensasi(kompensasi_id)
+    elif sppn_ok:
+        payload = build_sppn_payload(kompensasi_id)
+    elif sppb_ok:
+        payload = build_sppb_pph_payload(kompensasi_id)
+    else:
+        payload = build_payload_from_kompensasi(kompensasi_id)  # error message informatif
     supports = resolve_support_docs_from_kompensasi(kompensasi_id)
     data = payload.to_dict()
     data["support_docs"] = [{"path": str(doc.path), "source": doc.describe()} for doc in supports]
@@ -518,8 +539,16 @@ def _extract_numbers_from_store(body: Any) -> tuple[str | None, str | None]:
     return walk(body)
 
 
-def _score_all_todo_rows(rows: list[Any], payload, *, expect_sppb: bool) -> list[tuple[int, dict[str, Any]]]:
+def _match_amount(payload) -> int:
+    """Nominal yang dicocokkan ke To Do List — SPPn (pokok+PPN) atau, kalau tidak ada, PPh."""
     total_sppn = int(payload.dpp_pokok or 0) + int(payload.pajak_ppn or 0)
+    if total_sppn > 0:
+        return total_sppn
+    return int(payload.pph_nominal or 0)
+
+
+def _score_all_todo_rows(rows: list[Any], payload, *, expect_sppb: bool) -> list[tuple[int, dict[str, Any]]]:
+    total_sppn = _match_amount(payload)
     refs = _payload_refs(payload)
     scored: list[tuple[int, dict[str, Any]]] = []
     for row in rows:
@@ -583,7 +612,7 @@ def _find_todo_match(
 
     best = None
     best_score = 0
-    total_sppn = int(payload.dpp_pokok or 0) + int(payload.pajak_ppn or 0)
+    total_sppn = _match_amount(payload)
     refs = _payload_refs(payload)
     deadline = time.time() + max(8.0, retries * (delay_ms / 1000.0) + 5.0)
 
@@ -733,6 +762,7 @@ def run_browser_deklarasi(
     on_progress: ProgressCallback | None = None,
     support_labels: list[str] | None = None,
     persist: bool = True,
+    fill_fn=fill_sppn_draft,
 ) -> dict[str, Any]:
     """Isi form Superman via Playwright. Dipakai server dan agent lokal."""
     report = on_progress or (lambda _percent, _stage: None)
@@ -746,7 +776,7 @@ def run_browser_deklarasi(
     pw, browser, context = open_authenticated_context(cfg)
     try:
         page = context.new_page()
-        fill_sppn_draft(
+        fill_fn(
             page,
             cfg,
             payload,
@@ -879,34 +909,96 @@ def run_browser_deklarasi(
     return result
 
 
-def submit_deklarasi_kompensasi(
+def _sppn_sppb_readiness(kompensasi_id: str) -> tuple[bool, bool]:
+    """(sppn_siap_dan_belum_dibuat, sppb_pph_siap_dan_belum_dibuat)."""
+    db = SessionLocal()
+    try:
+        komp = db.query(models.Kompensasi).filter(models.Kompensasi.id == kompensasi_id).first()
+        if not komp:
+            raise ValueError(f"Kompensasi tidak ditemukan: {kompensasi_id}")
+        pay_rows = list(komp.pembayaran or [])
+        sppn_done = bool((komp.sppn_no or "").strip())
+        sppb_done = bool((komp.sppb_pph_no or "").strip())
+        sppn_ok = (not sppn_done) and sppn_ready(komp, pay_rows)
+        sppb_ok = (not sppb_done) and sppb_pph_ready(komp, pay_rows)
+        return sppn_ok, sppb_ok
+    finally:
+        db.close()
+
+
+def submit_deklarasi_smart(
     kompensasi_id: str,
     on_progress: ProgressCallback | None = None,
 ) -> dict[str, Any]:
+    """1 tombol pintar: submit SPPn saja, SPPb PPh saja, atau keduanya sekaligus,
+    tergantung apa yang sudah siap dan belum pernah dideklarasikan."""
     kompensasi_id = kompensasi_id.strip()
-    assert_kompensasi_not_submitted(kompensasi_id)
-
     report = on_progress or (lambda _percent, _stage: None)
+
+    sppn_ok, sppb_ok = _sppn_sppb_readiness(kompensasi_id)
+    if not sppn_ok and not sppb_ok:
+        sppn_done = bool(get_sppn_no(kompensasi_id))
+        sppb_done = bool(get_sppb_pph_no(kompensasi_id))
+        if sppn_done and sppb_done:
+            raise ValueError(
+                f"Kompensasi {kompensasi_id} sudah lengkap dideklarasikan (SPPn & SPPb PPh)."
+            )
+        raise ValueError(
+            "Belum ada yang siap dideklarasikan — cek pokok+PPN sudah diterima penuh, "
+            "atau (kalau ada PPh) minimal 1 pembayaran ditandai 'PPh sudah disetor'."
+        )
+
     report(5, "Memuat data kompensasi dan dokumen")
     cfg = _api_config()
     report(10, "Memvalidasi session Superman")
     ensure_session(cfg)
 
-    payload = build_payload_from_kompensasi(kompensasi_id)
     supports = resolve_support_docs_from_kompensasi(kompensasi_id)
-    return run_browser_deklarasi(
+    support_paths = [doc.path for doc in supports]
+    support_labels = [doc.describe() for doc in supports]
+
+    if sppn_ok and sppb_ok:
+        payload = build_payload_from_kompensasi(kompensasi_id)
+        fill_fn = fill_sppn_draft  # jenis_form="sppb_sppn" — isi SPPb+SPPn dalam 1 draft
+    elif sppn_ok:
+        payload = build_sppn_payload(kompensasi_id)
+        fill_fn = fill_sppn_draft
+    else:
+        payload = build_sppb_pph_payload(kompensasi_id)
+        fill_fn = fill_sppb_only_draft
+
+    result = run_browser_deklarasi(
         cfg,
         payload,
-        [doc.path for doc in supports],
+        support_paths,
         on_progress=on_progress,
-        support_labels=[doc.describe() for doc in supports],
-        persist=True,
+        support_labels=support_labels,
+        persist=False,
+        fill_fn=fill_fn,
     )
+
+    sppn_no = result.get("sppn_no")
+    sppb_no = result.get("sppb_no")
+    saved_parts: list[str] = []
+    if sppn_no:
+        saved = save_sppn_ref(kompensasi_id, sppn_no)
+        if saved:
+            saved_parts.append(f"SPPn {saved}")
+    if sppb_no:
+        saved = save_sppb_pph_ref(kompensasi_id, sppb_no)
+        if saved:
+            saved_parts.append(f"SPPb {saved}")
+    if saved_parts:
+        result["superman_saved"] = " + ".join(saved_parts)
+        result["message"] = f"Berhasil. {result['superman_saved']}"
+
+    report(100, "Selesai")
+    return result
 
 
 def _run_deklarasi_job(job_id: str, kompensasi_id: str) -> None:
     try:
-        result = submit_deklarasi_kompensasi(
+        result = submit_deklarasi_smart(
             kompensasi_id,
             on_progress=make_progress_callback(job_id),
         )
@@ -917,7 +1009,16 @@ def _run_deklarasi_job(job_id: str, kompensasi_id: str) -> None:
 
 def start_deklarasi_job(*, kompensasi_id: str) -> dict[str, Any]:
     ref = kompensasi_id.strip()
-    assert_kompensasi_not_submitted(ref)
+    sppn_ok, sppb_ok = _sppn_sppb_readiness(ref)
+    if not sppn_ok and not sppb_ok:
+        sppn_done = bool(get_sppn_no(ref))
+        sppb_done = bool(get_sppb_pph_no(ref))
+        if sppn_done and sppb_done:
+            raise ValueError(f"Kompensasi {ref} sudah lengkap dideklarasikan (SPPn & SPPb PPh).")
+        raise ValueError(
+            "Belum ada yang siap dideklarasikan — cek pokok+PPN sudah diterima penuh, "
+            "atau (kalau ada PPh) minimal 1 pembayaran ditandai 'PPh sudah disetor'."
+        )
     _api_config()  # pastikan credential server terkonfigurasi
 
     if prefer_agent_executor():

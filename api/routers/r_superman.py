@@ -28,7 +28,7 @@ from services.superman.runner import (
     request_captcha,
     resolve_agent_doc_path,
     start_deklarasi_job,
-    submit_deklarasi_kompensasi,
+    submit_deklarasi_smart,
     verify_captcha,
 )
 
@@ -186,7 +186,7 @@ def superman_deklarasi_progress(job_id: str = Query(..., min_length=1)):
 @router.post("/deklarasi")
 def superman_deklarasi(kompensasi_id: UUID = Query(...)):
     try:
-        return submit_deklarasi_kompensasi(str(kompensasi_id))
+        return submit_deklarasi_smart(str(kompensasi_id))
     except Exception as exc:
         raise _map_deklarasi_error(exc) from exc
 
