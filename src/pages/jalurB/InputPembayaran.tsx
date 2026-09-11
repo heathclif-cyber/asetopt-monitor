@@ -6,7 +6,7 @@ import { z } from 'zod'
 import {
   Save, FileText, Zap, Pencil, Trash2, X, Search,
   Banknote, ListChecks, ChevronDown, Building2, CalendarDays,
-  PlusCircle, LayoutList,
+  PlusCircle, LayoutList, FileClock, Send,
 } from 'lucide-react'
 import { useKompensasiStore } from '@/store/kompensasiStore'
 import { useKerjaSamaStore } from '@/store/kerjaSamaStore'
@@ -39,6 +39,7 @@ const schema = z.object({
 
 type FormData = z.infer<typeof schema>
 type ViewMode = 'input' | 'daftar'
+const CASH_IN_DRAFT_KEY = 'asetopt_cash_in_draft_v1'
 
 export function InputPembayaran() {
   const [params, setSearchParams] = useSearchParams()
@@ -66,6 +67,7 @@ export function InputPembayaran() {
   const [riwayatTick, setRiwayatTick] = useState(0)
   const [listQuery, setListQuery] = useState('')
   const [filterTahun, setFilterTahun] = useState<string>('semua')
+  const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null)
 
   const form = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -111,6 +113,18 @@ export function InputPembayaran() {
     // agent heartbeat ~15s — refresh agar tombol ikut hidup
     const t = window.setInterval(loadStatus, 20000)
     return () => window.clearInterval(t)
+  }, [])
+
+  useEffect(() => {
+    if (params.get('kompensasi_id')) return
+    try {
+      const raw = localStorage.getItem(CASH_IN_DRAFT_KEY)
+      if (!raw) return
+      const draft = JSON.parse(raw) as { selectedKsId?: string; values?: Partial<FormData>; savedAt?: string }
+      if (draft.selectedKsId) setSelectedKsId(draft.selectedKsId)
+      if (draft.values) form.reset({ ...form.getValues(), ...draft.values })
+      setDraftSavedAt(draft.savedAt ?? null)
+    } catch { /* Draf tidak valid cukup diabaikan. */ }
   }, [])
 
   useEffect(() => {
@@ -397,7 +411,18 @@ export function InputPembayaran() {
     switchView('input')
   }
 
-  const onSubmit = async (data: FormData) => {
+  const saveDraft = () => {
+    const savedAt = new Date().toISOString()
+    localStorage.setItem(CASH_IN_DRAFT_KEY, JSON.stringify({ selectedKsId, values: form.getValues(), savedAt }))
+    setDraftSavedAt(savedAt)
+  }
+
+  const clearDraft = () => {
+    localStorage.removeItem(CASH_IN_DRAFT_KEY)
+    setDraftSavedAt(null)
+  }
+
+  const onSubmit = async (data: FormData, issueSppn = false) => {
     if (!selected) return
     // Guard sinkron: setState(saving) belum re-render → cegah double-click
     if (savingRef.current || saving) return
@@ -443,7 +468,8 @@ export function InputPembayaran() {
         form.setValue('tgl_bayar', new Date().toISOString().split('T')[0])
         await fetchAllKompensasi()
         setRiwayatTick(t => t + 1)
-        switchView('daftar')
+        clearDraft()
+        if (!issueSppn) switchView('daftar')
       } else {
         const saved = await api.post<Pembayaran>('/api/pembayaran', {
           kompensasi_id: data.kompensasi_id,
@@ -462,7 +488,19 @@ export function InputPembayaran() {
         form.setValue('is_pph_disetor', false)
         await fetchAllKompensasi()
         setRiwayatTick(t => t + 1)
-        switchView('daftar')
+        clearDraft()
+        if (issueSppn) {
+          const remainingAfter = Math.max(0, sisaAvail - data.nominal_bayar)
+          if (remainingAfter > 0.5) {
+            alert(`Pembayaran tersimpan. SPPN belum dapat diterbitkan karena masih ada sisa ${formatRupiah(remainingAfter)}.`)
+          } else if (!docsReady) {
+            alert('Pembayaran tersimpan. Lengkapi dokumen Superman terlebih dahulu untuk menerbitkan SPPN.')
+          } else {
+            await startSuperman(data.kompensasi_id)
+          }
+        } else {
+          switchView('daftar')
+        }
       }
     } catch (e: any) {
       alert(e.message ?? (editingId ? 'Gagal mengubah pembayaran' : 'Gagal menyimpan pembayaran'))
@@ -593,8 +631,8 @@ export function InputPembayaran() {
 
       {/* ════════════════════ INPUT ════════════════════ */}
       {viewMode === 'input' && (
-        <div className="max-w-2xl space-y-4">
-          <form id="form-cash-in" onSubmit={form.handleSubmit(onSubmit)}>
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-12 xl:items-start">
+          <form id="form-cash-in" onSubmit={form.handleSubmit(data => onSubmit(data))} className={cn(selected ? 'xl:col-span-8' : 'xl:col-span-12')}>
             <Card className={cn(
               'shadow-sm overflow-hidden border-gray-200/80',
               editingId && 'ring-2 ring-amber-300/70 border-amber-200',
@@ -778,10 +816,18 @@ export function InputPembayaran() {
                 </details>
 
                 <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-100">
+                  <Button type="button" variant="outline" onClick={saveDraft} disabled={saving}>
+                    <FileClock size={14} /> Simpan Draf
+                  </Button>
                   <Button type="submit" className="bg-[#1E8449] hover:bg-[#196F3D]" disabled={!canSave}>
                     <Save size={14} />
                     {saving ? 'Menyimpan...' : editingId ? 'Simpan Perubahan' : nominalWatch > 0 ? `Simpan ${formatRupiah(nominalWatch)}` : 'Simpan Pembayaran'}
                   </Button>
+                  {!editingId && (
+                    <Button type="button" className="bg-[#1B4F72] hover:bg-[#163f5c]" disabled={!canSave} onClick={() => form.handleSubmit(data => onSubmit(data, true))()}>
+                      <Send size={14} /> Terbitkan SPPN
+                    </Button>
+                  )}
                   {lastSaved && selected && !editingId && (
                     <Button type="button" variant="outline" onClick={() => setKuitansiTarget(lastSaved)}>
                       <FileText size={14} /> Buat Kuitansi
@@ -793,6 +839,14 @@ export function InputPembayaran() {
           </form>
 
           {selected && (
+            <aside className="space-y-3 xl:col-span-4 xl:sticky xl:top-5">
+              <div className="rounded-xl border border-[#117A65]/15 bg-emerald-50/50 p-4">
+                <p className="text-xs font-semibold text-emerald-900">Pembayaran yang dipilih</p>
+                <p className="mt-1 text-sm font-semibold text-gray-800">{ks?.nama_mitra ?? '-'}</p>
+                <p className="text-xs text-gray-600">{(ks?.aset as any)?.nama_aset ?? '-'}</p>
+                <div className="mt-3 flex items-end justify-between gap-2 border-t border-emerald-100 pt-3"><div><p className="text-[10px] uppercase tracking-wide text-gray-500">Sisa tagihan</p><p className="text-lg font-bold text-emerald-800">{formatRupiah(ws?.sisaTagihan ?? 0)}</p></div><StatusBadge type="bayar" value={ws?.statusBayar ?? 'belum_bayar'} /></div>
+              </div>
+              {draftSavedAt && <p className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-800">Draf tersimpan di perangkat ini. Terakhir disimpan {formatTanggal(draftSavedAt.slice(0, 10))}.</p>}
             <details className="group rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
               <summary className="cursor-pointer list-none flex items-center justify-between gap-2 px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50">
                 <span className="inline-flex items-center gap-2">
@@ -873,6 +927,7 @@ export function InputPembayaran() {
                 )}
               </div>
             </details>
+            </aside>
           )}
         </div>
       )}
