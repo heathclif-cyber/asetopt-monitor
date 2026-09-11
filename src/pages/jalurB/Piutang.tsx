@@ -143,8 +143,8 @@ export default function Piutang() {
         <div>
           <h1 className="text-lg font-bold text-gray-800">Piutang — Collection</h1>
           <p className="text-xs text-gray-500 mt-1 max-w-2xl">
-            Tagihan dengan <strong>sisa &gt; 0</strong> yang sudah <strong>diterbitkan invoice</strong>
-            {' '}atau <strong>jatuh tempo</strong> (waktunya kompensasi).
+            Tagihan dengan <strong>sisa &gt; 0</strong> yang sudah <strong>jatuh tempo</strong>.
+            {' '}Tagihan ber-invoice tetapi belum jatuh tempo tetap dipantau di menu Kompensasi.
             {isAdmin && (
               <> Terintegrasi ke Input Cash In, Buat Invoice, dan Notifikasi &amp; SP.</>
             )}

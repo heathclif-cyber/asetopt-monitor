@@ -102,7 +102,9 @@ export function resolvePiutangAging(hariDariJT: number): PiutangAging {
 }
 
 /**
- * Piutang = sisa > 0 DAN (invoice sudah diterbitkan ATAU tgl JT sudah tiba/lewat).
+ * Piutang = sisa > 0 DAN tanggal jatuh tempo sudah tiba atau terlewati.
+ * Invoice yang diterbitkan sebelum jatuh tempo tetap ditampilkan di monitoring
+ * kompensasi, tetapi belum menjadi piutang collection.
  * Tidak dibatasi tahun — piutang multi-tahun ikut masuk.
  */
 export function buildPiutangRows(opts: {
@@ -140,8 +142,8 @@ export function buildPiutangRows(opts: {
     const hariDariJT = daysBetween(jt, today)
     const sudahJT = hariDariJT >= 0
 
-    // Hanya piutang "aktif" untuk collection: invoice terbit ATAU sudah waktunya (JT)
-    if (!invoice && !sudahJT) continue
+    // Piutang collection hanya terbentuk setelah tanggal jatuh tempo tiba.
+    if (!sudahJT) continue
 
     // Denda sejak H+1 lewat JT — tanpa grace (abaikan maks_hari_bayar di data)
     const denda = hitungDenda({
@@ -154,8 +156,7 @@ export function buildPiutangRows(opts: {
 
     const ks = ksMap.get(k.ks_id) ?? k.kerja_sama
     const aging = resolvePiutangAging(hariDariJT)
-    const alasan: PiutangAlasan =
-      invoice && sudahJT ? 'keduanya' : invoice ? 'invoice' : 'jatuh_tempo'
+    const alasan: PiutangAlasan = invoice ? 'keduanya' : 'jatuh_tempo'
 
     rows.push({
       id: k.id,
