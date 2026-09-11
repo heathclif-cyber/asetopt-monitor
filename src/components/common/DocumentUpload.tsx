@@ -48,7 +48,7 @@ export function DocumentUpload({ entityType, entityId, docType, label, uploaded,
         onClick={() => inputRef.current?.click()}>
         <Upload size={12} /> {loading ? '...' : 'Upload'}
       </Button>
-      <input ref={inputRef} type="file" accept=".pdf,.jpg,.jpeg,.png" className="hidden"
+      <input ref={inputRef} type="file" accept=".pdf,.docx,.jpg,.jpeg,.png" className="hidden"
         onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = '' }} />
     </div>
   )
