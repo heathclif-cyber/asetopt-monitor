@@ -20,6 +20,7 @@ import { TableSkeleton } from '@/components/common/LoadingSkeleton'
 import { formatTanggal, formatRupiah } from '@/lib/utils'
 import { Plus, Pencil, Trash2, MessageSquare, FileWarning, FileText, ChevronDown, ChevronUp, Wand2, ArrowDownCircle, CalendarDays, List, GitBranch, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
 import { useForm, Controller } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -438,6 +439,22 @@ export function Kompensasi() {
     }
   }, [calendarMonth, filtered])
 
+  const dueChartData = useMemo(() => filtered.map(k => {
+    const ws = getKompensasiWithStatus(k, (k as any).pembayaran ?? [])
+    const ks = daftarKS.find(x => x.id === k.ks_id)
+    return {
+      id: k.id,
+      tanggal: k.tgl_jatuh_tempo,
+      label: formatTanggal(k.tgl_jatuh_tempo),
+      singkat: new Intl.DateTimeFormat('id-ID', { day: '2-digit', month: 'short' }).format(new Date(`${k.tgl_jatuh_tempo}T00:00:00`)),
+      nilai: ws.sisaTagihan,
+      mitra: ks?.nama_mitra ?? '-',
+      aset: (ks?.aset as any)?.nama_aset ?? '-',
+      periode: k.periode_label ?? '-',
+      status: ws.statusBayar,
+    }
+  }), [filtered, daftarKS, getKompensasiWithStatus])
+
   const shiftCalendarMonth = (delta: number) => {
     const [year, month] = calendarMonth.split('-').map(Number)
     const next = new Date(year, month - 1 + delta, 1)
@@ -734,22 +751,28 @@ export function Kompensasi() {
 
       {viewMode === 'alur' && (
         <div className="rounded-xl border bg-white p-5">
-          {filtered.length === 0 ? <p className="py-8 text-center text-sm text-gray-400">Tidak ada jadwal yang sesuai filter.</p> : (
-            <div className="relative space-y-0 before:absolute before:bottom-4 before:left-[7px] before:top-4 before:w-px before:bg-gray-200">
-              {filtered.map(k => {
-                const ws = getKompensasiWithStatus(k, (k as any).pembayaran ?? [])
-                const ks = daftarKS.find(x => x.id === k.ks_id)
-                const terlambat = ws.statusBayar === 'terlambat'
-                return <div key={k.id} className="relative flex gap-4 pb-5 last:pb-0">
-                  <span className={`relative z-10 mt-1.5 h-4 w-4 rounded-full border-4 border-white ${terlambat ? 'bg-red-500' : 'bg-amber-400'}`} />
-                  <div className="flex-1 rounded-lg border p-3">
-                    <div className="flex flex-wrap items-start justify-between gap-2"><div><p className="text-sm font-semibold text-gray-800">{formatTanggal(k.tgl_jatuh_tempo)} · {ks?.nama_mitra ?? '-'}</p><p className="text-xs text-gray-500">{(ks?.aset as any)?.nama_aset ?? '-'} · {k.periode_label ?? 'Tanpa periode'}</p></div><StatusBadge type="bayar" value={ws.statusBayar} /></div>
-                    <p className={`mt-2 text-sm font-semibold ${terlambat ? 'text-red-700' : 'text-amber-700'}`}>Sisa tagihan: {formatRupiah(ws.sisaTagihan)}</p>
-                  </div>
-                </div>
-              })}
+          {dueChartData.length === 0 ? <p className="py-8 text-center text-sm text-gray-400">Tidak ada jadwal yang sesuai filter.</p> : <>
+            <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+              <div><p className="font-semibold text-gray-800">Peta jatuh tempo pembayaran</p><p className="text-xs text-gray-500">Tinggi batang menunjukkan sisa tagihan pada setiap tanggal jatuh tempo.</p></div>
+              <div className="flex items-center gap-3 text-xs text-gray-600"><span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-red-500" /> Terlambat</span><span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-amber-400" /> Belum dibayar</span><span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-blue-400" /> Dibayar sebagian</span></div>
             </div>
-          )}
+            <div className="h-80 min-w-0">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={dueChartData} margin={{ top: 12, right: 16, left: 8, bottom: 12 }} barCategoryGap="28%">
+                  <CartesianGrid vertical={false} stroke="#e5e7eb" />
+                  <XAxis dataKey="singkat" tickLine={false} axisLine={false} tick={{ fontSize: 11, fill: '#6b7280' }} />
+                  <YAxis tickLine={false} axisLine={false} width={68} tick={{ fontSize: 11, fill: '#6b7280' }} tickFormatter={v => v >= 1000000 ? `Rp${(v / 1000000).toFixed(0)}jt` : `Rp${(v / 1000).toFixed(0)}rb`} />
+                  <Tooltip cursor={{ fill: '#f9fafb' }} formatter={(value: number) => [formatRupiah(value), 'Sisa tagihan']} labelFormatter={(_, payload) => payload?.[0]?.payload ? `${payload[0].payload.label} · ${payload[0].payload.mitra}` : ''} contentStyle={{ borderRadius: 8, borderColor: '#e5e7eb', fontSize: 12 }} />
+                  <Bar dataKey="nilai" radius={[6, 6, 0, 0]} maxBarSize={52}>
+                    {dueChartData.map(item => <Cell key={item.id} fill={item.status === 'terlambat' ? '#ef4444' : item.status === 'sebagian' ? '#60a5fa' : '#fbbf24'} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="mt-4 grid gap-2 border-t pt-4 sm:grid-cols-2 xl:grid-cols-3">
+              {dueChartData.map(item => <button key={item.id} type="button" onClick={() => { setViewMode('daftar'); setExpandedId(item.id) }} className="rounded-lg border px-3 py-2 text-left transition-colors hover:border-[#5B2C6F] hover:bg-purple-50"><p className="text-xs font-semibold text-gray-700">{item.label}</p><p className="truncate text-xs text-gray-500">{item.mitra}</p><p className={`mt-1 text-sm font-semibold ${item.status === 'terlambat' ? 'text-red-700' : 'text-amber-700'}`}>{formatRupiah(item.nilai)}</p></button>)}
+            </div>
+          </>}
         </div>
       )}
 
