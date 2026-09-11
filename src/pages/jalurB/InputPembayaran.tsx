@@ -286,6 +286,27 @@ export function InputPembayaran() {
     form.setValue('kompensasi_id', prefer ? String(prefer.id) : '')
   }
 
+  const selectTagihanCepat = (kompensasi: Kompensasi) => {
+    cancelEdit()
+    setSelectedKsId(String(kompensasi.ks_id))
+    form.setValue('kompensasi_id', String(kompensasi.id), { shouldValidate: true })
+  }
+
+  const tagihanPrioritas = useMemo(() => allKompensasi
+    .map(k => {
+      const pembayaran = (k.pembayaran ?? []) as Pembayaran[]
+      const status = getKompensasiWithStatus(k, pembayaran)
+      const kerjaSama = resolveKs(k.ks_id)
+      return { k, status, kerjaSama }
+    })
+    .filter(item => item.status.sisaTagihan > 0.5)
+    .sort((a, b) => {
+      const aLate = a.status.statusBayar === 'terlambat' ? 0 : 1
+      const bLate = b.status.statusBayar === 'terlambat' ? 0 : 1
+      return aLate - bLate || a.k.tgl_jatuh_tempo.localeCompare(b.k.tgl_jatuh_tempo)
+    })
+    .slice(0, 4), [allKompensasi, daftarKS, getKompensasiWithStatus])
+
   useEffect(() => {
     if (selected && String(selected.ks_id) !== String(selectedKsId)) {
       setSelectedKsId(String(selected.ks_id))
@@ -619,77 +640,43 @@ export function InputPembayaran() {
               </CardHeader>
 
               <CardContent className="p-5 space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-1.5 sm:col-span-2">
-                    <Label className="text-xs text-gray-600">Aset / Mitra</Label>
-                    <SearchableSelect
-                      value={selectedKsId}
-                      onValueChange={handleKsChange}
-                      disabled={!!editingId}
-                      options={ksOptions.map(o => ({
-                        value: o.id,
-                        label: `${o.aset} — ${o.mitra}`,
-                        searchText: [o.aset, o.mitra, o.noKontrak, ...o.monika].join(' '),
-                        description: [
-                          o.noKontrak,
-                          o.monika.length ? `Monika ${o.monika.join(', ')}` : null,
-                          o.open > 0 ? `${o.open} terbuka` : null,
-                          o.lunas > 0 ? `${o.lunas} lunas` : null,
-                        ].filter(Boolean).join(' · '),
-                      }))}
-                      placeholder="Cari aset, mitra, Monika..."
-                      searchPlaceholder="cth: Dapenbun, Pelayanan 13..."
-                    />
-                    {ks && (
-                      <p className="text-[11px] text-gray-500 flex items-start gap-1.5 pt-0.5">
-                        <Building2 size={12} className="mt-0.5 shrink-0 text-gray-400" />
-                        <span>
-                          {ks.nama_mitra}
-                          {ks.aset?.kode_aset ? ` · ${ks.aset.kode_aset}` : ''}
-                          {ks.no_perjanjian ? ` · ${ks.no_perjanjian}` : ''}
-                        </span>
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="space-y-1.5 sm:col-span-2">
-                    <Label className="text-xs text-gray-600">Tahap Tagihan</Label>
-                    <SearchableSelect
-                      value={selectedId}
-                      disabled={!selectedKsId || !!editingId}
-                      onValueChange={v => {
-                        if (editingId) cancelEdit()
-                        form.setValue('kompensasi_id', v)
-                      }}
-                      options={tahapOptions.map(o => ({
-                        value: o.id,
-                        label: o.status === 'lunas'
-                          ? `${o.periode} — Lunas`
-                          : `${o.periode} — sisa ${formatRupiah(o.sisa)}`,
-                        searchText: `${o.periode} ${o.monika} ${o.status}`,
-                        description: [
-                          formatRupiah(o.total),
-                          `JT ${formatTanggal(o.jatuhTempo)}`,
-                          o.monika || null,
-                        ].filter(Boolean).join(' · '),
-                      }))}
-                      placeholder={selectedKsId ? 'Pilih tahap...' : 'Pilih mitra dulu'}
-                      searchPlaceholder="Periode / Monika..."
-                    />
-                    {selectedTahap && (
-                      <p className="text-[11px] text-gray-500 flex items-center gap-1.5 flex-wrap">
-                        <CalendarDays size={12} className="text-gray-400" />
-                        JT {formatTanggal(selectedTahap.jatuhTempo)}
-                        {selectedTahap.monika ? ` · ${selectedTahap.monika}` : ''}
-                        {selectedTahap.status === 'lunas' && selectedTahap.dibayar > selectedTahap.total && (
-                          <span className="text-amber-700 font-medium">
-                            · lebih {formatRupiah(selectedTahap.dibayar - selectedTahap.total)}
-                          </span>
-                        )}
-                      </p>
-                    )}
-                  </div>
+                <div className="grid grid-cols-3 gap-2 rounded-lg bg-slate-50 p-2 text-center text-[11px]">
+                  <div className={cn('rounded-md px-2 py-1.5', !selected ? 'bg-white font-semibold text-[#117A65] shadow-sm' : 'text-gray-500')}>1. Pilih tagihan</div>
+                  <div className={cn('rounded-md px-2 py-1.5', selected ? 'bg-white font-semibold text-[#117A65] shadow-sm' : 'text-gray-500')}>2. Isi pembayaran</div>
+                  <div className="rounded-md px-2 py-1.5 text-gray-500">3. Simpan</div>
                 </div>
+
+                {!editingId && tagihanPrioritas.length > 0 && (
+                  <section className="space-y-2">
+                    <div className="flex items-center justify-between"><Label className="text-xs text-gray-600">Tagihan perlu dibayar</Label><span className="text-[10px] text-gray-400">Pilih untuk melanjutkan</span></div>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {tagihanPrioritas.map(({ k, status, kerjaSama }) => {
+                        const active = String(k.id) === String(selectedId)
+                        const late = status.statusBayar === 'terlambat'
+                        return <button key={k.id} type="button" onClick={() => selectTagihanCepat(k)} className={cn('rounded-lg border p-3 text-left transition-all hover:border-[#117A65] hover:shadow-sm', active ? 'border-[#117A65] bg-emerald-50 ring-1 ring-[#117A65]' : late ? 'border-red-200 bg-red-50/40' : 'border-gray-200 bg-white')}>
+                          <div className="flex items-start justify-between gap-2"><p className="truncate text-xs font-semibold text-gray-800">{kerjaSama?.nama_mitra ?? '-'}</p><span className={cn('shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium', late ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-800')}>{late ? 'Terlambat' : 'Belum dibayar'}</span></div>
+                          <p className="mt-0.5 truncate text-[11px] text-gray-500">{(kerjaSama?.aset as any)?.nama_aset ?? '-'} · JT {formatTanggal(k.tgl_jatuh_tempo)}</p>
+                          <p className={cn('mt-2 text-sm font-bold', late ? 'text-red-700' : 'text-gray-800')}>{formatRupiah(status.sisaTagihan)}</p>
+                        </button>
+                      })}
+                    </div>
+                  </section>
+                )}
+
+                <details className="rounded-lg border" open={!!editingId || tagihanPrioritas.length === 0}>
+                  <summary className="cursor-pointer px-3 py-2.5 text-xs font-medium text-gray-700">Cari tagihan lain</summary>
+                  <div className="grid grid-cols-1 gap-4 border-t p-3 sm:grid-cols-2">
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <Label className="text-xs text-gray-600">Aset / Mitra</Label>
+                      <SearchableSelect value={selectedKsId} onValueChange={handleKsChange} disabled={!!editingId} options={ksOptions.map(o => ({ value: o.id, label: `${o.aset} — ${o.mitra}`, searchText: [o.aset, o.mitra, o.noKontrak, ...o.monika].join(' '), description: [o.noKontrak, o.monika.length ? `Monika ${o.monika.join(', ')}` : null, o.open > 0 ? `${o.open} terbuka` : null].filter(Boolean).join(' · ') }))} placeholder="Cari aset, mitra, Monika..." searchPlaceholder="Ketik aset atau mitra..." />
+                      {ks && <p className="text-[11px] text-gray-500 flex items-start gap-1.5 pt-0.5"><Building2 size={12} className="mt-0.5 shrink-0 text-gray-400" /><span>{ks.nama_mitra}{ks.aset?.kode_aset ? ` · ${ks.aset.kode_aset}` : ''}{ks.no_perjanjian ? ` · ${ks.no_perjanjian}` : ''}</span></p>}
+                    </div>
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <Label className="text-xs text-gray-600">Tahap Tagihan</Label>
+                      <SearchableSelect value={selectedId} disabled={!selectedKsId || !!editingId} onValueChange={v => { if (editingId) cancelEdit(); form.setValue('kompensasi_id', v) }} options={tahapOptions.map(o => ({ value: o.id, label: o.status === 'lunas' ? `${o.periode} — Lunas` : `${o.periode} — sisa ${formatRupiah(o.sisa)}`, searchText: `${o.periode} ${o.monika} ${o.status}`, description: [formatRupiah(o.total), `JT ${formatTanggal(o.jatuhTempo)}`, o.monika || null].filter(Boolean).join(' · ') }))} placeholder={selectedKsId ? 'Pilih tahap...' : 'Pilih mitra dulu'} searchPlaceholder="Periode / Monika..." />
+                    </div>
+                  </div>
+                </details>
 
                 {selected && ws && (
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 rounded-xl border border-gray-100 bg-slate-50/80 p-3">
@@ -738,7 +725,7 @@ export function InputPembayaran() {
                       disabled={lockedBySuperman}
                     />
                     {sisaUntukInput > 0.5 && (
-                      <p className="text-[11px] text-gray-400">Maks. {formatRupiah(sisaUntukInput)}</p>
+                      <div className="mt-1 flex items-center justify-between gap-2"><p className="text-[11px] text-gray-400">Maks. {formatRupiah(sisaUntukInput)}</p><button type="button" className="text-[11px] font-medium text-[#117A65] hover:underline" onClick={() => form.setValue('nominal_bayar', sisaUntukInput)}>Bayar penuh</button></div>
                     )}
                     {!editingId && selected && sisaUntukInput <= 0.5 && (
                       <p className="text-[11px] text-amber-700">Tagihan sudah lunas — tidak bisa menambah cash in.</p>
@@ -751,6 +738,9 @@ export function InputPembayaran() {
                   </div>
                 </div>
 
+                <details className="rounded-lg border border-gray-100">
+                  <summary className="cursor-pointer px-3 py-2.5 text-xs font-medium text-gray-600">Informasi tambahan (PPh, bukti transfer, catatan)</summary>
+                  <div className="space-y-4 border-t p-3">
                 <label className={cn(
                   'flex items-center gap-2.5 rounded-lg border px-3 py-2.5 cursor-pointer transition-colors',
                   form.watch('is_pph_disetor')
@@ -784,11 +774,13 @@ export function InputPembayaran() {
                     placeholder="Catatan pembayaran..."
                   />
                 </div>
+                  </div>
+                </details>
 
                 <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-100">
                   <Button type="submit" className="bg-[#1E8449] hover:bg-[#196F3D]" disabled={!canSave}>
                     <Save size={14} />
-                    {saving ? 'Menyimpan...' : editingId ? 'Simpan Perubahan' : 'Simpan Cash In'}
+                    {saving ? 'Menyimpan...' : editingId ? 'Simpan Perubahan' : nominalWatch > 0 ? `Simpan ${formatRupiah(nominalWatch)}` : 'Simpan Pembayaran'}
                   </Button>
                   {lastSaved && selected && !editingId && (
                     <Button type="button" variant="outline" onClick={() => setKuitansiTarget(lastSaved)}>
