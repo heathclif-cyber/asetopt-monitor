@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useKerjaSamaStore } from '@/store/kerjaSamaStore'
 import { useAsetStore } from '@/store/asetStore'
 import { KerjaSama as KSType } from '@/types'
@@ -82,6 +82,15 @@ export function KerjaSama() {
     handleDialogChange(false)
   }
 
+  const sortedKS = useMemo(() => [...daftarKS].sort((a, b) => {
+    const sisaA = hitungSisaHari(a.tgl_selesai)
+    const sisaB = hitungSisaHari(b.tgl_selesai)
+    // Prioritaskan kerja sama yang masih berjalan dan paling dekat berakhir.
+    if (sisaA >= 0 && sisaB < 0) return -1
+    if (sisaA < 0 && sisaB >= 0) return 1
+    return sisaA - sisaB
+  }), [daftarKS])
+
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
@@ -113,7 +122,7 @@ export function KerjaSama() {
               </tr>
             </thead>
             <tbody className="divide-y">
-              {daftarKS.map(ks => {
+              {sortedKS.map(ks => {
                 const sisaHari = hitungSisaHari(ks.tgl_selesai)
                 return (
                   <tr key={ks.id} className="hover:bg-gray-50">
