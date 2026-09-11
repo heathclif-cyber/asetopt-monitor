@@ -38,8 +38,7 @@ const navItems: NavItem[] = [
     label: 'Jalur B — Kerja Sama',
     icon: <Handshake size={15} />,
     children: [
-      { label: 'Daftar Kerja Sama', to: '/jalur-b/kerja-sama' },
-      { label: 'Tambah Program Kerja Sama', to: '/jalur-b/kerja-sama?tambah=1' },
+      { label: 'Data Kerja Sama', to: '/jalur-b/kerja-sama' },
       { label: 'Kompensasi', to: '/jalur-b/kompensasi' },
       { label: 'Buat Invoice', to: '/jalur-b/invoice' },
       { label: 'Input Cash In', to: '/jalur-b/pembayaran' },
