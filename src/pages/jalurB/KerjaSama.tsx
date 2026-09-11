@@ -17,7 +17,7 @@ import { Plus, Pencil, AlertCircle } from 'lucide-react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 
 const ksSchema = z.object({
   aset_id: z.string().min(1),
@@ -34,6 +34,7 @@ type KSForm = z.infer<typeof ksSchema>
 export function KerjaSama() {
   const { daftarKS, isLoading, fetchKS, addKS, updateKS } = useKerjaSamaStore()
   const { daftarAset, fetchAset } = useAsetStore()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<KSType | null>(null)
 
@@ -43,10 +44,19 @@ export function KerjaSama() {
 
   useEffect(() => { fetchKS(); fetchAset() }, [])
 
+  useEffect(() => {
+    if (searchParams.get('tambah') === '1') openAdd()
+  }, [searchParams])
+
   const openAdd = () => {
     setEditTarget(null)
     reset()
     setDialogOpen(true)
+  }
+
+  const handleDialogChange = (open: boolean) => {
+    setDialogOpen(open)
+    if (!open && searchParams.has('tambah')) setSearchParams({})
   }
 
   const openEdit = (ks: KSType) => {
@@ -69,18 +79,18 @@ export function KerjaSama() {
     } else {
       await addKS({ ...data, status: 'aktif', prospek_id: null } as any)
     }
-    setDialogOpen(false)
+    handleDialogChange(false)
   }
 
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Kerja Sama Aktif</h1>
-          <p className="text-sm text-gray-500">{daftarKS.length} kerja sama terdaftar (Jalur B)</p>
+          <h1 className="text-2xl font-bold text-gray-900">Program Kerja Sama</h1>
+          <p className="text-sm text-gray-500">{daftarKS.length} program kerja sama terdaftar (Jalur B)</p>
         </div>
         <Button onClick={openAdd} className="bg-[#5B2C6F] hover:bg-[#5B2C6F]/90">
-          <Plus size={16} /> Tambah KS
+          <Plus size={16} /> Tambah Program
         </Button>
       </div>
 
@@ -88,7 +98,7 @@ export function KerjaSama() {
         {isLoading ? (
           <div className="p-6"><TableSkeleton /></div>
         ) : daftarKS.length === 0 ? (
-          <EmptyState title="Belum ada kerja sama" description="Tambahkan kerja sama baru atau konversi dari prospek mitra di Jalur A." action={<Button onClick={openAdd} size="sm"><Plus size={14} /> Tambah KS</Button>} />
+          <EmptyState title="Belum ada program kerja sama" description="Tambahkan kerja sama baru, misalnya dengan PT RSS Service System, atau konversi dari prospek mitra di Jalur A." action={<Button onClick={openAdd} size="sm"><Plus size={14} /> Tambah Program</Button>} />
         ) : (
           <table className="w-full text-sm">
             <thead>
@@ -144,10 +154,10 @@ export function KerjaSama() {
         )}
       </div>
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      <Dialog open={dialogOpen} onOpenChange={handleDialogChange}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>{editTarget ? 'Edit Kerja Sama' : 'Tambah Kerja Sama Baru'}</DialogTitle>
+            <DialogTitle>{editTarget ? 'Edit Program Kerja Sama' : 'Tambah Program Kerja Sama'}</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div>
@@ -170,7 +180,7 @@ export function KerjaSama() {
             </div>
             <div>
               <Label>Nama Mitra</Label>
-              <Input {...register('nama_mitra')} className="mt-1" />
+              <Input {...register('nama_mitra')} className="mt-1" placeholder="Contoh: PT RSS Service System" />
               {errors.nama_mitra && <p className="text-xs text-red-500 mt-1">{errors.nama_mitra.message}</p>}
             </div>
             <div>
@@ -196,8 +206,8 @@ export function KerjaSama() {
               <Textarea {...register('keterangan')} className="mt-1" rows={2} />
             </div>
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Batal</Button>
-              <Button type="submit" className="bg-[#5B2C6F]">{editTarget ? 'Simpan' : 'Tambah'}</Button>
+              <Button type="button" variant="outline" onClick={() => handleDialogChange(false)}>Batal</Button>
+              <Button type="submit" className="bg-[#5B2C6F]">{editTarget ? 'Simpan' : 'Tambah Program'}</Button>
             </DialogFooter>
           </form>
         </DialogContent>

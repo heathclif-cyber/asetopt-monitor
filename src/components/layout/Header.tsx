@@ -8,7 +8,7 @@ const breadcrumbMap: Record<string, string[]> = {
   '/': ['Dashboard'],
   '/jalur-a/timeline': ['Jalur A', 'Timeline Program'],
   '/jalur-a/potensi': ['Jalur A', 'Potensi Pendapatan'],
-  '/jalur-b/kerja-sama': ['Jalur B', 'Kerja Sama'],
+  '/jalur-b/kerja-sama': ['Jalur B', 'Program Kerja Sama'],
   '/jalur-b/kompensasi': ['Jalur B', 'Kompensasi'],
   '/jalur-b/invoice': ['Jalur B', 'Buat Invoice'],
   '/jalur-b/pembayaran': ['Jalur B', 'Input Cash In'],
