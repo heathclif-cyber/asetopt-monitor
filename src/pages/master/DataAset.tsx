@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { StatusBadge } from '@/components/common/StatusBadge'
 import { ConfirmDialog } from '@/components/common/ConfirmDialog'
 import { EmptyState } from '@/components/common/EmptyState'
@@ -197,56 +197,67 @@ export function DataAset() {
       )}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editTarget ? 'Edit Aset' : 'Tambah Aset Baru'}</DialogTitle>
+            <DialogDescription>
+              Isi dua informasi utama terlebih dahulu. Detail lain dapat dilengkapi kapan saja.
+            </DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+            <section className="space-y-4 rounded-lg border border-blue-100 bg-blue-50/50 p-4">
               <div>
-                <Label>ID Monika (Kode Aset) <span className="text-red-500">*</span></Label>
-                <Input {...register('kode_aset')} className="mt-1 font-mono" placeholder="R800xxx-xxxx" />
+                <p className="text-sm font-semibold text-gray-800">Informasi utama</p>
+                <p className="text-xs text-gray-500">Kolom bertanda <span className="text-red-500">*</span> wajib diisi.</p>
+              </div>
+              <div>
+                <Label>Kode aset / ID Monika <span className="text-red-500">*</span></Label>
+                <Input {...register('kode_aset')} className="mt-1 font-mono" placeholder="Contoh: R800xxx-xxxx" />
                 {errors.kode_aset && <p className="text-xs text-red-500 mt-1">{errors.kode_aset.message}</p>}
-                <p className="text-[11px] text-gray-400 mt-1">Kunci unik proker di seluruh sistem — jangan diganti sembarangan.</p>
+                <p className="text-[11px] text-gray-500 mt-1">Gunakan ID Monika bila tersedia. Kode awal yang diisi sistem juga dapat digunakan.</p>
               </div>
               <div>
-                <Label>Status</Label>
-                <div className="mt-1 h-10 px-3 flex items-center rounded-md border bg-gray-50 text-sm text-gray-600">
-                  Otomatis: {editTarget ? 'mengikuti progres program' : 'Pipeline'}
+                <Label>Nama aset <span className="text-red-500">*</span></Label>
+                <Input {...register('nama_aset')} className="mt-1" placeholder="Contoh: Lahan Eks Pabrik Kapas" autoFocus />
+                {errors.nama_aset && <p className="text-xs text-red-500 mt-1">{errors.nama_aset.message}</p>}
+              </div>
+              <div className="rounded-md border border-blue-100 bg-white px-3 py-2 text-xs text-gray-600">
+                Status aset akan diperbarui otomatis sesuai proses prospek dan kerja sama.
+              </div>
+            </section>
+
+            <details className="rounded-lg border" open={!!editTarget}>
+              <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-gray-700">
+                Detail tambahan (opsional)
+              </summary>
+              <div className="space-y-4 border-t px-4 pb-4 pt-4">
+                <div>
+                  <Label>Alamat <span className="text-gray-400">(opsional)</span></Label>
+                  <Textarea {...register('alamat')} className="mt-1" rows={2} placeholder="Alamat atau lokasi aset" />
                 </div>
-                <p className="text-[11px] text-gray-400 mt-1">Status berubah berdasarkan prospek dan kerja sama.</p>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div>
+                    <Label>Luas tanah (m²) <span className="text-gray-400">(opsional)</span></Label>
+                    <Input type="number" min="0" step="0.01" {...register('luas_tanah_m2')} className="mt-1" placeholder="Contoh: 1250" />
+                  </div>
+                  <div>
+                    <Label>Luas bangunan (m²) <span className="text-gray-400">(opsional)</span></Label>
+                    <Input type="number" min="0" step="0.01" {...register('luas_bangunan_m2')} className="mt-1" placeholder="Contoh: 350" />
+                  </div>
+                </div>
+                <div>
+                  <Label>Data sertifikat <span className="text-gray-400">(opsional)</span></Label>
+                  <Input {...register('sertifikat')} className="mt-1" placeholder="Contoh: HM No. 4421 / Mangasa" />
+                </div>
+                <div>
+                  <Label>Catatan <span className="text-gray-400">(opsional)</span></Label>
+                  <Textarea {...register('keterangan')} className="mt-1" rows={2} placeholder="Informasi tambahan yang perlu dicatat" />
+                </div>
               </div>
-            </div>
-            <div>
-              <Label>Nama Aset</Label>
-              <Input {...register('nama_aset')} className="mt-1" />
-              {errors.nama_aset && <p className="text-xs text-red-500 mt-1">{errors.nama_aset.message}</p>}
-            </div>
-            <div>
-              <Label>Alamat</Label>
-              <Textarea {...register('alamat')} className="mt-1" rows={2} />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>Luas Tanah (m²)</Label>
-                <Input type="number" step="0.01" {...register('luas_tanah_m2')} className="mt-1" />
-              </div>
-              <div>
-                <Label>Luas Bangunan (m²)</Label>
-                <Input type="number" step="0.01" {...register('luas_bangunan_m2')} className="mt-1" />
-              </div>
-            </div>
-            <div>
-              <Label>Sertifikat</Label>
-              <Input {...register('sertifikat')} className="mt-1" placeholder="HM No. 4421 / Mangasa" />
-            </div>
-            <div>
-              <Label>Keterangan</Label>
-              <Textarea {...register('keterangan')} className="mt-1" rows={2} />
-            </div>
+            </details>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Batal</Button>
-              <Button type="submit" className="bg-[#1B4F72]">{editTarget ? 'Simpan' : 'Tambah'}</Button>
+              <Button type="submit" className="bg-[#1B4F72]">{editTarget ? 'Simpan Perubahan' : 'Simpan Aset'}</Button>
             </DialogFooter>
           </form>
         </DialogContent>
