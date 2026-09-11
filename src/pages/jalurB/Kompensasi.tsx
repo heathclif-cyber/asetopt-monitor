@@ -18,7 +18,7 @@ import { StatusBadge } from '@/components/common/StatusBadge'
 import { EmptyState } from '@/components/common/EmptyState'
 import { TableSkeleton } from '@/components/common/LoadingSkeleton'
 import { formatTanggal, formatRupiah } from '@/lib/utils'
-import { Plus, Pencil, Trash2, MessageSquare, FileWarning, FileText, ChevronDown, ChevronUp, Wand2, ArrowDownCircle } from 'lucide-react'
+import { Plus, Pencil, Trash2, MessageSquare, FileWarning, FileText, ChevronDown, ChevronUp, Wand2, ArrowDownCircle, CalendarDays, List, GitBranch, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { useForm, Controller } from 'react-hook-form'
@@ -33,6 +33,8 @@ import type { Aset } from '@/types'
 
 /** Opsi proker: master RKAP + aset/KS yang belum ada di RKAP (agar bisa di-tag). */
 type ProgramOption = { kode: string; nama: string; inRkap: boolean }
+type PaymentFilter = 'perlu_tindak_lanjut' | 'semua' | 'belum_bayar' | 'terlambat' | 'sebagian' | 'lunas'
+type ViewMode = 'daftar' | 'kalender' | 'alur'
 
 
 
@@ -277,7 +279,10 @@ export function Kompensasi() {
   const [isSavingKomp, setIsSavingKomp] = useState(false)
   const [filterKS, setFilterKS] = useState<string>('semua')
   const [filterBulan, setFilterBulan] = useState<string>('semua')
+  const [filterStatus, setFilterStatus] = useState<PaymentFilter>('perlu_tindak_lanjut')
   const [sortBy, setSortBy] = useState<string>('jatuh_tempo_asc')
+  const [viewMode, setViewMode] = useState<ViewMode>('daftar')
+  const [calendarMonth, setCalendarMonth] = useState(() => new Date().toISOString().slice(0, 7))
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
   const kompForm = useForm<KompForm>({
@@ -393,6 +398,13 @@ export function Kompensasi() {
     let result = allKompensasi
     if (filterKS !== 'semua') result = result.filter(k => k.ks_id === filterKS)
     if (filterBulan !== 'semua') result = result.filter(k => k.tgl_jatuh_tempo.startsWith(filterBulan))
+    result = result.filter(k => {
+      const pembayaran = (k as any).pembayaran as Pembayaran[] ?? []
+      const status = getKompensasiWithStatus(k, pembayaran).statusBayar
+      if (filterStatus === 'semua') return true
+      if (filterStatus === 'perlu_tindak_lanjut') return status === 'belum_bayar' || status === 'terlambat'
+      return status === filterStatus
+    })
     return [...result].sort((a, b) => {
       switch (sortBy) {
         case 'jatuh_tempo_asc':  return a.tgl_jatuh_tempo.localeCompare(b.tgl_jatuh_tempo)
@@ -402,7 +414,35 @@ export function Kompensasi() {
         default: return 0
       }
     })
-  }, [allKompensasi, filterKS, filterBulan, sortBy])
+  }, [allKompensasi, filterKS, filterBulan, filterStatus, sortBy, getKompensasiWithStatus])
+
+  const calendarData = useMemo(() => {
+    const [year, month] = calendarMonth.split('-').map(Number)
+    const firstDay = new Date(year, month - 1, 1)
+    const offset = (firstDay.getDay() + 6) % 7
+    const dayCount = new Date(year, month, 0).getDate()
+    const cellCount = Math.ceil((offset + dayCount) / 7) * 7
+    const events = new Map<string, KType[]>()
+    filtered.forEach(k => {
+      const list = events.get(k.tgl_jatuh_tempo) ?? []
+      list.push(k)
+      events.set(k.tgl_jatuh_tempo, list)
+    })
+    return {
+      label: `${BULAN[month - 1]} ${year}`,
+      cells: Array.from({ length: cellCount }, (_, i) => {
+        const day = i - offset + 1
+        const iso = `${calendarMonth}-${String(day).padStart(2, '0')}`
+        return { day, inMonth: day >= 1 && day <= dayCount, iso, events: events.get(iso) ?? [] }
+      }),
+    }
+  }, [calendarMonth, filtered])
+
+  const shiftCalendarMonth = (delta: number) => {
+    const [year, month] = calendarMonth.split('-').map(Number)
+    const next = new Date(year, month - 1 + delta, 1)
+    setCalendarMonth(`${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}`)
+  }
 
   const openAdd = () => {
     setEditTarget(null)
@@ -578,6 +618,21 @@ export function Kompensasi() {
       </div>
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <div className="flex items-center gap-2">
+          <Label className="shrink-0 text-xs text-gray-500">Status:</Label>
+          <Select value={filterStatus} onValueChange={v => setFilterStatus(v as PaymentFilter)}>
+            <SelectTrigger className="w-52 h-8 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="perlu_tindak_lanjut">Perlu ditindaklanjuti</SelectItem>
+              <SelectItem value="semua">Semua status</SelectItem>
+              <SelectItem value="belum_bayar">Belum dibayar</SelectItem>
+              <SelectItem value="terlambat">Terlambat</SelectItem>
+              <SelectItem value="sebagian">Dibayar sebagian</SelectItem>
+              <SelectItem value="lunas">Lunas</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
         {/* Filter KS */}
         <div className="flex items-center gap-2">
           <Label className="shrink-0 text-xs text-gray-500">KS:</Label>
@@ -632,12 +687,73 @@ export function Kompensasi() {
         </div>
 
         {/* Jumlah hasil */}
-        {(filterKS !== 'semua' || filterBulan !== 'semua') && (
+        {(filterKS !== 'semua' || filterBulan !== 'semua' || filterStatus !== 'semua') && (
           <span className="text-xs text-gray-400">{filtered.length} kompensasi ditampilkan</span>
         )}
       </div>
 
-      <div className="bg-white rounded-xl border overflow-hidden">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-white px-4 py-3">
+        <div>
+          <p className="text-sm font-medium text-gray-800">Tampilan jadwal pembayaran</p>
+          <p className="text-xs text-gray-500">Mengikuti filter status, kerja sama, dan bulan di atas.</p>
+        </div>
+        <div className="flex rounded-lg border bg-gray-50 p-1">
+          <Button type="button" size="sm" variant={viewMode === 'daftar' ? 'default' : 'ghost'} className={viewMode === 'daftar' ? 'bg-[#5B2C6F] hover:bg-[#5B2C6F]/90' : ''} onClick={() => setViewMode('daftar')}><List size={14} /> Daftar</Button>
+          <Button type="button" size="sm" variant={viewMode === 'kalender' ? 'default' : 'ghost'} className={viewMode === 'kalender' ? 'bg-[#5B2C6F] hover:bg-[#5B2C6F]/90' : ''} onClick={() => setViewMode('kalender')}><CalendarDays size={14} /> Kalender</Button>
+          <Button type="button" size="sm" variant={viewMode === 'alur' ? 'default' : 'ghost'} className={viewMode === 'alur' ? 'bg-[#5B2C6F] hover:bg-[#5B2C6F]/90' : ''} onClick={() => setViewMode('alur')}><GitBranch size={14} /> Alur</Button>
+        </div>
+      </div>
+
+      {viewMode === 'kalender' && (
+        <div className="rounded-xl border bg-white overflow-hidden">
+          <div className="flex items-center justify-between border-b px-4 py-3">
+            <Button type="button" variant="ghost" size="icon" aria-label="Bulan sebelumnya" onClick={() => shiftCalendarMonth(-1)}><ChevronLeft size={17} /></Button>
+            <p className="font-semibold text-gray-800">{calendarData.label}</p>
+            <Button type="button" variant="ghost" size="icon" aria-label="Bulan berikutnya" onClick={() => shiftCalendarMonth(1)}><ChevronRight size={17} /></Button>
+          </div>
+          <div className="grid grid-cols-7 border-b bg-gray-50 text-center text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+            {['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'].map(day => <div key={day} className="py-2">{day}</div>)}
+          </div>
+          <div className="grid grid-cols-7">
+            {calendarData.cells.map((cell, idx) => (
+              <div key={`${cell.iso}-${idx}`} className={`min-h-28 border-b border-r p-2 ${cell.inMonth ? 'bg-white' : 'bg-gray-50/70'}`}>
+                {cell.inMonth && <p className="mb-1 text-xs font-medium text-gray-500">{cell.day}</p>}
+                <div className="space-y-1">
+                  {cell.events.slice(0, 2).map(k => {
+                    const ws = getKompensasiWithStatus(k, (k as any).pembayaran ?? [])
+                    const ks = daftarKS.find(x => x.id === k.ks_id)
+                    return <button key={k.id} type="button" onClick={() => { setViewMode('daftar'); setExpandedId(k.id) }} className={`w-full rounded px-1.5 py-1 text-left text-[10px] leading-tight ${ws.statusBayar === 'terlambat' ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-800'}`} title={`${ks?.nama_mitra ?? '-'} — ${formatRupiah(ws.sisaTagihan)}`}><span className="block truncate font-semibold">{ks?.nama_mitra ?? '-'}</span><span>{formatRupiah(ws.sisaTagihan)}</span></button>
+                  })}
+                  {cell.events.length > 2 && <p className="text-[10px] text-gray-500">+{cell.events.length - 2} tagihan lain</p>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {viewMode === 'alur' && (
+        <div className="rounded-xl border bg-white p-5">
+          {filtered.length === 0 ? <p className="py-8 text-center text-sm text-gray-400">Tidak ada jadwal yang sesuai filter.</p> : (
+            <div className="relative space-y-0 before:absolute before:bottom-4 before:left-[7px] before:top-4 before:w-px before:bg-gray-200">
+              {filtered.map(k => {
+                const ws = getKompensasiWithStatus(k, (k as any).pembayaran ?? [])
+                const ks = daftarKS.find(x => x.id === k.ks_id)
+                const terlambat = ws.statusBayar === 'terlambat'
+                return <div key={k.id} className="relative flex gap-4 pb-5 last:pb-0">
+                  <span className={`relative z-10 mt-1.5 h-4 w-4 rounded-full border-4 border-white ${terlambat ? 'bg-red-500' : 'bg-amber-400'}`} />
+                  <div className="flex-1 rounded-lg border p-3">
+                    <div className="flex flex-wrap items-start justify-between gap-2"><div><p className="text-sm font-semibold text-gray-800">{formatTanggal(k.tgl_jatuh_tempo)} · {ks?.nama_mitra ?? '-'}</p><p className="text-xs text-gray-500">{(ks?.aset as any)?.nama_aset ?? '-'} · {k.periode_label ?? 'Tanpa periode'}</p></div><StatusBadge type="bayar" value={ws.statusBayar} /></div>
+                    <p className={`mt-2 text-sm font-semibold ${terlambat ? 'text-red-700' : 'text-amber-700'}`}>Sisa tagihan: {formatRupiah(ws.sisaTagihan)}</p>
+                  </div>
+                </div>
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {viewMode === 'daftar' && <div className="bg-white rounded-xl border overflow-hidden">
         {isLoading ? (
           <div className="p-6"><TableSkeleton /></div>
         ) : filtered.length === 0 ? (
@@ -943,7 +1059,7 @@ export function Kompensasi() {
             </tbody>
           </table>
         )}
-      </div>
+      </div>}
 
       {/* Dialog generate periode */}
       <Dialog open={genDialog} onOpenChange={open => { setGenDialog(open); if (!open) setGenStep(1) }}>
