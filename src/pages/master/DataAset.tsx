@@ -25,7 +25,6 @@ const asetSchema = z.object({
   alamat: z.string().optional(),
   luas_tanah_m2: z.coerce.number().min(0).optional(),
   luas_bangunan_m2: z.coerce.number().min(0).optional(),
-  status: z.string(),
   keterangan: z.string().optional(),
   sertifikat: z.string().optional(),
 })
@@ -62,9 +61,8 @@ export function DataAset() {
     setImporting(false)
   }
 
-  const { register, handleSubmit, reset, setValue, formState: { errors } } = useForm<AsetForm>({
+  const { register, handleSubmit, reset, formState: { errors } } = useForm<AsetForm>({
     resolver: zodResolver(asetSchema),
-    defaultValues: { status: 'pipeline' },
   })
 
   useEffect(() => { fetchAset() }, [])
@@ -80,7 +78,7 @@ export function DataAset() {
 
   const openAdd = () => {
     setEditTarget(null)
-    reset({ status: 'pipeline', kode_aset: `AST-${String(daftarAset.length + 1).padStart(3, '0')}` })
+    reset({ kode_aset: `AST-${String(daftarAset.length + 1).padStart(3, '0')}` })
     setDialogOpen(true)
   }
 
@@ -92,7 +90,6 @@ export function DataAset() {
       alamat: a.alamat ?? '',
       luas_tanah_m2: a.luas_tanah_m2 ?? undefined,
       luas_bangunan_m2: a.luas_bangunan_m2 ?? undefined,
-      status: a.status,
       keterangan: a.keterangan ?? '',
       sertifikat: (a as any).sertifikat ?? '',
     })
@@ -103,7 +100,7 @@ export function DataAset() {
     if (editTarget) {
       await updateAset(editTarget.id, data as Partial<Aset>)
     } else {
-      await addAset(data as Omit<Aset, 'id' | 'created_at' | 'updated_at'>)
+      await addAset({ ...data, status: 'pipeline' } as Omit<Aset, 'id' | 'created_at' | 'updated_at'>)
     }
     setDialogOpen(false)
   }
@@ -214,16 +211,10 @@ export function DataAset() {
               </div>
               <div>
                 <Label>Status</Label>
-                <Select defaultValue={editTarget?.status ?? 'pipeline'} onValueChange={v => setValue('status', v)}>
-                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="pipeline">Pipeline</SelectItem>
-                    <SelectItem value="prospek">Prospek</SelectItem>
-                    <SelectItem value="negosiasi">Negosiasi</SelectItem>
-                    <SelectItem value="aktif_ks">Aktif KS</SelectItem>
-                    <SelectItem value="selesai">Selesai</SelectItem>
-                  </SelectContent>
-                </Select>
+                <div className="mt-1 h-10 px-3 flex items-center rounded-md border bg-gray-50 text-sm text-gray-600">
+                  Otomatis: {editTarget ? 'mengikuti progres program' : 'Pipeline'}
+                </div>
+                <p className="text-[11px] text-gray-400 mt-1">Status berubah berdasarkan prospek dan kerja sama.</p>
               </div>
             </div>
             <div>
