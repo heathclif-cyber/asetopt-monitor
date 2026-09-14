@@ -147,7 +147,7 @@ export function Sidebar() {
   const items = useMemo(() => filterNav(navItems, user?.role), [user?.role])
 
   return (
-    <aside className="fixed left-0 top-0 h-full w-56 bg-gradient-to-b from-[#1a4f73] to-[#0f3352] flex flex-col z-40 shadow-lg">
+    <aside className="fixed left-0 top-0 hidden h-full w-56 flex-col bg-gradient-to-b from-[#1a4f73] to-[#0f3352] shadow-lg z-40 lg:flex">
       <div className="px-4 py-4 border-b border-white/10">
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-lg bg-white/15 flex items-center justify-center flex-shrink-0">

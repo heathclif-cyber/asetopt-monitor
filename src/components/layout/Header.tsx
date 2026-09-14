@@ -41,12 +41,12 @@ export function Header() {
   }
 
   return (
-    <header className="fixed top-0 left-56 right-0 h-[56px] bg-white border-b border-gray-200 flex items-center justify-between px-5 z-30">
-      <div className="flex items-center gap-1 text-xs text-gray-500">
+    <header className="fixed top-0 left-0 right-0 z-30 flex h-[56px] items-center justify-between border-b border-gray-200 bg-white px-3 sm:px-5 lg:left-56">
+      <div className="flex min-w-0 items-center gap-1 overflow-hidden text-xs text-gray-500">
         {crumbs.map((c, i) => (
-          <span key={i} className="flex items-center gap-1">
+          <span key={i} className="flex shrink-0 items-center gap-1">
             {i > 0 && <span className="text-gray-300 mx-0.5">/</span>}
-            <span className={i === crumbs.length - 1 ? 'text-gray-800 font-semibold text-sm' : ''}>{c}</span>
+            <span className={i === crumbs.length - 1 ? 'truncate text-sm font-semibold text-gray-800' : ''}>{c}</span>
           </span>
         ))}
       </div>

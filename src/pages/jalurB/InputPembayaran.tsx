@@ -573,7 +573,7 @@ export function InputPembayaran() {
   const previewSisa = Math.max(0, sisaUntukInput - (nominalWatch || 0))
 
   return (
-    <div className="space-y-4 max-w-6xl pb-8">
+    <div className="w-full min-w-0 max-w-none space-y-4 pb-8">
       {/* Page header + view switch (pola Laporan Pendapatan) */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -631,8 +631,8 @@ export function InputPembayaran() {
 
       {/* ════════════════════ INPUT ════════════════════ */}
       {viewMode === 'input' && (
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-12 xl:items-start">
-          <form id="form-cash-in" onSubmit={form.handleSubmit(data => onSubmit(data))} className={cn(selected ? 'xl:col-span-8' : 'xl:col-span-12')}>
+        <div className="grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-12 lg:items-start">
+          <form id="form-cash-in" onSubmit={form.handleSubmit(data => onSubmit(data))} className={cn('min-w-0', selected ? 'lg:col-span-8' : 'lg:col-span-12')}>
             <Card className={cn(
               'shadow-sm overflow-hidden border-gray-200/80',
               editingId && 'ring-2 ring-amber-300/70 border-amber-200',
@@ -839,7 +839,7 @@ export function InputPembayaran() {
           </form>
 
           {selected && (
-            <aside className="space-y-3 xl:col-span-4 xl:sticky xl:top-5">
+            <aside className="min-w-0 space-y-3 lg:sticky lg:top-5 lg:col-span-4">
               <div className="rounded-xl border border-[#117A65]/15 bg-emerald-50/50 p-4">
                 <p className="text-xs font-semibold text-emerald-900">Pembayaran yang dipilih</p>
                 <p className="mt-1 text-sm font-semibold text-gray-800">{ks?.nama_mitra ?? '-'}</p>

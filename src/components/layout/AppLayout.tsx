@@ -7,8 +7,8 @@ export function AppLayout() {
     <div className="min-h-screen bg-gray-50/80">
       <Sidebar />
       <Header />
-      <main className="ml-56 pt-[56px] min-h-screen">
-        <div className="p-5">
+      <main className="min-h-screen min-w-0 pt-[56px] lg:ml-56">
+        <div className="mx-auto w-full max-w-[1920px] min-w-0 p-3 sm:p-4 lg:p-5">
           <Outlet />
         </div>
       </main>

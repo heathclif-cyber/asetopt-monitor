@@ -3,6 +3,13 @@
 @tailwind utilities;
 
 @layer base {
+  html {
+    min-width: 320px;
+  }
+  #root {
+    min-width: 0;
+    min-height: 100vh;
+  }
   :root {
     --background: 0 0% 100%;
     --foreground: 222.2 84% 4.9%;
@@ -37,6 +44,7 @@
     font-size: 14px;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
   }
   ::-webkit-scrollbar {
     width: 5px;
@@ -51,6 +59,15 @@
   }
   ::-webkit-scrollbar-thumb:hover {
     background: #9ca3af;
+  }
+}
+
+/* Baseline responsif aplikasi: halaman memakai lebar viewport yang tersedia,
+   sementara tabel lebar tetap bergulir di dalam wadahnya — bukan melebarkan layar. */
+@layer utilities {
+  .app-page {
+    width: 100%;
+    min-width: 0;
   }
 }
 
