@@ -82,7 +82,7 @@ function filterNav(items: NavItem[], role: AppRole | null | undefined): NavItem[
     .filter((x): x is NavItem => x != null)
 }
 
-function NavGroup({ item }: { item: NavItem }) {
+function NavGroup({ item, onNavigate }: { item: NavItem; onNavigate?: () => void }) {
   const [open, setOpen] = useState(true)
 
   if (item.to) {
@@ -90,6 +90,7 @@ function NavGroup({ item }: { item: NavItem }) {
       <NavLink
         to={item.to}
         end={item.to === '/'}
+        onClick={onNavigate}
         className={({ isActive }) =>
           cn(
             'flex items-center gap-2.5 px-3 py-2 rounded-md text-[13px] font-medium transition-all duration-150',
@@ -124,6 +125,7 @@ function NavGroup({ item }: { item: NavItem }) {
             <NavLink
               key={child.to}
               to={child.to!}
+              onClick={onNavigate}
               className={({ isActive }) =>
                 cn(
                   'block px-2.5 py-1.5 rounded-md text-xs transition-all duration-150',
@@ -142,12 +144,15 @@ function NavGroup({ item }: { item: NavItem }) {
   )
 }
 
-export function Sidebar() {
+export function Sidebar({ mobileOpen = false, onNavigate }: { mobileOpen?: boolean; onNavigate?: () => void }) {
   const user = useAuthStore(s => s.user)
   const items = useMemo(() => filterNav(navItems, user?.role), [user?.role])
 
   return (
-    <aside className="fixed left-0 top-0 hidden h-full w-56 flex-col bg-gradient-to-b from-[#1a4f73] to-[#0f3352] shadow-lg z-40 lg:flex">
+    <aside className={cn(
+      'fixed left-0 top-0 z-40 h-full w-56 flex-col bg-gradient-to-b from-[#1a4f73] to-[#0f3352] shadow-lg lg:flex',
+      mobileOpen ? 'flex' : 'hidden',
+    )}>
       <div className="px-4 py-4 border-b border-white/10">
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-lg bg-white/15 flex items-center justify-center flex-shrink-0">
@@ -162,7 +167,7 @@ export function Sidebar() {
 
       <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-0.5">
         {items.map((item, i) => (
-          <NavGroup key={i} item={item} />
+          <NavGroup key={i} item={item} onNavigate={onNavigate} />
         ))}
       </nav>
 

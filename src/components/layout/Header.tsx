@@ -1,4 +1,4 @@
-import { Bell, LogOut, User } from 'lucide-react'
+import { Bell, LogOut, Menu, User } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useNotifikasiStore } from '@/store/notifikasiStore'
 import { useAuthStore } from '@/store/authStore'
@@ -26,7 +26,7 @@ const breadcrumbMap: Record<string, string[]> = {
   '/katalog': ['Katalog Aset', 'Daftar Katalog'],
 }
 
-export function Header() {
+export function Header({ onMenuClick }: { onMenuClick?: () => void }) {
   const location = useLocation()
   const navigate = useNavigate()
   const { jatuhTempoH14, spAktif } = useNotifikasiStore()
@@ -43,6 +43,16 @@ export function Header() {
   return (
     <header className="fixed top-0 left-0 right-0 z-30 flex h-[56px] items-center justify-between border-b border-gray-200 bg-white px-3 sm:px-5 lg:left-56">
       <div className="flex min-w-0 items-center gap-1 overflow-hidden text-xs text-gray-500">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-8 shrink-0 px-2 lg:hidden"
+          onClick={onMenuClick}
+          aria-label="Buka menu"
+        >
+          <Menu size={18} />
+        </Button>
         {crumbs.map((c, i) => (
           <span key={i} className="flex shrink-0 items-center gap-1">
             {i > 0 && <span className="text-gray-300 mx-0.5">/</span>}
