@@ -18,6 +18,7 @@ import { StatusBadge } from '@/components/common/StatusBadge'
 import { EmptyState } from '@/components/common/EmptyState'
 import { TableSkeleton } from '@/components/common/LoadingSkeleton'
 import { formatTanggal, formatRupiah } from '@/lib/utils'
+import { api } from '@/lib/apiClient'
 import { Plus, Pencil, Trash2, MessageSquare, FileWarning, FileText, ChevronDown, ChevronUp, Wand2, ArrowDownCircle, CalendarDays, List, GitBranch, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
@@ -248,6 +249,15 @@ const cashInSchema = z.object({
 })
 type CashInForm = z.infer<typeof cashInSchema>
 
+const paymentSchema = z.object({
+  tgl_bayar: z.string().min(1, 'Tanggal bayar wajib diisi'),
+  nominal_bayar: z.coerce.number().min(1, 'Nominal pembayaran harus lebih dari Rp0'),
+  is_pph_disetor: z.boolean().optional(),
+  bukti_url: z.string().optional(),
+  keterangan: z.string().optional(),
+})
+type PaymentForm = z.infer<typeof paymentSchema>
+
 export function Kompensasi() {
   const { allKompensasi, isLoading, fetchAllKompensasi, addKompensasi, updateKompensasi, deleteKompensasi, bulkAddKompensasi, getKompensasiWithStatus } = useKompensasiStore()
   const { daftarKS, fetchKS } = useKerjaSamaStore()
@@ -271,6 +281,10 @@ export function Kompensasi() {
   const [cashInKsId, setCashInKsId]   = useState<string | null>(null)
   const [deleteCashInId, setDeleteCashInId] = useState<string | null>(null)
   const [isSavingCashIn, setIsSavingCashIn] = useState(false)
+  const [paymentDialog, setPaymentDialog] = useState(false)
+  const [paymentTarget, setPaymentTarget] = useState<Pembayaran | null>(null)
+  const [paymentKompensasi, setPaymentKompensasi] = useState<KType | null>(null)
+  const [isSavingPayment, setIsSavingPayment] = useState(false)
 
   // Generate periode dialog
   const [genDialog, setGenDialog] = useState(false)
@@ -296,6 +310,7 @@ export function Kompensasi() {
     resolver: zodResolver(cashInSchema),
     defaultValues: { jenis: 'denda' },
   })
+  const paymentForm = useForm<PaymentForm>({ resolver: zodResolver(paymentSchema) })
 
   const GEN_DEFAULTS = {
     interval: 'tahunan' as const,
@@ -523,6 +538,45 @@ export function Kompensasi() {
     if (!deleteKompId) return
     await deleteKompensasi(deleteKompId)
     setDeleteKompId(null)
+  }
+
+  const openPaymentEdit = (pembayaran: Pembayaran, kompensasi: KType) => {
+    if (kompensasi.superman?.trim()) {
+      alert('Kompensasi sudah punya nomor Superman — pembayaran tidak bisa diubah.')
+      return
+    }
+    setPaymentTarget(pembayaran)
+    setPaymentKompensasi(kompensasi)
+    paymentForm.reset({
+      tgl_bayar: String(pembayaran.tgl_bayar).slice(0, 10),
+      nominal_bayar: pembayaran.nominal_bayar,
+      is_pph_disetor: pembayaran.is_pph_disetor ?? false,
+      bukti_url: pembayaran.bukti_url ?? '',
+      keterangan: pembayaran.keterangan ?? '',
+    })
+    setPaymentDialog(true)
+  }
+
+  const savePaymentEdit = async (data: PaymentForm) => {
+    if (!paymentTarget) return
+    setIsSavingPayment(true)
+    try {
+      await api.patch<Pembayaran>(`/api/pembayaran/${paymentTarget.id}`, {
+        tgl_bayar: data.tgl_bayar,
+        nominal_bayar: data.nominal_bayar,
+        is_pph_disetor: data.is_pph_disetor ?? false,
+        bukti_url: data.bukti_url?.trim() || null,
+        keterangan: data.keterangan?.trim() || null,
+      })
+      await fetchAllKompensasi()
+      setPaymentDialog(false)
+      setPaymentTarget(null)
+      setPaymentKompensasi(null)
+    } catch (e: any) {
+      alert(e.message ?? 'Gagal mengubah pembayaran.')
+    } finally {
+      setIsSavingPayment(false)
+    }
   }
 
   const handleSendWA = async (k: KType) => {
@@ -955,12 +1009,21 @@ export function Kompensasi() {
                                 : (
                                   <div className="space-y-1.5">
                                     {pembayaran.map(p => (
-                                      <div key={p.id} className="flex items-center gap-2">
+                                      <div key={p.id} className="group/payment flex items-center gap-2">
                                         <span className="text-gray-400 shrink-0 w-24">{formatTanggal(p.tgl_bayar)}</span>
                                         <span className="font-medium flex-1">{formatRupiah(p.nominal_bayar)}</span>
                                         <div className="flex items-center gap-1.5">
                                           {p.keterangan && <span className="text-gray-400 text-[10px]">{p.keterangan}</span>}
                                           {p.bukti_url && <a href={p.bukti_url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">Bukti</a>}
+                                          <button
+                                            type="button"
+                                            onClick={() => openPaymentEdit(p, k)}
+                                            className="rounded p-0.5 text-gray-400 hover:bg-blue-50 hover:text-[#1B4F72] opacity-0 transition-opacity group-hover/payment:opacity-100 focus:opacity-100"
+                                            title="Edit pembayaran"
+                                            aria-label="Edit pembayaran"
+                                          >
+                                            <Pencil size={12} />
+                                          </button>
                                         </div>
                                       </div>
                                     ))}
@@ -1514,6 +1577,54 @@ export function Kompensasi() {
               <Button type="button" variant="outline" onClick={() => setKompDialog(false)}>Batal</Button>
               <Button type="submit" disabled={isSavingKomp} className="bg-[#5B2C6F]">
                 {isSavingKomp ? 'Menyimpan...' : editTarget ? 'Simpan' : 'Tambah'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Edit pembayaran dari rincian tagihan ─────────────────────────── */}
+      <Dialog open={paymentDialog} onOpenChange={open => {
+        setPaymentDialog(open)
+        if (!open) { setPaymentTarget(null); setPaymentKompensasi(null) }
+      }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Pembayaran Diterima</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={paymentForm.handleSubmit(savePaymentEdit)} className="space-y-4">
+            <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-900">
+              <p className="font-semibold">{paymentKompensasi?.periode_label ?? 'Tagihan kompensasi'}</p>
+              <p className="mt-0.5 text-blue-700">Nomor pembayaran: {paymentTarget?.no_pembayaran ?? '—'}</p>
+            </div>
+            <div>
+              <Label>Tanggal Bayar</Label>
+              <Input type="date" {...paymentForm.register('tgl_bayar')} className="mt-1" />
+              {paymentForm.formState.errors.tgl_bayar && <p className="mt-1 text-xs text-red-600">{paymentForm.formState.errors.tgl_bayar.message}</p>}
+            </div>
+            <div>
+              <Label>Nominal Diterima (Rp)</Label>
+              <Controller control={paymentForm.control} name="nominal_bayar" render={({ field }) => (
+                <CurrencyInput value={field.value ?? 0} onChange={field.onChange} className="mt-1" />
+              )} />
+              {paymentForm.formState.errors.nominal_bayar && <p className="mt-1 text-xs text-red-600">{paymentForm.formState.errors.nominal_bayar.message}</p>}
+            </div>
+            <label className="flex cursor-pointer items-center gap-2 text-sm text-gray-700">
+              <input type="checkbox" className="rounded border-gray-300" {...paymentForm.register('is_pph_disetor')} />
+              PPh sudah disetor
+            </label>
+            <div>
+              <Label>Link bukti transfer <span className="font-normal text-gray-400">(opsional)</span></Label>
+              <Input {...paymentForm.register('bukti_url')} placeholder="https://..." className="mt-1" />
+            </div>
+            <div>
+              <Label>Keterangan <span className="font-normal text-gray-400">(opsional)</span></Label>
+              <Textarea {...paymentForm.register('keterangan')} rows={2} className="mt-1" />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setPaymentDialog(false)}>Batal</Button>
+              <Button type="submit" disabled={isSavingPayment} className="bg-[#1E8449] hover:bg-[#196F3D]">
+                {isSavingPayment ? 'Menyimpan...' : 'Simpan Perubahan'}
               </Button>
             </DialogFooter>
           </form>
