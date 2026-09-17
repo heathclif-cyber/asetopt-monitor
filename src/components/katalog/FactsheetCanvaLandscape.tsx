@@ -38,7 +38,8 @@ export default function FactsheetCanvaLandscape({ data }: { data: KatalogFactshe
     <div style={{ width: 1040, height: 500, overflow: 'hidden', display: 'grid', gridTemplateColumns: '202px 418px 420px', background: '#fff', color: '#111', fontFamily: SANS, position: 'relative' }}>
       <aside style={{ background: `linear-gradient(180deg, #006ab9 0%, ${DARK_BLUE} 100%)`, color: '#fff', padding: '12px 13px 10px', display: 'flex', flexDirection: 'column', boxSizing: 'border-box' }}>
         <div style={{ height: 38, borderBottom: '1px solid rgba(255,255,255,.75)', display: 'flex', alignItems: 'center', gap: 7 }}>
-          <div style={{ width: 42, height: 19, position: 'relative', borderTop: '4px solid #fff', borderRadius: '55%', transform: 'skewX(-27deg)' }} /><div style={{ fontSize: 7, fontWeight: 700, lineHeight: 1.03 }}>PT PERKEBUNAN<br />NUSANTARA I</div>
+          <img src="/logo-ptpn-holding-white.png" alt="PT Perkebunan Nusantara" style={{ width: 61, height: 27, objectFit: 'contain' }} />
+          <img src="/logo-ptpn1-white.png" alt="PTPN I" style={{ width: 24, height: 27, objectFit: 'contain' }} />
         </div>
         <div style={{ marginTop: 14, display: 'flex', gap: 7, alignItems: 'center' }}><div style={{ width: 27, height: 27, border: '1px solid #fff', display: 'grid', placeItems: 'center', fontSize: 14 }}>⌗</div><b style={{ fontSize: 12, lineHeight: .87 }}>LAND AND<br />BUILDING<br />ASSETS</b></div>
         <div style={{ width: '100%', background: '#fff', color: DARK_BLUE, borderRadius: 6, marginTop: 10, textAlign: 'center', padding: '3px 0', fontWeight: 700, fontSize: 9 }}>{data.code || 'R000000'}</div>
