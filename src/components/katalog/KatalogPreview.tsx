@@ -3,6 +3,7 @@ import type { KatalogFactsheetData, KatalogLayout, KatalogDensity } from '@/type
 import FactsheetEditorial from './FactsheetEditorial'
 import FactsheetModular from './FactsheetModular'
 import FactsheetCompact from './FactsheetCompact'
+import FactsheetCanvaLandscape from './FactsheetCanvaLandscape'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -11,16 +12,18 @@ import { Printer, ZoomIn, ZoomOut, RotateCw } from 'lucide-react'
 interface Props {
   data: KatalogFactsheetData
   onPrint?: () => void
+  defaultVariation?: KatalogLayout
 }
 
 const VARIATIONS: { id: KatalogLayout; label: string; Comp: React.ComponentType<{ data: KatalogFactsheetData; density?: KatalogDensity }> }[] = [
   { id: 'editorial', label: 'Editorial', Comp: FactsheetEditorial },
   { id: 'modular', label: 'Modular', Comp: FactsheetModular },
   { id: 'compact', label: 'Compact', Comp: FactsheetCompact },
+  { id: 'canva_landscape', label: 'Katalog Landscape', Comp: FactsheetCanvaLandscape },
 ]
 
-export default function KatalogPreview({ data, onPrint }: Props) {
-  const [variation, setVariation] = useState<KatalogLayout>('editorial')
+export default function KatalogPreview({ data, onPrint, defaultVariation = 'editorial' }: Props) {
+  const [variation, setVariation] = useState<KatalogLayout>(defaultVariation)
   const [density, setDensity] = useState<KatalogDensity>('normal')
   const [scale, setScale] = useState(0.68)
 

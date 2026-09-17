@@ -329,7 +329,7 @@ export interface CashIn {
 
 // ---- Katalog Aset ----
 
-export type KatalogLayout = 'editorial' | 'modular' | 'compact'
+export type KatalogLayout = 'editorial' | 'modular' | 'compact' | 'canva_landscape'
 export type KatalogDensity = 'compact' | 'normal' | 'spacious'
 
 export interface KatalogAset {

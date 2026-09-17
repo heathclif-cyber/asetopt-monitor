@@ -41,7 +41,7 @@ const katalogSchema = z.object({
   pic_kantor: z.string().optional().default(''),
   tgl_dokumen: z.string().optional().default(''),
   ref_dokumen: z.string().optional().default(''),
-  layout_preferensi: z.enum(['editorial', 'modular', 'compact']).default('editorial'),
+  layout_preferensi: z.enum(['editorial', 'modular', 'compact', 'canva_landscape']).default('editorial'),
 })
 
 type KatalogFormValues = z.infer<typeof katalogSchema>
@@ -71,6 +71,10 @@ const SLOT_IDS = [
   { id: 'cp-thumb-1', label: 'Foto 02 (Compact)' },
   { id: 'cp-thumb-2', label: 'Foto 03 (Compact)' },
   { id: 'cp-thumb-3', label: 'Foto 04 (Compact)' },
+  { id: 'cl-hero', label: 'Foto Utama (Katalog Landscape)' },
+  { id: 'cl-near-1', label: 'Foto Lingkungan 01 (Katalog Landscape)' },
+  { id: 'cl-near-2', label: 'Foto Lingkungan 02 (Katalog Landscape)' },
+  { id: 'cl-map', label: 'Peta Lokasi (Katalog Landscape)' },
 ]
 
 export default function KatalogForm({ existingKatalog, onSuccess, onCancel }: Props) {
@@ -447,6 +451,7 @@ export default function KatalogForm({ existingKatalog, onSuccess, onCancel }: Pr
                     <SelectItem value="editorial">Editorial</SelectItem>
                     <SelectItem value="modular">Modular</SelectItem>
                     <SelectItem value="compact">Compact</SelectItem>
+                    <SelectItem value="canva_landscape">Katalog Landscape (referensi halaman 18)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -525,7 +530,7 @@ export default function KatalogForm({ existingKatalog, onSuccess, onCancel }: Pr
         <div className="mb-4 flex gap-2">
           <Button variant="outline" size="sm" onClick={() => setActiveTab('form')}>← Kembali ke Form</Button>
         </div>
-        <KatalogPreview data={buildPreviewData()} />
+        <KatalogPreview data={buildPreviewData()} defaultVariation={watch('layout_preferensi')} />
       </TabsContent>
     </Tabs>
   )

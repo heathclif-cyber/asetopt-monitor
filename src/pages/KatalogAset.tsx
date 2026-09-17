@@ -16,6 +16,7 @@ const LAYOUT_LABELS: Record<KatalogLayout, string> = {
   editorial: 'Editorial',
   modular: 'Modular',
   compact: 'Compact',
+  canva_landscape: 'Katalog Landscape',
 }
 
 export default function KatalogAsetPage() {
@@ -69,7 +70,7 @@ export default function KatalogAsetPage() {
       <div>
         <h1 className="text-2xl font-heading font-semibold text-foreground">Katalog Aset</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Buat dan kelola katalog factsheet aset untuk pemasaran kerjasama. Tersedia 3 variasi layout: Editorial, Modular, dan Compact.
+          Buat dan kelola katalog factsheet aset untuk pemasaran kerjasama. Tersedia layout Editorial, Modular, Compact, dan Katalog Landscape.
         </p>
       </div>
 
@@ -103,7 +104,7 @@ export default function KatalogAsetPage() {
             <DialogTitle>Preview Katalog</DialogTitle>
           </DialogHeader>
           {previewTarget && (
-            <KatalogPreview data={toFactsheetData(previewTarget, previewNJOP, previewKJPP)} />
+            <KatalogPreview data={toFactsheetData(previewTarget, previewNJOP, previewKJPP)} defaultVariation={previewTarget.layout_preferensi} />
           )}
         </DialogContent>
       </Dialog>
