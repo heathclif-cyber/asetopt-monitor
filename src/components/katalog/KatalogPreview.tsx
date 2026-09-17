@@ -1,59 +1,22 @@
 import React, { useState } from 'react'
-import type { KatalogFactsheetData, KatalogLayout, KatalogDensity } from '@/types'
-import FactsheetEditorial from './FactsheetEditorial'
-import FactsheetModular from './FactsheetModular'
-import FactsheetCompact from './FactsheetCompact'
+import type { KatalogFactsheetData } from '@/types'
 import FactsheetCanvaLandscape from './FactsheetCanvaLandscape'
 import { Button } from '@/components/ui/button'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Printer, ZoomIn, ZoomOut, RotateCw } from 'lucide-react'
 
 interface Props {
   data: KatalogFactsheetData
   onPrint?: () => void
-  defaultVariation?: KatalogLayout
 }
 
-const VARIATIONS: { id: KatalogLayout; label: string; Comp: React.ComponentType<{ data: KatalogFactsheetData; density?: KatalogDensity }> }[] = [
-  { id: 'editorial', label: 'Editorial', Comp: FactsheetEditorial },
-  { id: 'modular', label: 'Modular', Comp: FactsheetModular },
-  { id: 'compact', label: 'Compact', Comp: FactsheetCompact },
-  { id: 'canva_landscape', label: 'Katalog Landscape', Comp: FactsheetCanvaLandscape },
-]
-
-export default function KatalogPreview({ data, onPrint, defaultVariation = 'editorial' }: Props) {
-  const [variation, setVariation] = useState<KatalogLayout>(defaultVariation)
-  const [density, setDensity] = useState<KatalogDensity>('normal')
+export default function KatalogPreview({ data, onPrint }: Props) {
   const [scale, setScale] = useState(0.68)
-
-  const active = VARIATIONS.find(v => v.id === variation) ?? VARIATIONS[0]
-  const Comp = active.Comp
 
   return (
     <div className="space-y-4">
       {/* Toolbar */}
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-3">
-          <Select value={variation} onValueChange={(v) => setVariation(v as KatalogLayout)}>
-            <SelectTrigger className="w-[140px] h-9 text-sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {VARIATIONS.map(v => (
-                <SelectItem key={v.id} value={v.id}>{v.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <Tabs value={density} onValueChange={(v) => setDensity(v as KatalogDensity)}>
-            <TabsList className="h-9">
-              <TabsTrigger value="compact" className="text-xs px-3">Padat</TabsTrigger>
-              <TabsTrigger value="normal" className="text-xs px-3">Normal</TabsTrigger>
-              <TabsTrigger value="spacious" className="text-xs px-3">Longgar</TabsTrigger>
-            </TabsList>
-          </Tabs>
-        </div>
+        <div className="text-sm font-medium text-slate-700">Katalog Landscape</div>
 
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => setScale(s => Math.max(0.2, s - 0.05))}>
@@ -82,7 +45,7 @@ export default function KatalogPreview({ data, onPrint, defaultVariation = 'edit
           transformOrigin: 'top center',
           boxShadow: '0 30px 80px rgba(0,0,0,0.35)',
         }}>
-          <Comp data={data} density={density} />
+          <FactsheetCanvaLandscape data={data} />
         </div>
       </div>
     </div>

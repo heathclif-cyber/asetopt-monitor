@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useKatalogStore } from '@/store/katalogStore'
 import { useNJOPStore } from '@/store/njopStore'
 import { useKJPPStore } from '@/store/kjppStore'
-import type { KatalogAset as KatalogAsetType, KatalogLayout, NJOP, PenilaianKJPP } from '@/types'
+import type { KatalogAset as KatalogAsetType, NJOP, PenilaianKJPP } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ConfirmDialog } from '@/components/common/ConfirmDialog'
@@ -11,13 +11,6 @@ import { TableSkeleton } from '@/components/common/LoadingSkeleton'
 import { Plus, Pencil, Trash2, Eye } from 'lucide-react'
 import KatalogForm from '@/components/katalog/KatalogForm'
 import KatalogPreview from '@/components/katalog/KatalogPreview'
-
-const LAYOUT_LABELS: Record<KatalogLayout, string> = {
-  editorial: 'Editorial',
-  modular: 'Modular',
-  compact: 'Compact',
-  canva_landscape: 'Katalog Landscape',
-}
 
 export default function KatalogAsetPage() {
   const { daftarKatalog, isLoading, fetchAll, deleteKatalog, toFactsheetData } = useKatalogStore()
@@ -70,7 +63,7 @@ export default function KatalogAsetPage() {
       <div>
         <h1 className="text-2xl font-heading font-semibold text-foreground">Katalog Aset</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Buat dan kelola katalog factsheet aset untuk pemasaran kerjasama. Tersedia layout Editorial, Modular, Compact, dan Katalog Landscape.
+          Buat dan kelola katalog factsheet aset untuk pemasaran kerjasama dengan format Katalog Landscape.
         </p>
       </div>
 
@@ -104,7 +97,7 @@ export default function KatalogAsetPage() {
             <DialogTitle>Preview Katalog</DialogTitle>
           </DialogHeader>
           {previewTarget && (
-            <KatalogPreview data={toFactsheetData(previewTarget, previewNJOP, previewKJPP)} defaultVariation={previewTarget.layout_preferensi} />
+            <KatalogPreview data={toFactsheetData(previewTarget, previewNJOP, previewKJPP)} />
           )}
         </DialogContent>
       </Dialog>
@@ -165,7 +158,7 @@ export default function KatalogAsetPage() {
                   </td>
                   <td className="px-4 py-3">
                     <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary">
-                      {LAYOUT_LABELS[k.layout_preferensi] ?? 'Editorial'}
+                      Katalog Landscape
                     </span>
                   </td>
                   <td className="px-4 py-3 text-xs">

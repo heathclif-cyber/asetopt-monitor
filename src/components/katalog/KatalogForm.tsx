@@ -13,13 +13,12 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { SearchableSelect } from '@/components/common/SearchableSelect'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Plus, Trash2, Upload, Loader2, CheckCircle2 } from 'lucide-react'
 import KatalogPreview from './KatalogPreview'
-import type { KatalogFactsheetData, KatalogLayout } from '@/types'
+import type { KatalogFactsheetData } from '@/types'
 
 const katalogSchema = z.object({
   aset_id: z.string().min(1, 'Pilih aset'),
@@ -41,7 +40,7 @@ const katalogSchema = z.object({
   pic_kantor: z.string().optional().default(''),
   tgl_dokumen: z.string().optional().default(''),
   ref_dokumen: z.string().optional().default(''),
-  layout_preferensi: z.enum(['editorial', 'modular', 'compact', 'canva_landscape']).default('editorial'),
+  layout_preferensi: z.literal('canva_landscape').default('canva_landscape'),
 })
 
 type KatalogFormValues = z.infer<typeof katalogSchema>
@@ -115,7 +114,7 @@ export default function KatalogForm({ existingKatalog, onSuccess, onCancel }: Pr
       pic_kantor: existingKatalog?.pic_kantor ?? '',
       tgl_dokumen: existingKatalog?.tgl_dokumen ?? '',
       ref_dokumen: existingKatalog?.ref_dokumen ?? '',
-      layout_preferensi: existingKatalog?.layout_preferensi ?? 'editorial',
+      layout_preferensi: 'canva_landscape',
     },
   })
 
@@ -434,7 +433,7 @@ export default function KatalogForm({ existingKatalog, onSuccess, onCancel }: Pr
           {/* Dokumen Meta */}
           <Card>
             <CardHeader><CardTitle className="text-base">Dokumen</CardTitle></CardHeader>
-            <CardContent className="grid grid-cols-3 gap-4">
+            <CardContent className="grid grid-cols-2 gap-4">
               <div>
                 <Label>Tanggal Dokumen</Label>
                 <Input {...register('tgl_dokumen')} placeholder={new Date().toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })} />
@@ -442,18 +441,6 @@ export default function KatalogForm({ existingKatalog, onSuccess, onCancel }: Pr
               <div>
                 <Label>Ref Dokumen</Label>
                 <Input {...register('ref_dokumen')} placeholder="KAT/PTPN1/AST/V/2026-001" />
-              </div>
-              <div>
-                <Label>Layout Default</Label>
-                <Select value={watch('layout_preferensi')} onValueChange={(v) => setValue('layout_preferensi', v as KatalogLayout)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="editorial">Editorial</SelectItem>
-                    <SelectItem value="modular">Modular</SelectItem>
-                    <SelectItem value="compact">Compact</SelectItem>
-                    <SelectItem value="canva_landscape">Katalog Landscape (referensi halaman 18)</SelectItem>
-                  </SelectContent>
-                </Select>
               </div>
             </CardContent>
           </Card>
@@ -530,7 +517,7 @@ export default function KatalogForm({ existingKatalog, onSuccess, onCancel }: Pr
         <div className="mb-4 flex gap-2">
           <Button variant="outline" size="sm" onClick={() => setActiveTab('form')}>← Kembali ke Form</Button>
         </div>
-        <KatalogPreview data={buildPreviewData()} defaultVariation={watch('layout_preferensi')} />
+        <KatalogPreview data={buildPreviewData()} />
       </TabsContent>
     </Tabs>
   )
