@@ -1,0 +1,2 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2"><Document><Placemark><name>Kecamatan Contoh</name><Polygon><outerBoundaryIs><LinearRing><coordinates>117.4,-2.6 117.9,-2.6 117.9,-2.1 117.4,-2.1 117.4,-2.6</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark></Document></kml>

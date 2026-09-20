@@ -1,10 +1,12 @@
 """FastAPI dependencies untuk autentikasi & otorisasi."""
 from __future__ import annotations
 
+import os
 from typing import Annotated, Any
 
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -33,6 +35,21 @@ def get_current_user(
     creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
 ) -> dict[str, Any]:
     token = _extract_token(request, creds)
+    # Deliberately opt-in: this exists solely for the local Docker profile.
+    # No production environment should set ASETOPT_BYPASS_AUTH.
+    if os.getenv("ASETOPT_BYPASS_AUTH", "").lower() == "true" and token == "local-dev-bypass":
+        local_admin = db.execute(text("""
+          SELECT id, username, full_name, role FROM app_users
+          WHERE role='admin' AND is_active=true ORDER BY created_at LIMIT 1
+        """)).mappings().first()
+        if not local_admin:
+            raise HTTPException(status_code=503, detail="Akun admin lokal belum diinisialisasi")
+        return {
+            "id": str(local_admin["id"]),
+            "username": local_admin["username"],
+            "full_name": local_admin.get("full_name") or local_admin["username"],
+            "role": local_admin["role"],
+        }
     if not token:
         raise HTTPException(status_code=401, detail="Login diperlukan")
 

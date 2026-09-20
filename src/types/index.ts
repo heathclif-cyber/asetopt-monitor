@@ -21,6 +21,34 @@ export interface Aset {
   updated_at: string
 }
 
+export type GeoJsonGeometry = {
+  type: 'Point' | 'LineString' | 'Polygon' | 'MultiPoint' | 'MultiLineString' | 'MultiPolygon' | 'GeometryCollection'
+  coordinates?: unknown
+  geometries?: GeoJsonGeometry[]
+}
+
+export interface GeoJsonFeature {
+  type: 'Feature'
+  properties: Record<string, unknown>
+  geometry: GeoJsonGeometry
+}
+
+export interface GeoJsonFeatureCollection {
+  type: 'FeatureCollection'
+  features: GeoJsonFeature[]
+}
+
+/** Batas/lokasi GIS hasil impor KML untuk satu aset. */
+export interface AsetGIS {
+  id: string
+  aset_id: string
+  nama_file: string
+  geojson: GeoJsonFeatureCollection
+  feature_count: number
+  imported_at: string
+  updated_at: string
+}
+
 export interface NJOP {
   id: string
   aset_id: string
@@ -87,6 +115,7 @@ export interface KerjaSama {
   prospek_id: string | null
   nama_mitra: string
   no_perjanjian: string | null
+  skema_kerja_sama: string | null
   no_kontrak_sap: string | null
   tgl_mulai: string
   tgl_selesai: string

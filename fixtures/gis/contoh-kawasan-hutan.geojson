@@ -1,0 +1,7 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {"type":"Feature","id":"lindung","properties":{"name":"Hutan Lindung Contoh","fungsi":"Hutan Lindung"},"geometry":{"type":"Polygon","coordinates":[[[117.45,-2.55],[117.65,-2.55],[117.65,-2.3],[117.45,-2.3],[117.45,-2.55]]]}} ,
+    {"type":"Feature","id":"produksi","properties":{"name":"Hutan Produksi Contoh","fungsi":"Hutan Produksi"},"geometry":{"type":"Polygon","coordinates":[[[117.68,-2.5],[117.88,-2.5],[117.88,-2.25],[117.68,-2.25],[117.68,-2.5]]]}}
+  ]
+}

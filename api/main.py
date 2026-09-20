@@ -12,6 +12,7 @@ from routers.r_rest import router as rest_router
 from routers.r_superman import router as superman_router
 from routers.r_integrasi import router as integrasi_router
 from routers.r_users import router as users_router
+from routers.r_gis import router as gis_router
 from services.auth_service import ensure_app_users_table, seed_default_users
 
 logging.basicConfig(level=logging.INFO)
@@ -45,6 +46,7 @@ app.include_router(pembayaran_router)
 app.include_router(documents_router)
 app.include_router(superman_router)
 app.include_router(integrasi_router)
+app.include_router(gis_router)
 
 
 @app.on_event("startup")

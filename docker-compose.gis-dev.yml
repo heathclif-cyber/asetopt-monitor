@@ -1,0 +1,65 @@
+name: asetopt-gis-dev
+
+services:
+  db-gis:
+    image: postgis/postgis:18-3.6
+    environment:
+      POSTGRES_USER: ${GIS_POSTGRES_USER:-asetopt_gis}
+      POSTGRES_PASSWORD: ${GIS_POSTGRES_PASSWORD:?set in .env.gis}
+      POSTGRES_DB: ${GIS_POSTGRES_DB:-asetopt_gis_dev}
+    ports:
+      - "127.0.0.1:${GIS_POSTGRES_PORT:-55432}:5432"
+    volumes:
+      - asetopt_gis_dev_pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+  api-gis:
+    build:
+      context: .
+      dockerfile: docker/gis.Dockerfile
+    env_file: .env.gis
+    environment:
+      DATABASE_URL: postgresql://${GIS_POSTGRES_USER:-asetopt_gis}:${GIS_POSTGRES_PASSWORD}@db-gis:5432/${GIS_POSTGRES_DB:-asetopt_gis_dev}
+      GIS_UPLOAD_ROOT: /app/gis-data
+    ports:
+      - "127.0.0.1:${GIS_API_PORT:-8000}:8000"
+    volumes:
+      - asetopt_gis_files:/app/gis-data
+    depends_on:
+      gis-bootstrap:
+        condition: service_completed_successfully
+
+  gis-worker:
+    build:
+      context: .
+      dockerfile: docker/gis.Dockerfile
+    env_file: .env.gis
+    command: ["python", "-m", "services.gis.worker"]
+    environment:
+      DATABASE_URL: postgresql://${GIS_POSTGRES_USER:-asetopt_gis}:${GIS_POSTGRES_PASSWORD}@db-gis:5432/${GIS_POSTGRES_DB:-asetopt_gis_dev}
+      GIS_UPLOAD_ROOT: /app/gis-data
+    volumes:
+      - asetopt_gis_files:/app/gis-data
+    depends_on:
+      gis-bootstrap:
+        condition: service_completed_successfully
+
+  gis-bootstrap:
+    build:
+      context: .
+      dockerfile: docker/gis.Dockerfile
+    env_file: .env.gis
+    command: ["python", "scripts/bootstrap_gis_dev.py"]
+    environment:
+      DATABASE_URL: postgresql://${GIS_POSTGRES_USER:-asetopt_gis}:${GIS_POSTGRES_PASSWORD}@db-gis:5432/${GIS_POSTGRES_DB:-asetopt_gis_dev}
+    depends_on:
+      db-gis:
+        condition: service_healthy
+
+volumes:
+  asetopt_gis_dev_pgdata:
+  asetopt_gis_files:

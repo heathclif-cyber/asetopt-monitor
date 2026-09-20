@@ -24,6 +24,7 @@ const breadcrumbMap: Record<string, string[]> = {
   '/master/kjpp': ['Master Data', 'Penilaian KJPP'],
   '/rkap': ['RKAP Monitor 2026'],
   '/katalog': ['Katalog Aset', 'Daftar Katalog'],
+  '/gis': ['Peta GIS', 'Layer Konsesi & Referensi'],
 }
 
 export function Header({ onMenuClick }: { onMenuClick?: () => void }) {

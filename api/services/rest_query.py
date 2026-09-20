@@ -12,7 +12,7 @@ ALLOWED_TABLES = {
     "kerja_sama", "kerja_sama_aset", "kompensasi", "pembayaran", "pbb", "pbb_objek",
     "cash_in", "surat_peringatan", "log_notifikasi", "rkap_target", "rkap_prognosa",
     "katalog_aset", "katalog_aksesibilitas", "katalog_lingkungan", "katalog_skema", "katalog_foto",
-    "pendapatan_diterima_dimuka", "pengakuan_pendapatan", "document_upload",
+    "pendapatan_diterima_dimuka", "pengakuan_pendapatan", "document_upload", "aset_gis",
 }
 
 GENERATED_COLS: dict[str, set[str]] = {

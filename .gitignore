@@ -11,9 +11,11 @@ dist-ssr/
 .env.local
 .env.*.local
 .env.selfhost
+.env.gis
 api/.env
 api/uploads/
 api/.superman_state.json
+supabase/.temp/
 api/data/
 backups/
 __pycache__/

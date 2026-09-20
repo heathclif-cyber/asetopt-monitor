@@ -23,6 +23,7 @@ const ksSchema = z.object({
   aset_id: z.string().min(1),
   nama_mitra: z.string().min(1),
   no_perjanjian: z.string().optional(),
+  skema_kerja_sama: z.string().optional(),
   tgl_mulai: z.string().min(1),
   tgl_selesai: z.string().min(1),
   no_wa_mitra: z.string().optional(),
@@ -65,6 +66,7 @@ export function KerjaSama() {
       aset_id: ks.aset_id,
       nama_mitra: ks.nama_mitra,
       no_perjanjian: ks.no_perjanjian ?? '',
+      skema_kerja_sama: ks.skema_kerja_sama ?? '',
       tgl_mulai: ks.tgl_mulai,
       tgl_selesai: ks.tgl_selesai,
       no_wa_mitra: ks.no_wa_mitra ?? '',
@@ -195,6 +197,10 @@ export function KerjaSama() {
             <div>
               <Label>No. Perjanjian</Label>
               <Input {...register('no_perjanjian')} className="mt-1" />
+            </div>
+            <div>
+              <Label>Skema Kerja Sama</Label>
+              <Input {...register('skema_kerja_sama')} className="mt-1" placeholder="Contoh: sewa, KSO, BOT" />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>

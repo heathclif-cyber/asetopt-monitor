@@ -8,6 +8,13 @@ import {
 } from '@/lib/auth'
 
 const API_BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? ''
+const LOCAL_DEV_BYPASS = import.meta.env.DEV && import.meta.env.VITE_BYPASS_AUTH === 'true'
+const LOCAL_DEV_USER: AuthUser = {
+  id: 'local-dev-admin',
+  username: 'local-admin',
+  full_name: 'Administrator Lokal',
+  role: 'admin',
+}
 
 interface AuthStore {
   token: string | null
@@ -22,8 +29,8 @@ interface AuthStore {
 }
 
 export const useAuthStore = create<AuthStore>((set, get) => ({
-  token: getStoredToken(),
-  user: getStoredUser(),
+  token: LOCAL_DEV_BYPASS ? 'local-dev-bypass' : getStoredToken(),
+  user: LOCAL_DEV_BYPASS ? LOCAL_DEV_USER : getStoredUser(),
   isReady: false,
   isLoading: false,
   error: null,
@@ -31,6 +38,10 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   clearError: () => set({ error: null }),
 
   hydrate: async () => {
+    if (LOCAL_DEV_BYPASS) {
+      set({ token: 'local-dev-bypass', user: LOCAL_DEV_USER, isReady: true })
+      return
+    }
     const token = getStoredToken()
     if (!token) {
       clearSession()
@@ -89,6 +100,10 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   },
 
   logout: async () => {
+    if (LOCAL_DEV_BYPASS) {
+      set({ token: 'local-dev-bypass', user: LOCAL_DEV_USER, error: null })
+      return
+    }
     const token = get().token
     try {
       if (token) {

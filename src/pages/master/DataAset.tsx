@@ -14,7 +14,8 @@ import { ConfirmDialog } from '@/components/common/ConfirmDialog'
 import { EmptyState } from '@/components/common/EmptyState'
 import { TableSkeleton } from '@/components/common/LoadingSkeleton'
 import { formatAngka } from '@/lib/utils'
-import { Plus, Pencil, Trash2, Search, Download } from 'lucide-react'
+import { Plus, Pencil, Trash2, Search, Download, Map } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -42,6 +43,7 @@ export function DataAset() {
   const [importing, setImporting] = useState(false)
   const pageSize = 10
   const { rows: rkapRows, fetchRKAP } = useRKAPStore()
+  const navigate = useNavigate()
 
   const importRKAPAset = async () => {
     setImporting(true)
@@ -173,6 +175,9 @@ export function DataAset() {
                     <div className="flex items-center justify-end gap-2">
                       <Button variant="ghost" size="icon" onClick={() => openEdit(a)}>
                         <Pencil size={15} />
+                      </Button>
+                      <Button variant="ghost" size="icon" title="Buka peta aset" onClick={() => navigate(`/gis?aset=${a.id}`)}>
+                        <Map size={15} />
                       </Button>
                       <Button variant="ghost" size="icon" className="text-red-500 hover:text-red-700" onClick={() => setDeleteTarget(a.id)}>
                         <Trash2 size={15} />

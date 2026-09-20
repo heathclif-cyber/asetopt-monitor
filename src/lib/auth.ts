@@ -25,6 +25,9 @@ export const VIEWER_ALLOWED_PATHS = [
 export const VIEWER_HOME = '/jalur-b/laporan'
 
 export function isViewerPath(pathname: string): boolean {
+  // Peta hanya untuk melihat. Semua endpoint GIS yang mengubah data tetap
+  // dilindungi lagi oleh otorisasi domain di backend.
+  if (pathname === '/gis') return true
   return VIEWER_ALLOWED_PATHS.some(
     p => pathname === p || pathname.startsWith(p + '/'),
   )
