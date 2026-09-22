@@ -184,11 +184,14 @@ export function AsetMap({ data, className = '', onViewportChange, focusBbox, zoo
     }
     layerRef.current = layer
     const bounds = layer.getBounds()
-    if (!hasAutoFittedRef.current && bounds.isValid()) {
+    // A table-row "Peta" request supplies a specific concession bbox.  Do
+    // not let the asynchronous KML refresh auto-fit every Regional 8 feature
+    // afterwards and overwrite that requested location.
+    if (!focusBbox && !hasAutoFittedRef.current && bounds.isValid()) {
       hasAutoFittedRef.current = true
       map.fitBounds(bounds, { padding: [28, 28], maxZoom: 17 })
     }
-  }, [data])
+  }, [data, focusBbox])
 
   useEffect(() => {
     const map = mapRef.current
