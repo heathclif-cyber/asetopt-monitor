@@ -10,7 +10,9 @@ name: asetopt-monitor
 
 services:
   db:
-    image: postgres:18-alpine
+    # PostgreSQL 18 with PostGIS 3.6. Required by the GIS feature migrations.
+    # Both PostgreSQL 18 images use /var/lib/postgresql for the data volume.
+    image: postgis/postgis:18-3.6-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-asetopt}
