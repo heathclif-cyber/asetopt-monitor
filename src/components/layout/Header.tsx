@@ -82,7 +82,9 @@ export function Header({ onMenuClick }: { onMenuClick?: () => void }) {
             <p className="text-xs font-medium text-gray-800 truncate max-w-[120px]">
               {user?.full_name ?? '—'}
             </p>
-            <p className="text-[10px] text-gray-400 uppercase">{user?.role}</p>
+            <p className="text-[10px] text-gray-400 uppercase">
+              {user?.role === 'admin_aset' ? 'Admin Data Aset' : user?.role}
+            </p>
           </div>
           <Button
             type="button"

@@ -33,6 +33,7 @@ async function usersRequest<T>(path: string, init?: RequestInit): Promise<T> {
 function roleLabel(role: AppRole) {
   if (role === 'admin') return 'Admin'
   if (role === 'staf') return 'Staf'
+  if (role === 'admin_aset') return 'Admin Data Aset'
   if (role === 'integrasi') return 'Integrasi API'
   return 'Viewer'
 }
@@ -136,7 +137,7 @@ export default function AdminUsers() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-lg font-bold text-gray-900">Kelola Pengguna</h1>
-          <p className="mt-1 text-sm text-gray-500">Atur akses AsetOpt. Akun integrasi hanya dapat memakai API Layer Zero.</p>
+          <p className="mt-1 text-sm text-gray-500">Atur akses AsetOpt. Admin Data Aset hanya mengakses Master Data dan Peta Aset.</p>
         </div>
         <Button onClick={openCreate} className="gap-2"><Plus size={16} /> Tambah Pengguna</Button>
       </div>
@@ -173,7 +174,7 @@ export default function AdminUsers() {
             <DialogHeader><DialogTitle>{editing ? 'Ubah Pengguna' : 'Tambah Pengguna'}</DialogTitle></DialogHeader>
             <div><Label htmlFor="user-full-name">Nama lengkap</Label><Input id="user-full-name" className="mt-1" value={form.full_name} onChange={e => setForm({ ...form, full_name: e.target.value })} required /></div>
             {!editing && <div><Label htmlFor="user-username">Username</Label><Input id="user-username" className="mt-1" value={form.username} onChange={e => setForm({ ...form, username: e.target.value })} pattern="[A-Za-z0-9._-]+" required /></div>}
-            <div><Label>Role</Label><Select value={form.role} onValueChange={value => setForm({ ...form, role: value as AppRole })}><SelectTrigger className="mt-1"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="admin">Admin</SelectItem><SelectItem value="staf">Staf</SelectItem><SelectItem value="viewer">Viewer</SelectItem><SelectItem value="integrasi">Integrasi API</SelectItem></SelectContent></Select></div>
+            <div><Label>Role</Label><Select value={form.role} onValueChange={value => setForm({ ...form, role: value as AppRole })}><SelectTrigger className="mt-1"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="admin">Admin</SelectItem><SelectItem value="staf">Staf</SelectItem><SelectItem value="admin_aset">Admin Data Aset</SelectItem><SelectItem value="viewer">Viewer</SelectItem><SelectItem value="integrasi">Integrasi API</SelectItem></SelectContent></Select></div>
             {!editing && <div><Label htmlFor="user-password">Kata sandi</Label><Input id="user-password" type="password" minLength={minPasswordLength(form.role)} className="mt-1" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} required /><p className="mt-1 text-xs text-gray-500">Minimal {minPasswordLength(form.role)} karakter.</p></div>}
             <DialogFooter><Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Batal</Button><Button type="submit" disabled={saving}>{saving ? 'Menyimpan...' : 'Simpan'}</Button></DialogFooter>
           </form>

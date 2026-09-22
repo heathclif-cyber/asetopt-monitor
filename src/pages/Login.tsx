@@ -2,7 +2,7 @@ import { useState, FormEvent } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { Building2, Loader2, Lock, User } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
-import { VIEWER_HOME } from '@/lib/auth'
+import { ASET_ADMIN_HOME, VIEWER_HOME } from '@/lib/auth'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -19,7 +19,9 @@ export default function Login() {
   if (user) {
     const dest = user.role === 'viewer'
       ? VIEWER_HOME
-      : (from && from !== '/login' ? from : '/')
+      : user.role === 'admin_aset'
+        ? ASET_ADMIN_HOME
+        : (from && from !== '/login' ? from : '/')
     return <Navigate to={dest} replace />
   }
 
@@ -29,7 +31,14 @@ export default function Login() {
     try {
       await login(username, password)
       const role = useAuthStore.getState().user?.role
-      navigate(role === 'viewer' ? VIEWER_HOME : (from && from !== '/login' ? from : '/'), { replace: true })
+      navigate(
+        role === 'viewer'
+          ? VIEWER_HOME
+          : role === 'admin_aset'
+            ? ASET_ADMIN_HOME
+            : (from && from !== '/login' ? from : '/'),
+        { replace: true },
+      )
     } catch {
       // error di store
     }

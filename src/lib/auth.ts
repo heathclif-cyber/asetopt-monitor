@@ -1,6 +1,6 @@
 /** Role & path access helpers */
 
-export type AppRole = 'admin' | 'staf' | 'viewer' | 'integrasi'
+export type AppRole = 'admin' | 'staf' | 'viewer' | 'integrasi' | 'admin_aset'
 
 /** Staf: akses sama seperti admin, kecuali halaman Kelola Pengguna */
 const STAF_BLOCKED_PATHS = ['/admin/users'] as const
@@ -24,6 +24,16 @@ export const VIEWER_ALLOWED_PATHS = [
 
 export const VIEWER_HOME = '/jalur-b/laporan'
 
+/** Admin Data Aset: hanya tiga halaman Master Data dan peta. */
+export const ASET_ADMIN_ALLOWED_PATHS = [
+  '/master/aset',
+  '/master/njop',
+  '/master/kjpp',
+  '/gis',
+] as const
+
+export const ASET_ADMIN_HOME = '/master/aset'
+
 export function isViewerPath(pathname: string): boolean {
   // Peta hanya untuk melihat. Semua endpoint GIS yang mengubah data tetap
   // dilindungi lagi oleh otorisasi domain di backend.
@@ -38,6 +48,11 @@ export function canAccessPath(role: AppRole | null | undefined, pathname: string
   if (role === 'admin') return true
   if (role === 'integrasi') return false
   if (pathname === '/login') return true
+  if (role === 'admin_aset') {
+    return ASET_ADMIN_ALLOWED_PATHS.some(
+      p => pathname === p || pathname.startsWith(p + '/'),
+    )
+  }
   if (role === 'staf') {
     return !STAF_BLOCKED_PATHS.some(p => pathname === p || pathname.startsWith(p + '/'))
   }

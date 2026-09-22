@@ -16,6 +16,7 @@ import { TableSkeleton } from '@/components/common/LoadingSkeleton'
 import { formatAngka } from '@/lib/utils'
 import { Plus, Pencil, Trash2, Search, Download, Map } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+import { useAuthStore } from '@/store/authStore'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -43,6 +44,7 @@ export function DataAset() {
   const [importing, setImporting] = useState(false)
   const pageSize = 10
   const { rows: rkapRows, fetchRKAP } = useRKAPStore()
+  const isAsetAdmin = useAuthStore(state => state.user?.role === 'admin_aset')
   const navigate = useNavigate()
 
   const importRKAPAset = async () => {
@@ -115,9 +117,9 @@ export function DataAset() {
           <p className="text-sm text-gray-500">{daftarAset.length} aset terdaftar</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={importRKAPAset} disabled={importing}>
-            <Download size={16} /> {importing ? 'Mengimpor...' : 'Import Aset RKAP'}
-          </Button>
+          {!isAsetAdmin && <Button variant="outline" onClick={importRKAPAset} disabled={importing}>
+              <Download size={16} /> {importing ? 'Mengimpor...' : 'Import Aset RKAP'}
+            </Button>}
           <Button onClick={openAdd} className="bg-[#1B4F72] hover:bg-[#1B4F72]/90">
             <Plus size={16} /> Tambah Aset
           </Button>

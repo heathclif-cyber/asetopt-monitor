@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
-import { VIEWER_HOME, canAccessPath } from '@/lib/auth'
+import { ASET_ADMIN_HOME, VIEWER_HOME, canAccessPath } from '@/lib/auth'
 import { Loader2 } from 'lucide-react'
 
 export function RequireAuth() {
@@ -28,7 +28,13 @@ export function RequireAuth() {
   }
 
   if (!canAccessPath(user.role, location.pathname)) {
-    const fallback = user.role === 'viewer' ? VIEWER_HOME : user.role === 'staf' ? '/' : '/login'
+    const fallback = user.role === 'viewer'
+      ? VIEWER_HOME
+      : user.role === 'admin_aset'
+        ? ASET_ADMIN_HOME
+        : user.role === 'staf'
+          ? '/'
+          : '/login'
     return <Navigate to={fallback} replace />
   }
 

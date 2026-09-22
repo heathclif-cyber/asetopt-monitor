@@ -22,7 +22,7 @@ from services.auth_service import (
 )
 
 router = APIRouter(prefix="/api/users", tags=["Users"])
-Role = Literal["admin", "viewer", "integrasi", "staf"]
+Role = Literal["admin", "viewer", "integrasi", "staf", "admin_aset"]
 
 
 def _min_password_length(role: str) -> int:

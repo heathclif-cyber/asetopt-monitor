@@ -14,6 +14,10 @@ from services.auth_service import decode_token, get_user_by_id
 
 _bearer = HTTPBearer(auto_error=False)
 
+# Role khusus pengelola Master Data. Daftar ini sengaja eksplisit agar akun
+# tersebut tidak dapat membaca atau mengubah tabel bisnis lain lewat REST API.
+ASSET_MASTER_TABLES = frozenset({"aset", "njop", "penilaian_kjpp"})
+
 
 def _extract_token(
     request: Request,
@@ -94,10 +98,35 @@ def require_write(user: Annotated[dict[str, Any], Depends(get_current_user)]) ->
 
 
 def require_app_read(user: Annotated[dict[str, Any], Depends(get_current_user)]) -> dict[str, Any]:
-    """Akses baca aplikasi untuk admin, staf, dan viewer; akun integrasi dikecualikan."""
-    if user.get("role") not in {"admin", "staf", "viewer"}:
+    """Akses baca aplikasi untuk akun UI; akun integrasi dikecualikan."""
+    if user.get("role") not in {"admin", "staf", "viewer", "admin_aset"}:
         raise HTTPException(status_code=403, detail="Akses aplikasi diperlukan")
     return user
+
+
+def require_rest_read(
+    request: Request,
+    user: Annotated[dict[str, Any], Depends(get_current_user)],
+) -> dict[str, Any]:
+    """Batasi pembacaan REST untuk Admin Data Aset pada tiga tabel master."""
+    if user.get("role") == "admin_aset":
+        table = request.path_params.get("table")
+        if table not in ASSET_MASTER_TABLES:
+            raise HTTPException(status_code=403, detail="Akses hanya untuk Master Data Aset")
+        return user
+    return require_app_read(user)
+
+
+def require_rest_write(
+    request: Request,
+    user: Annotated[dict[str, Any], Depends(get_current_user)],
+) -> dict[str, Any]:
+    """Akses tulis REST: admin/staf penuh, Admin Data Aset hanya master aset."""
+    if user.get("role") in {"admin", "staf"}:
+        return user
+    if user.get("role") == "admin_aset" and request.path_params.get("table") in ASSET_MASTER_TABLES:
+        return user
+    raise HTTPException(status_code=403, detail="Akses hanya untuk Master Data Aset")
 
 
 def require_integration_read(user: Annotated[dict[str, Any], Depends(get_current_user)]) -> dict[str, Any]:

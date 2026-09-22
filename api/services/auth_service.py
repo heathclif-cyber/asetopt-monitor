@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
-ROLES = ("admin", "viewer", "integrasi", "staf")
+ROLES = ("admin", "viewer", "integrasi", "staf", "admin_aset")
 JWT_ALG = "HS256"
 TOKEN_TTL_HOURS = int(os.getenv("AUTH_TOKEN_TTL_HOURS", "72"))
 
@@ -89,7 +89,7 @@ def ensure_app_users_table(db: Session) -> None:
           ) THEN
             ALTER TABLE app_users
               ADD CONSTRAINT app_users_role_check
-              CHECK (role IN ('admin', 'viewer', 'integrasi', 'staf'));
+              CHECK (role IN ('admin', 'viewer', 'integrasi', 'staf', 'admin_aset'));
           END IF;
         END $$;
     """))

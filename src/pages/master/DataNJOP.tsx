@@ -1,7 +1,6 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useAsetStore } from '@/store/asetStore'
 import { useNJOPStore } from '@/store/njopStore'
-import { useRKAPStore } from '@/store/rkapStore'
 import { NJOP } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -47,13 +46,11 @@ export function DataNJOP() {
   const watchedTanah = watch('nilai_tanah_per_m2')
   const watchedBangunan = watch('nilai_bangunan_per_m2')
 
-  const { rows: rkapRows, fetchRKAP } = useRKAPStore()
+  useEffect(() => { fetchAset(); fetchAllNJOP() }, [])
 
-  useEffect(() => { fetchAset(); fetchAllNJOP(); fetchRKAP(new Date().getFullYear()) }, [])
-
-  // Tampilkan semua aset yang kode-nya ada di RKAP (bukan filter by status)
-  const rkapKodes = useMemo(() => new Set(rkapRows.map(r => r.kode).filter(Boolean)), [rkapRows])
-  const rkapAset = useMemo(() => daftarAset.filter(a => rkapKodes.has(a.kode_aset)), [daftarAset, rkapKodes])
+  // Master Data harus bisa dikelola tanpa akses ke RKAP. Gunakan seluruh aset
+  // yang terdaftar sebagai referensi NJOP.
+  const rkapAset = daftarAset
   const allNJOP = Object.values(dataNJOP).flat()
 
   const filtered = useMemo(() => {
