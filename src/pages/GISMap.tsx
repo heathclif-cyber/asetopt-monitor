@@ -42,9 +42,9 @@ export default function GISMap() {
   const [adminCode, setAdminCode] = useState('')
   const [hutanFunctions, setHutanFunctions] = useState<string[]>([])
   const [hutanFunction, setHutanFunction] = useState('all')
-  // The national forest reference is an external rendered-map service. Keep
-  // it opt-in so focusing a concession is never delayed by remote imagery.
-  const [officialForestEnabled, setOfficialForestEnabled] = useState(false)
+  // It remains automatic, but AsetMap debounces and reuses snapped requests
+  // so the external reference does not block normal map navigation.
+  const [officialForestEnabled, setOfficialForestEnabled] = useState(true)
   const [officialForestZoomRequest, setOfficialForestZoomRequest] = useState(0)
   const [bbox, setBbox] = useState('95,-11,141,6')
   const [zoomTarget, setZoomTarget] = useState<{ datasetId: string; request: number } | null>(null)

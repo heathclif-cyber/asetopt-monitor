@@ -80,6 +80,8 @@ export function AsetMap({ data, className = '', onViewportChange, focusBbox, zoo
   const mapRef = useRef<L.Map | null>(null)
   const layerRef = useRef<L.FeatureGroup | null>(null)
   const officialForestRef = useRef<L.ImageOverlay | null>(null)
+  const officialForestTimerRef = useRef<number | null>(null)
+  const officialForestRequestKeyRef = useRef('')
   const hasAutoFittedRef = useRef(false)
 
   useEffect(() => {
@@ -198,6 +200,9 @@ export function AsetMap({ data, className = '', onViewportChange, focusBbox, zoo
     if (!map) return
 
     const remove = () => {
+      if (officialForestTimerRef.current !== null) window.clearTimeout(officialForestTimerRef.current)
+      officialForestTimerRef.current = null
+      officialForestRequestKeyRef.current = ''
       officialForestRef.current?.remove()
       officialForestRef.current = null
     }
@@ -206,11 +211,24 @@ export function AsetMap({ data, className = '', onViewportChange, focusBbox, zoo
       return
     }
 
-    const updateOfficialForest = () => {
+    const refreshOfficialForest = () => {
+      officialForestTimerRef.current = null
       const bounds = map.getBounds()
       const size = map.getSize()
+      // The government map is an image-export service, not a tile feed. Snap
+      // nearby viewports to a shared request box so returning/panning slightly
+      // can reuse the browser image cache instead of downloading again.
+      const spanLng = bounds.getEast() - bounds.getWest()
+      const spanLat = bounds.getNorth() - bounds.getSouth()
+      const gridLng = Math.max(spanLng / 2, 0.01)
+      const gridLat = Math.max(spanLat / 2, 0.01)
+      const west = Math.floor(bounds.getWest() / gridLng) * gridLng
+      const east = Math.ceil(bounds.getEast() / gridLng) * gridLng
+      const south = Math.floor(bounds.getSouth() / gridLat) * gridLat
+      const north = Math.ceil(bounds.getNorth() / gridLat) * gridLat
+      const requestBounds = L.latLngBounds([[south, west], [north, east]])
       const params = new URLSearchParams({
-        bbox: [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()].join(','),
+        bbox: [west, south, east, north].join(','),
         bboxSR: '4326',
         imageSR: '4326',
         size: `${Math.max(1, Math.round(size.x))},${Math.max(1, Math.round(size.y))}`,
@@ -225,19 +243,27 @@ export function AsetMap({ data, className = '', onViewportChange, focusBbox, zoo
       // would otherwise wash out the satellite imagery with white fills.
       const where = codes?.length ? `FUNGSIKWS IN (${codes.join(',')})` : 'FUNGSIKWS NOT IN (0,100700,500100,500300)'
       params.set('layerDefs', JSON.stringify({ 0: where }))
+      const requestKey = `${officialForestFunction}:${params.toString()}`
+      if (requestKey === officialForestRequestKeyRef.current) return
+      officialForestRequestKeyRef.current = requestKey
       const url = `${OFFICIAL_FOREST_SERVICE}?${params.toString()}`
       if (officialForestRef.current) {
         officialForestRef.current.setUrl(url)
-        officialForestRef.current.setBounds(bounds)
+        officialForestRef.current.setBounds(requestBounds)
       } else {
-        officialForestRef.current = L.imageOverlay(url, bounds, { pane: PANE_BY_KIND.hutan, opacity: 0.55, interactive: false, zIndex: 250 }).addTo(map)
+        officialForestRef.current = L.imageOverlay(url, requestBounds, { pane: PANE_BY_KIND.hutan, opacity: 0.55, interactive: false, zIndex: 250 }).addTo(map)
       }
     }
 
-    updateOfficialForest()
-    map.on('moveend', updateOfficialForest)
+    const updateOfficialForest = (delay = 450) => {
+      if (officialForestTimerRef.current !== null) window.clearTimeout(officialForestTimerRef.current)
+      officialForestTimerRef.current = window.setTimeout(refreshOfficialForest, delay)
+    }
+    updateOfficialForest(0)
+    const scheduleOfficialForest = () => updateOfficialForest(450)
+    map.on('moveend', scheduleOfficialForest)
     return () => {
-      map.off('moveend', updateOfficialForest)
+      map.off('moveend', scheduleOfficialForest)
       remove()
     }
   }, [officialForestVisible, officialForestFunction])
