@@ -85,7 +85,9 @@ export function AsetMap({ data, className = '', onViewportChange, focusBbox, zoo
   useEffect(() => {
     if (!hostRef.current || mapRef.current) return
     const map = L.map(hostRef.current, {
-      zoomControl: false,
+      // Use Leaflet's native control.  Firefox handles its pointer and
+      // keyboard events more reliably than a custom overlay after fitBounds.
+      zoomControl: true,
       minZoom: 4,
       maxZoom: 19,
       scrollWheelZoom: true,
@@ -110,7 +112,12 @@ export function AsetMap({ data, className = '', onViewportChange, focusBbox, zoo
     map.on('moveend', () => onViewportChange?.(currentBounds(map)))
     mapRef.current = map
     onViewportChange?.(currentBounds(map))
-    return () => { map.remove(); mapRef.current = null }
+    const resizeObserver = new ResizeObserver(() => {
+      window.requestAnimationFrame(() => map.invalidateSize({ pan: false, debounceMoveend: true }))
+    })
+    resizeObserver.observe(hostRef.current)
+    map.invalidateSize({ pan: false, debounceMoveend: true })
+    return () => { resizeObserver.disconnect(); map.remove(); mapRef.current = null }
   }, [onViewportChange])
 
   useEffect(() => {
@@ -155,6 +162,12 @@ export function AsetMap({ data, className = '', onViewportChange, focusBbox, zoo
           target.bindPopup(popupContent(name, entries), { maxWidth: 330 })
           target.on('click', event => {
             if (event.originalEvent) L.DomEvent.stopPropagation(event.originalEvent)
+            // A concession is the primary navigation object: clicking it
+            // always frames its complete boundary before showing details.
+            if (kind === 'konsesi' && target instanceof L.Polyline) {
+              const bounds = target.getBounds()
+              if (bounds.isValid()) map.fitBounds(bounds, { padding: [28, 28], maxZoom: 15, animate: false })
+            }
             target.openPopup(event.latlng)
           })
         }
@@ -271,17 +284,7 @@ export function AsetMap({ data, className = '', onViewportChange, focusBbox, zoo
     mapRef.current.fitBounds([[-11.01, 94.97], [6.08, 141.02]], { padding: [28, 28], maxZoom: 6, animate: false })
   }, [officialForestZoomRequest])
 
-  const zoom = (delta: number) => {
-    const map = mapRef.current
-    if (!map) return
-    map.setView(map.getCenter(), Math.max(4, Math.min(19, map.getZoom() + delta)), { animate: false })
-  }
-
   return <div className={`relative h-[640px] w-full overflow-hidden rounded-lg ${className}`}>
     <div ref={hostRef} className="h-full w-full" aria-label="Peta lokasi aset" />
-    <div className="absolute left-3 top-3 z-[1000] overflow-hidden rounded-md border border-slate-300 bg-white shadow-sm">
-      <button type="button" aria-label="Perbesar peta" className="block h-9 w-9 border-b border-slate-200 text-xl leading-none hover:bg-slate-100" onClick={() => zoom(1)}>+</button>
-      <button type="button" aria-label="Perkecil peta" className="block h-9 w-9 text-xl leading-none hover:bg-slate-100" onClick={() => zoom(-1)}>−</button>
-    </div>
   </div>
 }
