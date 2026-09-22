@@ -74,7 +74,7 @@ export function GISAssetTable({ onShowMap }: { onShowMap: (asset: GISAssetSummar
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1"><div><h2 className="text-sm font-bold text-slate-900">Ringkasan GIS Konsesi</h2><p className="mt-0.5 text-xs text-slate-500">Akumulasi penggunaan areal dari seluruh konsesi yang tampil di tabel.</p></div><p className="text-xs font-medium text-slate-500">Data hutan: {dashboard.forestReady}/{dashboard.count || 0} konsesi</p></div>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-7">
         <DashboardMetric label="Konsesi" value={dashboard.count.toLocaleString('id-ID')} tone="blue" note="aset tanah" />
-        <DashboardMetric label="Luas konsesi" value={hectares(dashboard.konsesi)} tone="blue" />
+        <DashboardMetric label="Luas konsesi" value={hectares(dashboard.konsesi)} tone="blue" note="berdasarkan peta GIS, bukan konsesi resmi" />
         <DashboardMetric label="Kawasan hutan" value={hectares(dashboard.hutan)} tone="green" note="peta kawasan hutan" />
         <DashboardMetric label="Tanaman" value={hectares(dashboard.tanaman)} tone="green" />
         <DashboardMetric label="Okupasi" value={hectares(dashboard.okupasi)} tone="amber" />
