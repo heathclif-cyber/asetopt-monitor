@@ -150,6 +150,12 @@ export function AsetMap({ data, className = '', onViewportChange, focusBbox, zoo
         const name = `${feature.properties?.preview ? 'Draf — ' : ''}${String(feature.properties?.name ?? 'Lokasi aset')}`
         const properties = feature.properties ?? {}
         const kind = properties.kind as GISKind | undefined
+        // Bind the bounds from the complete GeoJSON feature, not the clicked
+        // Leaflet child. Firefox may emit the parent GeoJSON group as target
+        // for multipart polygons, which otherwise makes getBounds unreliable.
+        const concessionBounds = kind === 'konsesi'
+          ? L.geoJSON(feature as GeoJSON.Feature).getBounds()
+          : null
         const attributes = (properties.attributes ?? {}) as Record<string, string | number | null>
         const entries: Array<[string, string]> = []
         if (kind) entries.push(['Jenis layer', KIND_LABEL[kind]])
@@ -164,9 +170,9 @@ export function AsetMap({ data, className = '', onViewportChange, focusBbox, zoo
             if (event.originalEvent) L.DomEvent.stopPropagation(event.originalEvent)
             // A concession is the primary navigation object: clicking it
             // always frames its complete boundary before showing details.
-            if (kind === 'konsesi' && target instanceof L.Polyline) {
-              const bounds = target.getBounds()
-              if (bounds.isValid()) map.fitBounds(bounds, { padding: [28, 28], maxZoom: 15, animate: false })
+            if (concessionBounds?.isValid()) {
+              map.invalidateSize({ pan: false, debounceMoveend: true })
+              map.fitBounds(concessionBounds, { padding: [28, 28], maxZoom: 15, animate: false })
             }
             target.openPopup(event.latlng)
           })
