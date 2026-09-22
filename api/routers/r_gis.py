@@ -619,6 +619,8 @@ def list_grouped_konsesi_summaries(
         1::integer AS konsesi_count, ARRAY[cg.nama_aset]::text[] AS konsesi_names,
         ARRAY[cg.dataset_id::text]::text[] AS dataset_ids,
         concat_ws(',', ST_XMin(Box2D(cg.geom)::box3d), ST_YMin(Box2D(cg.geom)::box3d), ST_XMax(Box2D(cg.geom)::box3d), ST_YMax(Box2D(cg.geom)::box3d)) AS bbox,
+        ST_Y(ST_PointOnSurface(cg.geom)) AS center_lat,
+        ST_X(ST_PointOnSurface(cg.geom)) AS center_lng,
         ST_AsGeoJSON(cg.geom) AS geom_json,
         md5(ST_AsEWKB(cg.geom)::text) AS geom_hash,
         round((ST_Area(cg.geom::geography) / 10000)::numeric, 4) AS konsesi_area_ha,
@@ -676,6 +678,8 @@ def list_grouped_konsesi_summaries(
         item["konsesi_names"] = item["konsesi_names"] or []
         item["dataset_ids"] = item["dataset_ids"] or []
         for field in ("konsesi_area_ha", "tanaman_area_ha", "hutan_area_ha", "okupasi_area_ha", "kerja_sama_area_ha", "dapat_dimanfaatkan_area_ha"):
+            item[field] = float(item[field]) if item[field] is not None else None
+        for field in ("center_lat", "center_lng"):
             item[field] = float(item[field]) if item[field] is not None else None
         item["missing_layers"] = [kind for kind in missing_layers if not (kind == "hutan" and item["official_forest_state"] == "complete")]
         item["analysis_status"] = (

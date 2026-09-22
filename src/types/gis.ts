@@ -53,6 +53,9 @@ export interface GISAssetSummary {
   konsesi_names: string[]
   dataset_ids: string[]
   bbox: string | null
+  /** Titik representatif yang berada di dalam poligon konsesi. */
+  center_lat: number | null
+  center_lng: number | null
   konsesi_area_ha: number | null
   tanaman_area_ha: number | null
   hutan_area_ha: number | null
