@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Crosshair, FileUp, Layers3, Map, Plus, Search, Upload } from 'lucide-react'
 import { AsetMap } from '@/components/gis/AsetMap'
 import { Button } from '@/components/ui/button'
@@ -31,6 +31,7 @@ function emptyDraft(feature: GISDraftFeature) {
 }
 
 export default function GISMap() {
+  const uploadInputRef = useRef<HTMLInputElement>(null)
   const [capabilities, setCapabilities] = useState<GISCapabilities | null>(null)
   const [datasets, setDatasets] = useState<GISDataset[]>([])
   const [enabled, setEnabled] = useState<string[]>([])
@@ -88,6 +89,7 @@ export default function GISMap() {
   const activeVersions = useMemo(() => datasets.filter(item => enabled.includes(item.id) && (layerKindFilter === 'all' || item.kind === layerKindFilter) && (hutanFunction === 'all' || item.kind === 'hutan')).map(item => item.active_version_id).filter((id): id is string => Boolean(id)), [datasets, enabled, layerKindFilter, hutanFunction])
   const mapFeatures = useMemo(() => ({ type: 'FeatureCollection' as const, features: [...(features?.features ?? []), ...(activeImport && selectedDataset && enabled.includes(selectedDataset.id) ? draftFeatures.map(feature => ({ type: 'Feature' as const, id: feature.id, properties: { feature_id: feature.id, dataset_id: selectedDataset.id, name: feature.name, kind: selectedDataset.kind, computed_area_m2: feature.computed_area_m2, attributes: feature.attributes, preview: true }, geometry: feature.geometry })) : []), ...activeDraftLayers.filter(layer => layer.dataset.id !== selectedDataset?.id && enabled.includes(layer.dataset.id)).flatMap(layer => layer.features.map(feature => ({ type: 'Feature' as const, id: feature.id, properties: { feature_id: feature.id, dataset_id: layer.dataset.id, name: feature.name, kind: layer.dataset.kind, computed_area_m2: feature.computed_area_m2, attributes: feature.attributes, preview: true }, geometry: feature.geometry })))] }), [features, activeImport, selectedDataset, draftFeatures, enabled, activeDraftLayers])
   const canWrite = selectedDataset ? Boolean(capabilities?.domains.includes(DOMAIN_BY_KIND[selectedDataset.kind])) : false
+  const canUpload = Boolean(capabilities?.domains.length)
 
   const loadDatasets = useCallback(async () => {
     try {
@@ -127,7 +129,7 @@ export default function GISMap() {
   const requiredFields = new Set((missingById.get(selectedFeatureId) ?? '').split(', ').filter(Boolean))
 
   return <div className="space-y-5">
-    <div className="flex flex-wrap items-start justify-between gap-3"><div><h1 className="flex items-center gap-2 text-2xl font-bold text-gray-900"><Map className="text-[#1B4F72]" /> Peta GIS Aset</h1><p className="mt-1 text-sm text-gray-500">Konsesi adalah dasar; tanaman, kawasan hutan, OPSET, okupasi, dan batas referensi tampil sebagai layer terpisah.</p></div><Button onClick={() => setCreateOpen(true)}><Plus size={16} /> Buat layer</Button></div>
+    <div className="flex flex-wrap items-start justify-between gap-3"><div><h1 className="flex items-center gap-2 text-2xl font-bold text-gray-900"><Map className="text-[#1B4F72]" /> Peta GIS Aset</h1><p className="mt-1 text-sm text-gray-500">Konsesi adalah dasar; tanaman, kawasan hutan, OPSET, okupasi, dan batas referensi tampil sebagai layer terpisah.</p></div><div className="flex flex-wrap gap-2"><input ref={uploadInputRef} className="hidden" type="file" accept=".kml,.kmz,.geojson,.json,.zip,.gpkg" onChange={event => { beginUpload(event.target.files?.[0]); event.currentTarget.value = '' }} /><Button disabled={!canUpload || busy} onClick={() => uploadInputRef.current?.click()}><FileUp size={16} /> Unggah KML</Button><Button variant="outline" disabled={!canUpload || busy} onClick={() => setCreateOpen(true)}><Plus size={16} /> Buat layer kosong</Button></div></div>
     {message && <div className={`rounded-md border p-3 text-sm ${message.startsWith('Impor gagal:') ? 'border-red-200 bg-red-50 text-red-800' : 'border-slate-200 bg-slate-50 text-slate-700'}`} role="status">{message}</div>}
     <div className="grid gap-5 lg:grid-cols-[2fr_340px]">
       <Card><CardContent className="p-3"><AsetMap data={mapFeatures} onViewportChange={setBbox} focusBbox={adminRegions.find(region => region.region_code === adminCode)?.bbox} zoomTarget={zoomTarget} officialForestVisible={officialForestEnabled && (layerKindFilter === 'all' || layerKindFilter === 'hutan')} officialForestFunction={hutanFunction} officialForestZoomRequest={officialForestZoomRequest} onOfficialForestClick={identifyOfficialForest} /></CardContent></Card>
