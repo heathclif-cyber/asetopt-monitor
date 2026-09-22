@@ -70,12 +70,12 @@ export function GISAssetTable({ onShowMap }: { onShowMap: (asset: GISAssetSummar
   }, [items])
 
   return <div className="space-y-4">
-    <section className="rounded-xl border border-slate-200 bg-slate-50/70 p-3 sm:p-4">
-      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1"><div><h2 className="text-sm font-bold text-slate-900">Ringkasan GIS Konsesi</h2><p className="mt-0.5 text-xs text-slate-500">Akumulasi penggunaan areal dari seluruh konsesi yang tampil di tabel.</p></div><p className="text-xs font-medium text-slate-500">Overlay hutan: {dashboard.forestReady}/{dashboard.count || 0} konsesi</p></div>
+    <section className="sticky top-16 z-20 rounded-xl border border-slate-200 bg-slate-50 p-3 shadow-sm sm:p-4">
+      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1"><div><h2 className="text-sm font-bold text-slate-900">Ringkasan GIS Konsesi</h2><p className="mt-0.5 text-xs text-slate-500">Akumulasi penggunaan areal dari seluruh konsesi yang tampil di tabel.</p></div><p className="text-xs font-medium text-slate-500">Data hutan: {dashboard.forestReady}/{dashboard.count || 0} konsesi</p></div>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-7">
         <DashboardMetric label="Konsesi" value={dashboard.count.toLocaleString('id-ID')} tone="blue" note="aset tanah" />
         <DashboardMetric label="Luas konsesi" value={hectares(dashboard.konsesi)} tone="blue" />
-        <DashboardMetric label="Kawasan hutan" value={hectares(dashboard.hutan)} tone="green" note="overlay resmi" />
+        <DashboardMetric label="Kawasan hutan" value={hectares(dashboard.hutan)} tone="green" note="peta kawasan hutan" />
         <DashboardMetric label="Tanaman" value={hectares(dashboard.tanaman)} tone="green" />
         <DashboardMetric label="Okupasi" value={hectares(dashboard.okupasi)} tone="amber" />
         <DashboardMetric label="Kerja sama" value={hectares(dashboard.kerjaSama)} tone="amber" />

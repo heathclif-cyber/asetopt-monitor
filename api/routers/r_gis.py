@@ -680,14 +680,14 @@ def list_grouped_konsesi_summaries(
         item["missing_layers"] = [kind for kind in missing_layers if not (kind == "hutan" and item["official_forest_state"] == "complete")]
         item["analysis_status"] = (
             "draf — lengkapi informasi sebelum diterbitkan" if item["record_state"] == "draf"
-            else "overlay kawasan hutan resmi sedang dihitung" if item["official_forest_state"] in {"queued", "running"}
+            else "data kawasan hutan sedang dihitung" if item["official_forest_state"] in {"queued", "running"}
             else "estimasi — layer belum lengkap" if item["missing_layers"]
             else "estimasi berdasarkan layer aktif"
         )
         item.pop("geom_json", None)
         item.pop("geom_hash", None)
         result.append(item)
-    return {"data": result, "availability_note": "Kawasan hutan dihitung otomatis dari overlay raster peta resmi Kemenhut skala 1:250.000 (Juni 2026), lalu disimpan per konsesi. Ini merupakan estimasi spasial, bukan keputusan legal."}
+    return {"data": result, "availability_note": "Kawasan hutan dihitung otomatis dari peta Kemenhut skala 1:250.000 (Juni 2026), lalu disimpan per konsesi. Ini merupakan estimasi spasial, bukan keputusan legal."}
 
 
 @router.get("/reference/administrasi")
