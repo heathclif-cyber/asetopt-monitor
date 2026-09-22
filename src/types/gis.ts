@@ -59,6 +59,8 @@ export interface GISAssetSummary {
   okupasi_area_ha: number | null
   kerja_sama_area_ha: number | null
   dapat_dimanfaatkan_area_ha: number | null
+  /** Status pengukuran otomatis dari peta kawasan hutan resmi. */
+  official_forest_state?: 'queued' | 'running' | 'complete' | 'failed' | null
   missing_layers: string[]
   analysis_status: string
 }

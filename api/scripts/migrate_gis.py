@@ -28,6 +28,7 @@ GIS_FILES = (
     "031_kerja_sama_skema.sql",
     "032_gis_immutability.sql",
     "033_gis_immutability_trigger_fix.sql",
+    "034_gis_official_forest_cache.sql",
 )
 
 

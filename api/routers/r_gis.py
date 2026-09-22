@@ -2,17 +2,18 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import BytesIO
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Header, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
-from PIL import Image
+from PIL import Image, ImageDraw
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from database import get_db
+from database import SessionLocal, get_db
 from schemas_gis import (
     DatasetCreateBody, DatasetUpdateBody, FeatureDraftPatchBody, GrantsBody,
     ImportMappingBody, PublishBody, RollbackBody,
@@ -29,6 +30,9 @@ from services.gis.storage import GISStorageError, save_original, source_path
 router = APIRouter(prefix="/api/gis", tags=["GIS"])
 
 OFFICIAL_FOREST_EXPORT = "https://geoportal.planologi.kehutanan.go.id/server/rest/services/Peta_Interaktif_2026/KWSHUTAN_AR_250K/MapServer/export"
+OFFICIAL_FOREST_SOURCE_KEY = "KWSHUTAN_AR_250K_JUN2026"
+OFFICIAL_FOREST_SOURCE_YEAR = 2026
+OFFICIAL_FOREST_RASTER_SIZE = 768
 OFFICIAL_FOREST_COLORS = {
     (173, 63, 255): "Kawasan Konservasi",
     (2, 173, 0): "Hutan Lindung",
@@ -39,6 +43,132 @@ OFFICIAL_FOREST_COLORS = {
     (0, 197, 255): "Tubuh Air",
     (255, 0, 0): "Tidak Terdefinisi",
 }
+
+
+def _forest_class_from_pixel(red: int, green: int, blue: int) -> str | None:
+    """Return a forest class from the official renderer's fill colour.
+
+    Exported images have anti-aliased edges, so nearby colours are accepted.
+    APL, water, and undefined pixels intentionally do not count as forest.
+    """
+    nearest, name = min(
+        OFFICIAL_FOREST_COLORS.items(),
+        key=lambda item: sum((item[0][index] - (red, green, blue)[index]) ** 2 for index in range(3)),
+    )
+    distance = sum((nearest[index] - (red, green, blue)[index]) ** 2 for index in range(3))
+    if distance > 1_800 or name in {"Area Penggunaan Lain", "Tubuh Air", "Tidak Terdefinisi"}:
+        return None
+    return name
+
+
+def _ring_pixels(ring: list[list[float]], bounds: tuple[float, float, float, float], size: int) -> list[tuple[float, float]]:
+    west, south, east, north = bounds
+    span_lng = east - west
+    span_lat = north - south
+    return [
+        ((float(point[0]) - west) / span_lng * (size - 1), (north - float(point[1])) / span_lat * (size - 1))
+        for point in ring
+    ]
+
+
+def _draw_polygon_mask(draw: ImageDraw.ImageDraw, geometry: dict[str, Any], bounds: tuple[float, float, float, float], size: int) -> None:
+    polygons = [geometry.get("coordinates", [])] if geometry.get("type") == "Polygon" else geometry.get("coordinates", [])
+    for polygon in polygons:
+        if not polygon:
+            continue
+        draw.polygon(_ring_pixels(polygon[0], bounds, size), fill=255)
+        for hole in polygon[1:]:
+            draw.polygon(_ring_pixels(hole, bounds, size), fill=0)
+
+
+def _measure_official_forest(item: dict[str, Any]) -> tuple[float, dict[str, float]]:
+    """Estimate forest coverage inside one concession using Kemenhut's official map.
+
+    The public source is a MapServer whose geometry query is disabled.  We
+    therefore rasterise the supplied concession polygon as a mask and measure
+    the official map pixels inside it.  The result is fit for a 1:250,000 map
+    estimate and is never represented as a legal area determination.
+    """
+    west, south, east, north = (float(value) for value in item["bbox"].split(","))
+    pad_lng = max((east - west) * 0.03, 0.0001)
+    pad_lat = max((north - south) * 0.03, 0.0001)
+    bounds = (west - pad_lng, south - pad_lat, east + pad_lng, north + pad_lat)
+    params = {
+        "bbox": ",".join(str(value) for value in bounds),
+        "bboxSR": "4326",
+        "imageSR": "4326",
+        "size": f"{OFFICIAL_FOREST_RASTER_SIZE},{OFFICIAL_FOREST_RASTER_SIZE}",
+        "format": "png32",
+        "transparent": "true",
+        "layers": "show:0",
+        "f": "image",
+    }
+    response = httpx.get(OFFICIAL_FOREST_EXPORT, params=params, timeout=45.0)
+    response.raise_for_status()
+    image = Image.open(BytesIO(response.content)).convert("RGB")
+    if image.size != (OFFICIAL_FOREST_RASTER_SIZE, OFFICIAL_FOREST_RASTER_SIZE):
+        image = image.resize((OFFICIAL_FOREST_RASTER_SIZE, OFFICIAL_FOREST_RASTER_SIZE))
+    mask = Image.new("L", image.size, 0)
+    _draw_polygon_mask(ImageDraw.Draw(mask), json.loads(item["geom_json"]), bounds, OFFICIAL_FOREST_RASTER_SIZE)
+    covered_pixels = mask.histogram()[255]
+    if not covered_pixels:
+        raise ValueError("Masker konsesi tidak menghasilkan piksel yang dapat dihitung")
+    # Let Pillow group identical/anti-aliased colours in C instead of walking
+    # ~600k Python pixels per concession.  This matters for the first regional
+    # refresh with more than one hundred assets.
+    masked = Image.new("RGB", image.size, (0, 0, 0))
+    masked.paste(image, mask=mask)
+    forest_pixels = 0
+    classes: dict[str, int] = {}
+    for count, pixel in masked.getcolors(maxcolors=image.width * image.height) or []:
+        if pixel == (0, 0, 0):
+            continue
+        forest_class = _forest_class_from_pixel(*pixel)
+        if forest_class:
+            forest_pixels += count
+            classes[forest_class] = classes.get(forest_class, 0) + count
+    ratio = forest_pixels / covered_pixels
+    area_ha = round(float(item["konsesi_area_ha"]) * ratio, 4)
+    class_ha = {name: round(float(item["konsesi_area_ha"]) * count / covered_pixels, 4) for name, count in classes.items()}
+    return area_ha, class_ha
+
+
+def _refresh_official_forest_cache(items: list[dict[str, Any]]) -> None:
+    """Run outside the HTTP response; results are durable and reused by all users."""
+    if not items:
+        return
+    db = SessionLocal()
+    try:
+        keys = [item["id"] for item in items]
+        db.execute(text("""
+          UPDATE gis_official_forest_cache SET state='running', updated_at=now(), error_summary=NULL
+          WHERE asset_key = ANY(:keys) AND source_key=:source_key
+        """), {"keys": keys, "source_key": OFFICIAL_FOREST_SOURCE_KEY})
+        db.commit()
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            futures = {pool.submit(_measure_official_forest, item): item for item in items}
+            for future in as_completed(futures):
+                item = futures[future]
+                try:
+                    forest_area_ha, class_breakdown = future.result()
+                    db.execute(text("""
+                      UPDATE gis_official_forest_cache
+                      SET state='complete', forest_area_ha=:forest_area_ha,
+                        class_breakdown=CAST(:class_breakdown AS jsonb), error_summary=NULL,
+                        measured_at=now(), updated_at=now()
+                      WHERE asset_key=:asset_key AND geom_hash=:geom_hash AND source_key=:source_key
+                    """), {"asset_key": item["id"], "geom_hash": item["geom_hash"], "source_key": OFFICIAL_FOREST_SOURCE_KEY,
+                           "forest_area_ha": forest_area_ha, "class_breakdown": json.dumps(class_breakdown)})
+                except Exception as exc:
+                    db.execute(text("""
+                      UPDATE gis_official_forest_cache
+                      SET state='failed', error_summary=:error_summary, updated_at=now()
+                      WHERE asset_key=:asset_key AND geom_hash=:geom_hash AND source_key=:source_key
+                    """), {"asset_key": item["id"], "geom_hash": item["geom_hash"], "source_key": OFFICIAL_FOREST_SOURCE_KEY,
+                           "error_summary": str(exc)[:500]})
+                db.commit()
+    finally:
+        db.close()
 
 
 def _error(exc: Exception) -> HTTPException:
@@ -446,6 +576,7 @@ def list_konsesi_summaries(
 
 @router.get("/konsesi/summary/grouped")
 def list_grouped_konsesi_summaries(
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     _user: dict[str, Any] = Depends(require_app_read),
 ):
@@ -488,19 +619,57 @@ def list_grouped_konsesi_summaries(
         1::integer AS konsesi_count, ARRAY[cg.nama_aset]::text[] AS konsesi_names,
         ARRAY[cg.dataset_id::text]::text[] AS dataset_ids,
         concat_ws(',', ST_XMin(Box2D(cg.geom)::box3d), ST_YMin(Box2D(cg.geom)::box3d), ST_XMax(Box2D(cg.geom)::box3d), ST_YMax(Box2D(cg.geom)::box3d)) AS bbox,
+        ST_AsGeoJSON(cg.geom) AS geom_json,
+        md5(ST_AsEWKB(cg.geom)::text) AS geom_hash,
         round((ST_Area(cg.geom::geography) / 10000)::numeric, 4) AS konsesi_area_ha,
         round(coalesce((ST_Area(ST_Intersection(cg.geom, (SELECT geom FROM category_geom WHERE kind='tanaman'))::geography) / 10000), 0)::numeric, 4) AS tanaman_area_ha,
-        round(coalesce((ST_Area(ST_Intersection(cg.geom, (SELECT geom FROM category_geom WHERE kind='hutan'))::geography) / 10000), 0)::numeric, 4) AS hutan_area_ha,
+        CASE WHEN EXISTS (SELECT 1 FROM category_geom WHERE kind='hutan')
+          THEN round(coalesce((ST_Area(ST_Intersection(cg.geom, (SELECT geom FROM category_geom WHERE kind='hutan'))::geography) / 10000), 0)::numeric, 4)
+          WHEN ofc.state='complete' THEN ofc.forest_area_ha
+          ELSE NULL END AS hutan_area_ha,
         round(coalesce((ST_Area(ST_Intersection(cg.geom, (SELECT geom FROM category_geom WHERE kind='okupasi'))::geography) / 10000), 0)::numeric, 4) AS okupasi_area_ha,
         round(coalesce((ST_Area(ST_Intersection(cg.geom, (SELECT geom FROM category_geom WHERE kind='opset'))::geography) / 10000), 0)::numeric, 4) AS kerja_sama_area_ha,
-        round((ST_Area(ST_Difference(cg.geom, coalesce((SELECT geom FROM available_mask), ST_GeomFromText('MULTIPOLYGON EMPTY', 4326)))::geography) / 10000)::numeric, 4) AS dapat_dimanfaatkan_area_ha
-      FROM konsesi_group cg ORDER BY cg.lokasi, cg.nama_aset
-    """)).mappings().all()
+        CASE WHEN EXISTS (SELECT 1 FROM category_geom WHERE kind='hutan')
+          THEN round((ST_Area(ST_Difference(cg.geom, coalesce((SELECT geom FROM available_mask), ST_GeomFromText('MULTIPOLYGON EMPTY', 4326)))::geography) / 10000)::numeric, 4)
+          WHEN ofc.state='complete' THEN round(GREATEST(0, (ST_Area(ST_Difference(cg.geom, coalesce((SELECT geom FROM available_mask), ST_GeomFromText('MULTIPOLYGON EMPTY', 4326)))::geography) / 10000) - ofc.forest_area_ha)::numeric, 4)
+          ELSE NULL END AS dapat_dimanfaatkan_area_ha,
+        ofc.state AS official_forest_state
+      FROM konsesi_group cg
+      LEFT JOIN gis_official_forest_cache ofc
+        ON ofc.asset_key=cg.id AND ofc.geom_hash=md5(ST_AsEWKB(cg.geom)::text)
+          AND ofc.source_key=:official_forest_source
+      ORDER BY cg.lokasi, cg.nama_aset
+    """), {"official_forest_source": OFFICIAL_FOREST_SOURCE_KEY}).mappings().all()
     active_kinds = set(db.execute(text("""
       SELECT DISTINCT kind FROM gis_datasets
       WHERE active_version_id IS NOT NULL AND archived_at IS NULL
     """)).scalars().all())
     missing_layers = sorted({"konsesi", "tanaman", "hutan", "opset", "okupasi"} - active_kinds)
+    queued_items: list[dict[str, Any]] = []
+    if "hutan" not in active_kinds:
+        for row in rows:
+            item = dict(row)
+            if item["official_forest_state"] in {None, "queued"} and item.get("bbox"):
+                queued = db.execute(text("""
+                  INSERT INTO gis_official_forest_cache (
+                    asset_key, geom_hash, source_key, source_year, state, raster_size, updated_at
+                  ) VALUES (:asset_key, :geom_hash, :source_key, :source_year, 'running', :raster_size, now())
+                  ON CONFLICT (asset_key) DO UPDATE SET
+                    geom_hash=EXCLUDED.geom_hash, source_key=EXCLUDED.source_key,
+                    source_year=EXCLUDED.source_year, state='running', error_summary=NULL,
+                    updated_at=now()
+                  WHERE gis_official_forest_cache.geom_hash <> EXCLUDED.geom_hash
+                    OR gis_official_forest_cache.source_key <> EXCLUDED.source_key
+                    OR gis_official_forest_cache.state='queued'
+                  RETURNING asset_key
+                """), {"asset_key": item["id"], "geom_hash": item["geom_hash"],
+                       "source_key": OFFICIAL_FOREST_SOURCE_KEY, "source_year": OFFICIAL_FOREST_SOURCE_YEAR,
+                       "raster_size": OFFICIAL_FOREST_RASTER_SIZE}).scalar_one_or_none()
+                if queued:
+                    queued_items.append(item)
+        if queued_items:
+            db.commit()
+            background_tasks.add_task(_refresh_official_forest_cache, queued_items)
     result = []
     for row in rows:
         item = dict(row)
@@ -508,14 +677,17 @@ def list_grouped_konsesi_summaries(
         item["dataset_ids"] = item["dataset_ids"] or []
         for field in ("konsesi_area_ha", "tanaman_area_ha", "hutan_area_ha", "okupasi_area_ha", "kerja_sama_area_ha", "dapat_dimanfaatkan_area_ha"):
             item[field] = float(item[field]) if item[field] is not None else None
-        item["missing_layers"] = missing_layers
+        item["missing_layers"] = [kind for kind in missing_layers if not (kind == "hutan" and item["official_forest_state"] == "complete")]
         item["analysis_status"] = (
             "draf — lengkapi informasi sebelum diterbitkan" if item["record_state"] == "draf"
-            else "estimasi — layer belum lengkap" if missing_layers
+            else "overlay kawasan hutan resmi sedang dihitung" if item["official_forest_state"] in {"queued", "running"}
+            else "estimasi — layer belum lengkap" if item["missing_layers"]
             else "estimasi berdasarkan layer aktif"
         )
+        item.pop("geom_json", None)
+        item.pop("geom_hash", None)
         result.append(item)
-    return {"data": result, "availability_note": "Satu baris adalah satu aset tanah dari KMZ konsesi; bagian polygon dari aset yang sama telah digabungkan. Sisa dapat dimanfaatkan adalah estimasi spasial, bukan keputusan legal."}
+    return {"data": result, "availability_note": "Kawasan hutan dihitung otomatis dari overlay raster peta resmi Kemenhut skala 1:250.000 (Juni 2026), lalu disimpan per konsesi. Ini merupakan estimasi spasial, bukan keputusan legal."}
 
 
 @router.get("/reference/administrasi")
