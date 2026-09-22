@@ -48,6 +48,7 @@ export const gisApi = {
   kerjaSamaReference: () => request<{ data: GISKerjaSamaReference[] }>('/reference/kerja-sama'),
   asetReference: () => request<{ data: GISAsetReference[] }>('/reference/aset'),
   assetSummaries: () => request<{ data: GISAssetSummary[]; availability_note: string }>('/assets/summary'),
+  konsesiSummaries: () => request<{ data: GISAssetSummary[]; availability_note: string }>('/konsesi/summary/grouped'),
   administrasiReference: (level?: GISAdministrasiReference['level']) => request<{ data: GISAdministrasiReference[] }>(`/reference/administrasi${level ? `?level=${level}` : ''}`),
   hutanFunctions: () => request<{ data: string[] }>('/reference/hutan-functions'),
   identifyOfficialForest: (lng: number, lat: number) => request<GISOfficialForestHit>(`/official-forest/identify?${new URLSearchParams({ lng: String(lng), lat: String(lat) })}`),

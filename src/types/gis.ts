@@ -45,8 +45,10 @@ export interface GISAsetReference { id: string; kode_aset: string; nama_aset: st
 
 export interface GISAssetSummary {
   id: string
+  record_state: 'draf' | 'terbit'
   kode_aset: string
   nama_aset: string
+  lokasi: string
   konsesi_count: number | null
   konsesi_names: string[]
   dataset_ids: string[]

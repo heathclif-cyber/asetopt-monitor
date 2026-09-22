@@ -371,6 +371,153 @@ def list_asset_summaries(
     return {"data": result, "availability_note": "Sisa dapat dimanfaatkan adalah estimasi spasial: konsesi dikurangi gabungan unik tanaman, kawasan hutan, okupasi, dan area kerja sama. Konfirmasi legal tetap diperlukan."}
 
 
+@router.get("/konsesi/summary")
+def list_konsesi_summaries(
+    db: Session = Depends(get_db),
+    _user: dict[str, Any] = Depends(require_app_read),
+):
+    """Summarise each active cadastral polygon, the authoritative asset source.
+
+    A row is a polygon from the Regional 8 concession KMZ (or a replacement
+    cadastral KML), never a row from the commercial kerja-sama master table.
+    """
+    rows = db.execute(text("""
+      WITH konsesi_version AS (
+        SELECT d.id AS dataset_id,
+          coalesce(d.active_version_id, (
+            SELECT i.candidate_version_id FROM gis_imports i
+            WHERE i.dataset_id=d.id AND i.state IN ('mapping_required', 'ready')
+            ORDER BY i.created_at DESC LIMIT 1
+          )) AS version_id,
+          CASE WHEN d.active_version_id IS NULL THEN 'draf' ELSE 'terbit' END AS record_state
+        FROM gis_datasets d WHERE d.kind='konsesi' AND d.archived_at IS NULL
+      ), category_geom AS (
+        SELECT d.kind, ST_UnaryUnion(ST_Collect(fv.geom)) AS geom
+        FROM gis_feature_versions fv
+        JOIN gis_dataset_versions v ON v.id=fv.dataset_version_id
+        JOIN gis_datasets d ON d.id=v.dataset_id
+        WHERE d.active_version_id=fv.dataset_version_id
+          AND d.kind IN ('tanaman', 'hutan', 'opset', 'okupasi')
+        GROUP BY d.kind
+      ), available_mask AS (
+        SELECT ST_UnaryUnion(ST_Collect(geom)) AS geom
+        FROM category_geom WHERE kind IN ('tanaman', 'hutan', 'opset', 'okupasi')
+      )
+      SELECT fv.id, cv.record_state, coalesce(kd.nomor_alas_hak, fv.name) AS kode_aset, fv.name AS nama_aset,
+        coalesce(fv.original_properties->>'Kebun', fv.original_properties->>'kebun', '') AS lokasi,
+        1::integer AS konsesi_count, ARRAY[fv.name]::text[] AS konsesi_names,
+        ARRAY[d.id::text]::text[] AS dataset_ids,
+        concat_ws(',', ST_XMin(Box2D(fv.geom)::box3d), ST_YMin(Box2D(fv.geom)::box3d), ST_XMax(Box2D(fv.geom)::box3d), ST_YMax(Box2D(fv.geom)::box3d)) AS bbox,
+        round((ST_Area(fv.geom::geography) / 10000)::numeric, 4) AS konsesi_area_ha,
+        round(coalesce((ST_Area(ST_Intersection(fv.geom, (SELECT geom FROM category_geom WHERE kind='tanaman'))::geography) / 10000), 0)::numeric, 4) AS tanaman_area_ha,
+        round(coalesce((ST_Area(ST_Intersection(fv.geom, (SELECT geom FROM category_geom WHERE kind='hutan'))::geography) / 10000), 0)::numeric, 4) AS hutan_area_ha,
+        round(coalesce((ST_Area(ST_Intersection(fv.geom, (SELECT geom FROM category_geom WHERE kind='okupasi'))::geography) / 10000), 0)::numeric, 4) AS okupasi_area_ha,
+        round(coalesce((ST_Area(ST_Intersection(fv.geom, (SELECT geom FROM category_geom WHERE kind='opset'))::geography) / 10000), 0)::numeric, 4) AS kerja_sama_area_ha,
+        round((ST_Area(ST_Difference(fv.geom, coalesce((SELECT geom FROM available_mask), ST_GeomFromText('MULTIPOLYGON EMPTY', 4326)))::geography) / 10000)::numeric, 4) AS dapat_dimanfaatkan_area_ha
+      FROM konsesi_version cv
+      JOIN gis_feature_versions fv ON fv.dataset_version_id=cv.version_id
+      JOIN gis_datasets d ON d.id=cv.dataset_id
+      LEFT JOIN gis_konsesi_details kd ON kd.feature_version_id=fv.id
+      ORDER BY coalesce(fv.original_properties->>'Kebun', fv.original_properties->>'kebun', ''), fv.name
+    """)).mappings().all()
+    active_kinds = set(db.execute(text("""
+      SELECT DISTINCT kind FROM gis_datasets
+      WHERE active_version_id IS NOT NULL AND archived_at IS NULL
+    """)).scalars().all())
+    required_kinds = {"konsesi", "tanaman", "hutan", "opset", "okupasi"}
+    missing_layers = sorted(required_kinds - active_kinds)
+    result = []
+    for row in rows:
+        item = dict(row)
+        item["id"] = str(item["id"])
+        item["konsesi_names"] = item["konsesi_names"] or []
+        item["dataset_ids"] = item["dataset_ids"] or []
+        for field in ("konsesi_area_ha", "tanaman_area_ha", "hutan_area_ha", "okupasi_area_ha", "kerja_sama_area_ha", "dapat_dimanfaatkan_area_ha"):
+            item[field] = float(item[field]) if item[field] is not None else None
+        item["missing_layers"] = missing_layers
+        item["analysis_status"] = (
+            "draf — lengkapi informasi sebelum diterbitkan" if item["record_state"] == "draf"
+            else "estimasi — layer belum lengkap" if missing_layers
+            else "estimasi berdasarkan layer aktif"
+        )
+        result.append(item)
+    return {"data": result, "availability_note": "Satu baris adalah satu polygon konsesi yang diterbitkan. Sisa dapat dimanfaatkan adalah estimasi spasial: konsesi dikurangi gabungan unik tanaman, kawasan hutan, okupasi, dan area kerja sama. Konfirmasi legal tetap diperlukan."}
+
+
+@router.get("/konsesi/summary/grouped")
+def list_grouped_konsesi_summaries(
+    db: Session = Depends(get_db),
+    _user: dict[str, Any] = Depends(require_app_read),
+):
+    """Return one row per source land asset, merging multipart KMZ polygons."""
+    rows = db.execute(text("""
+      WITH konsesi_version AS (
+        SELECT d.id AS dataset_id,
+          coalesce(d.active_version_id, (
+            SELECT i.candidate_version_id FROM gis_imports i
+            WHERE i.dataset_id=d.id AND i.state IN ('mapping_required', 'ready')
+            ORDER BY i.created_at DESC LIMIT 1
+          )) AS version_id,
+          CASE WHEN d.active_version_id IS NULL THEN 'draf' ELSE 'terbit' END AS record_state
+        FROM gis_datasets d WHERE d.kind='konsesi' AND d.archived_at IS NULL
+      ), category_geom AS (
+        SELECT d.kind, ST_UnaryUnion(ST_Collect(fv.geom)) AS geom
+        FROM gis_feature_versions fv
+        JOIN gis_dataset_versions v ON v.id=fv.dataset_version_id
+        JOIN gis_datasets d ON d.id=v.dataset_id
+        WHERE d.active_version_id=fv.dataset_version_id
+          AND d.kind IN ('tanaman', 'hutan', 'opset', 'okupasi')
+        GROUP BY d.kind
+      ), available_mask AS (
+        SELECT ST_UnaryUnion(ST_Collect(geom)) AS geom
+        FROM category_geom WHERE kind IN ('tanaman', 'hutan', 'opset', 'okupasi')
+      ), konsesi_group AS (
+        SELECT md5(concat_ws('|', coalesce(fv.original_properties->>'Kebun', fv.original_properties->>'kebun', ''), coalesce(fv.original_properties->>'FID_Areal', fv.original_properties->>'fid_areal', fv.original_properties->>'Nama_Serti', fv.name))) AS id,
+          cv.record_state, d.id AS dataset_id,
+          coalesce(max(nullif(kd.nomor_alas_hak, '')), max(nullif(fv.original_properties->>'Nama_Serti', '')), min(fv.name)) AS kode_aset,
+          coalesce(max(nullif(fv.original_properties->>'Nama_Serti', '')), regexp_replace(min(fv.name), '\\s+\\(bagian \\d+\\)$', '')) AS nama_aset,
+          coalesce(max(nullif(fv.original_properties->>'Kebun', '')), max(nullif(fv.original_properties->>'kebun', '')), '') AS lokasi,
+          ST_UnaryUnion(ST_Collect(fv.geom)) AS geom
+        FROM konsesi_version cv
+        JOIN gis_feature_versions fv ON fv.dataset_version_id=cv.version_id
+        JOIN gis_datasets d ON d.id=cv.dataset_id
+        LEFT JOIN gis_konsesi_details kd ON kd.feature_version_id=fv.id
+        GROUP BY cv.record_state, d.id, coalesce(fv.original_properties->>'Kebun', fv.original_properties->>'kebun', ''), coalesce(fv.original_properties->>'FID_Areal', fv.original_properties->>'fid_areal', fv.original_properties->>'Nama_Serti', fv.name)
+      )
+      SELECT cg.id, cg.record_state, cg.kode_aset, cg.nama_aset, cg.lokasi,
+        1::integer AS konsesi_count, ARRAY[cg.nama_aset]::text[] AS konsesi_names,
+        ARRAY[cg.dataset_id::text]::text[] AS dataset_ids,
+        concat_ws(',', ST_XMin(Box2D(cg.geom)::box3d), ST_YMin(Box2D(cg.geom)::box3d), ST_XMax(Box2D(cg.geom)::box3d), ST_YMax(Box2D(cg.geom)::box3d)) AS bbox,
+        round((ST_Area(cg.geom::geography) / 10000)::numeric, 4) AS konsesi_area_ha,
+        round(coalesce((ST_Area(ST_Intersection(cg.geom, (SELECT geom FROM category_geom WHERE kind='tanaman'))::geography) / 10000), 0)::numeric, 4) AS tanaman_area_ha,
+        round(coalesce((ST_Area(ST_Intersection(cg.geom, (SELECT geom FROM category_geom WHERE kind='hutan'))::geography) / 10000), 0)::numeric, 4) AS hutan_area_ha,
+        round(coalesce((ST_Area(ST_Intersection(cg.geom, (SELECT geom FROM category_geom WHERE kind='okupasi'))::geography) / 10000), 0)::numeric, 4) AS okupasi_area_ha,
+        round(coalesce((ST_Area(ST_Intersection(cg.geom, (SELECT geom FROM category_geom WHERE kind='opset'))::geography) / 10000), 0)::numeric, 4) AS kerja_sama_area_ha,
+        round((ST_Area(ST_Difference(cg.geom, coalesce((SELECT geom FROM available_mask), ST_GeomFromText('MULTIPOLYGON EMPTY', 4326)))::geography) / 10000)::numeric, 4) AS dapat_dimanfaatkan_area_ha
+      FROM konsesi_group cg ORDER BY cg.lokasi, cg.nama_aset
+    """)).mappings().all()
+    active_kinds = set(db.execute(text("""
+      SELECT DISTINCT kind FROM gis_datasets
+      WHERE active_version_id IS NOT NULL AND archived_at IS NULL
+    """)).scalars().all())
+    missing_layers = sorted({"konsesi", "tanaman", "hutan", "opset", "okupasi"} - active_kinds)
+    result = []
+    for row in rows:
+        item = dict(row)
+        item["konsesi_names"] = item["konsesi_names"] or []
+        item["dataset_ids"] = item["dataset_ids"] or []
+        for field in ("konsesi_area_ha", "tanaman_area_ha", "hutan_area_ha", "okupasi_area_ha", "kerja_sama_area_ha", "dapat_dimanfaatkan_area_ha"):
+            item[field] = float(item[field]) if item[field] is not None else None
+        item["missing_layers"] = missing_layers
+        item["analysis_status"] = (
+            "draf — lengkapi informasi sebelum diterbitkan" if item["record_state"] == "draf"
+            else "estimasi — layer belum lengkap" if missing_layers
+            else "estimasi berdasarkan layer aktif"
+        )
+        result.append(item)
+    return {"data": result, "availability_note": "Satu baris adalah satu aset tanah dari KMZ konsesi; bagian polygon dari aset yang sama telah digabungkan. Sisa dapat dimanfaatkan adalah estimasi spasial, bukan keputusan legal."}
+
+
 @router.get("/reference/administrasi")
 def list_administrasi_reference(
     level: str | None = None,

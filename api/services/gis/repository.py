@@ -270,7 +270,11 @@ def refresh_import_readiness(db: Session, import_id: str) -> dict[str, Any]:
     rows = db.execute(text(f"SELECT * FROM {table} WHERE feature_version_id IN (SELECT id FROM gis_feature_versions WHERE dataset_version_id=:version_id)"), {"version_id": imp["candidate_version_id"]}).mappings().all()
     detail_by_feature = {str(row["feature_version_id"]): dict(row) for row in rows}
     rules: dict[str, tuple[str, ...]] = {
-        "konsesi": ("nomor_alas_hak", "jenis_alas_hak", "declared_area_m2", "tanggal_terbit", "expiry_mode"),
+        # The source cadastral KMZ commonly contains the certificate number
+        # and certified area but not its historic issue date.  Geometry may
+        # be published once those core identifiers are confirmed; the date is
+        # retained as an optional metadata field to complete later.
+        "konsesi": ("nomor_alas_hak", "jenis_alas_hak", "declared_area_m2", "expiry_mode"),
         "tanaman": ("unit_kebun", "komoditas", "tahun_tanam", "declared_area_m2"),
         "hutan": ("fungsi_normalized", "sumber", "tahun"),
         "opset": ("kerja_sama_id",),
