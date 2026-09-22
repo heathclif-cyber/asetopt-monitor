@@ -16,8 +16,9 @@ import { Textarea } from '@/components/ui/textarea'
 import { SearchableSelect } from '@/components/common/SearchableSelect'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Plus, Trash2, Upload, Loader2, CheckCircle2 } from 'lucide-react'
+import { Upload, Loader2, CheckCircle2 } from 'lucide-react'
 import KatalogPreview from './KatalogPreview'
+import { CANVA_PHOTO_SLOTS, canvaPhoto } from './canva-layout'
 import type { KatalogFactsheetData } from '@/types'
 
 const katalogSchema = z.object({
@@ -46,8 +47,34 @@ const katalogSchema = z.object({
 type KatalogFormValues = z.infer<typeof katalogSchema>
 
 interface AccessibilityItem { label: string; nilai: string; keterangan: string }
-interface LingkunganItem { nama: string; jarak: string; tipe: string }
-interface SkemaItem { kode: string; nama: string; catatan: string }
+interface TollInfo { name: string; distance: string; time: string }
+
+const CARD_DIRECTIONS = ['N', 'W', 'E', 'S'] as const
+const emptyDirectionCards = (): AccessibilityItem[] => CARD_DIRECTIONS.map(direction => ({ label: `${direction}:`, nilai: '', keterangan: '' }))
+
+function makeAccessFormItems(items: { label: string; nilai?: string | null; keterangan?: string | null }[]) {
+  const cards = emptyDirectionCards()
+  const radius = items.find(item => /^radius$/i.test(item.label.trim()))?.nilai ?? ''
+  const toll = items.find(item => /tol|toll|jalan|road/i.test(item.label))
+  const pending: string[] = []
+  for (const item of items) {
+    const raw = item.label.trim()
+    if (/^radius$/i.test(raw) || /tol|toll|jalan|road/i.test(raw)) continue
+    const match = raw.match(/^([NWES])(?:\s*[:–-]\s*|$)/i)
+    const content = match
+      ? [raw.slice(match[0].length).trim(), item.nilai, item.keterangan].filter(Boolean).join('\n')
+      : [raw, item.nilai, item.keterangan].filter(Boolean).join('\n')
+    const index = match ? CARD_DIRECTIONS.indexOf(match[1].toUpperCase() as typeof CARD_DIRECTIONS[number]) : -1
+    if (index >= 0 && !cards[index].keterangan) cards[index].keterangan = content
+    else if (content) pending.push(content)
+  }
+  cards.forEach(card => { if (!card.keterangan && pending.length) card.keterangan = pending.shift() ?? '' })
+  return {
+    cards,
+    radius,
+    toll: { name: toll?.label ?? '', distance: toll?.nilai ?? '', time: toll?.keterangan ?? '' },
+  }
+}
 
 interface Props {
   existingKatalog?: KatalogAset | null
@@ -55,26 +82,7 @@ interface Props {
   onCancel?: () => void
 }
 
-const SLOT_IDS = [
-  { id: 'ed-hero', label: 'Hero / Foto Utama' },
-  { id: 'ed-aerial', label: 'Foto Udara / Aerial' },
-  { id: 'ed-thumb-1', label: 'Foto 02' },
-  { id: 'ed-thumb-2', label: 'Foto 03' },
-  { id: 'ed-thumb-3', label: 'Foto 04' },
-  { id: 'md-hero', label: 'Hero (Modular)' },
-  { id: 'md-media-1', label: 'Eksterior (Modular)' },
-  { id: 'md-media-2', label: 'Interior (Modular)' },
-  { id: 'md-media-3', label: 'Aerial (Modular)' },
-  { id: 'cp-hero', label: 'Hero (Compact)' },
-  { id: 'cp-aerial', label: 'Aerial (Compact)' },
-  { id: 'cp-thumb-1', label: 'Foto 02 (Compact)' },
-  { id: 'cp-thumb-2', label: 'Foto 03 (Compact)' },
-  { id: 'cp-thumb-3', label: 'Foto 04 (Compact)' },
-  { id: 'cl-hero', label: 'Foto Utama (Katalog Landscape)' },
-  { id: 'cl-near-1', label: 'Foto Lingkungan 01 (Katalog Landscape)' },
-  { id: 'cl-near-2', label: 'Foto Lingkungan 02 (Katalog Landscape)' },
-  { id: 'cl-map', label: 'Peta Lokasi (Katalog Landscape)' },
-]
+const SLOT_IDS = CANVA_PHOTO_SLOTS
 
 export default function KatalogForm({ existingKatalog, onSuccess, onCancel }: Props) {
   const { daftarAset, fetchAset } = useAsetStore()
@@ -82,9 +90,9 @@ export default function KatalogForm({ existingKatalog, onSuccess, onCancel }: Pr
   const { fetchKJPP, getKJPPTerbaru } = useKJPPStore()
   const { createKatalog, updateKatalog, uploadFoto, fetchById, isSaving } = useKatalogStore()
   const [activeTab, setActiveTab] = useState('form')
-  const [aksesItems, setAksesItems] = useState<AccessibilityItem[]>([])
-  const [lingkItems, setLingkItems] = useState<LingkunganItem[]>([])
-  const [skemaItems, setSkemaItems] = useState<SkemaItem[]>([])
+  const [aksesItems, setAksesItems] = useState<AccessibilityItem[]>(emptyDirectionCards)
+  const [radius, setRadius] = useState('')
+  const [tollInfo, setTollInfo] = useState<TollInfo>({ name: '', distance: '', time: '' })
   const [uploadingSlot, setUploadingSlot] = useState<string | null>(null)
   const [savedKatalogId, setSavedKatalogId] = useState<string | null>(existingKatalog?.id ?? null)
   const [savedKatalog, setSavedKatalog] = useState<KatalogAset | null>(existingKatalog ?? null)
@@ -121,29 +129,27 @@ export default function KatalogForm({ existingKatalog, onSuccess, onCancel }: Pr
   useEffect(() => {
     fetchAset()
     if (existingKatalog) {
-      setAksesItems((existingKatalog.aksesibilitas ?? []).map(a => ({ label: a.label, nilai: a.nilai ?? '', keterangan: a.keterangan ?? '' })))
-      setLingkItems((existingKatalog.lingkungan ?? []).map(l => ({ nama: l.nama, jarak: l.jarak ?? '', tipe: l.tipe ?? '' })))
-      setSkemaItems((existingKatalog.skema ?? []).map(s => ({ kode: s.kode, nama: s.nama ?? '', catatan: s.catatan ?? '' })))
+      const access = makeAccessFormItems(existingKatalog.aksesibilitas ?? [])
+      setAksesItems(access.cards)
+      setRadius(access.radius)
+      setTollInfo(access.toll)
     }
   }, [existingKatalog])
 
-  const addAkses = () => setAksesItems([...aksesItems, { label: '', nilai: '', keterangan: '' }])
-  const removeAkses = (i: number) => setAksesItems(aksesItems.filter((_, idx) => idx !== i))
-  const addLingk = () => setLingkItems([...lingkItems, { nama: '', jarak: '', tipe: '' }])
-  const removeLingk = (i: number) => setLingkItems(lingkItems.filter((_, idx) => idx !== i))
-  const addSkema = () => setSkemaItems([...skemaItems, { kode: '', nama: '', catatan: '' }])
-  const removeSkema = (i: number) => setSkemaItems(skemaItems.filter((_, idx) => idx !== i))
-
   const onSubmit = async (values: KatalogFormValues) => {
-    const akses = aksesItems.map((a, i) => ({ ...a, urutan: i }))
-    const lingk = lingkItems.map((l, i) => ({ ...l, urutan: i }))
-    const skm = skemaItems.map((s, i) => ({ ...s, urutan: i }))
+    const akses = [
+      ...aksesItems.map((a, i) => ({ label: `${CARD_DIRECTIONS[i]}:`, nilai: '', keterangan: a.keterangan.trim(), urutan: i })),
+      ...(radius.trim() ? [{ label: 'Radius', nilai: radius.trim(), keterangan: '', urutan: 4 }] : []),
+      ...(tollInfo.name.trim() || tollInfo.distance.trim() || tollInfo.time.trim()
+        ? [{ label: tollInfo.name.trim() || 'Akses jalan', nilai: tollInfo.distance.trim(), keterangan: tollInfo.time.trim(), urutan: 5 }]
+        : []),
+    ]
 
     if (katalogId) {
-      await updateKatalog(katalogId, { katalog: values, aksesibilitas: akses, lingkungan: lingk, skema: skm })
+      await updateKatalog(katalogId, { katalog: values, aksesibilitas: akses })
       setSaved(true)
     } else {
-      const id = await createKatalog({ katalog: values, aksesibilitas: akses, lingkungan: lingk, skema: skm })
+      const id = await createKatalog({ katalog: values, aksesibilitas: akses, lingkungan: [], skema: [] })
       if (id) {
         setSavedKatalogId(id)
         setSaved(true)
@@ -244,9 +250,13 @@ export default function KatalogForm({ existingKatalog, onSuccess, onCancel }: Pr
       appraisalSource,
       recommendation: v.rekomendasi_pengembangan ?? '',
       recommendationSummary: v.rekomendasi_summary ?? '',
-      partnershipSchemes: skemaItems.map(s => ({ code: s.kode, name: s.nama, note: s.catatan })),
-      accessibility: aksesItems.map(a => ({ label: a.label, value: a.nilai, sub: a.keterangan })),
-      surroundings: lingkItems.map(l => ({ name: l.nama, distance: l.jarak, type: l.tipe })),
+      partnershipSchemes: [],
+      accessibility: [
+        ...aksesItems.map((a, i) => ({ label: `${CARD_DIRECTIONS[i]}:`, value: '', sub: a.keterangan })),
+        ...(radius.trim() ? [{ label: 'Radius', value: radius.trim(), sub: '' }] : []),
+        ...(tollInfo.name.trim() || tollInfo.distance.trim() || tollInfo.time.trim() ? [{ label: tollInfo.name.trim() || 'Akses jalan', value: tollInfo.distance.trim(), sub: tollInfo.time.trim() }] : []),
+      ],
+      surroundings: [],
       pic: {
         name: v.pic_nama ?? '', title: v.pic_jabatan ?? '',
         phone: v.pic_phone ?? '', mobile: v.pic_mobile ?? '',
@@ -324,14 +334,11 @@ export default function KatalogForm({ existingKatalog, onSuccess, onCancel }: Pr
             </CardContent>
           </Card>
 
-          {/* Tagline & Coordinates */}
+          {/* Coordinates */}
           <Card>
-            <CardHeader><CardTitle className="text-base">Judul & Lokasi</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="text-base">Lokasi untuk QR</CardTitle></CardHeader>
             <CardContent className="space-y-4">
-              <div>
-                <Label>Tagline</Label>
-                <Input {...register('tagline')} placeholder="Deskripsi singkat menarik untuk cover" />
-              </div>
+              <p className="text-xs text-muted-foreground">Koordinat dipakai untuk QR “location”. Isi titik aset agar QR membuka lokasi yang benar.</p>
               <div className="grid grid-cols-2 gap-4">
                 <div><Label>Koordinat Latitude</Label><Input {...register('coordinates_lat')} placeholder='-5.1864' /></div>
                 <div><Label>Koordinat Longitude</Label><Input {...register('coordinates_lng')} placeholder='119.4337' /></div>
@@ -339,81 +346,34 @@ export default function KatalogForm({ existingKatalog, onSuccess, onCancel }: Pr
             </CardContent>
           </Card>
 
-          {/* Sertifikat, Zonasi, dll */}
-          <Card>
-            <CardHeader><CardTitle className="text-base">Spesifikasi Aset</CardTitle></CardHeader>
-            <CardContent className="grid grid-cols-2 gap-4">
-              <div><Label>Sertifikat Detail</Label><Input {...register('sertifikat_detail')} placeholder="HM (Hak Milik) – No. 4421 / Mangasa" /></div>
-              <div><Label>Pemilik Sertifikat</Label><Input {...register('sertifikat_pemilik')} placeholder="PT Perkebunan Nusantara I" /></div>
-              <div><Label>Zonasi</Label><Input {...register('zonasi')} placeholder="Zona Pelayanan Umum — Skala Kota (K-3)" /></div>
-              <div><Label>Topografi</Label><Input {...register('topografi')} placeholder="Datar, elevasi 14–18 mdpl" /></div>
-              <div className="col-span-2"><Label>Kondisi Bangunan</Label><Input {...register('kondisi_bangunan')} placeholder="Eksisting bangunan gudang & mess" /></div>
-            </CardContent>
-          </Card>
-
           {/* Rekomendasi */}
           <Card>
-            <CardHeader><CardTitle className="text-base">Rekomendasi Pengembangan</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="text-base">Pemanfaatan Aset</CardTitle></CardHeader>
             <CardContent className="space-y-4">
-              <div><Label>Judul Rekomendasi</Label><Input {...register('rekomendasi_pengembangan')} placeholder="Sport Center & Komersial Pendukung" /></div>
-              <div><Label>Ringkasan Rekomendasi</Label><Textarea {...register('rekomendasi_summary')} placeholder="Jelaskan alasan rekomendasi..." rows={3} /></div>
-            </CardContent>
-          </Card>
-
-          {/* Skema */}
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-base">Skema Kerjasama</CardTitle>
-              <Button type="button" variant="outline" size="sm" onClick={addSkema}><Plus className="w-3 h-3 mr-1" /> Tambah</Button>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {skemaItems.length === 0 && <p className="text-xs text-muted-foreground">Belum ada skema. Klik Tambah.</p>}
-              {skemaItems.map((s, i) => (
-                <div key={i} className="flex gap-2 items-start">
-                  <Input placeholder="Kode (BOT, KSO, JV)" value={s.kode} onChange={e => { const n = [...skemaItems]; n[i].kode = e.target.value; setSkemaItems(n) }} className="w-[100px]" />
-                  <Input placeholder="Nama skema" value={s.nama} onChange={e => { const n = [...skemaItems]; n[i].nama = e.target.value; setSkemaItems(n) }} className="flex-1" />
-                  <Input placeholder="Catatan (tenor, dll)" value={s.catatan} onChange={e => { const n = [...skemaItems]; n[i].catatan = e.target.value; setSkemaItems(n) }} className="flex-1" />
-                  <Button type="button" variant="ghost" size="icon" onClick={() => removeSkema(i)}><Trash2 className="w-3 h-3 text-red-500" /></Button>
-                </div>
-              ))}
+              <div><Label>Potensi pemanfaatan</Label><Input {...register('rekomendasi_pengembangan')} placeholder="Komersial, pariwisata, hunian, atau bentuk pemanfaatan lain" /></div>
             </CardContent>
           </Card>
 
           {/* Aksesibilitas */}
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-base">Aksesibilitas</CardTitle>
-              <Button type="button" variant="outline" size="sm" onClick={addAkses}><Plus className="w-3 h-3 mr-1" /> Tambah</Button>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {aksesItems.length === 0 && <p className="text-xs text-muted-foreground">Belum ada data aksesibilitas.</p>}
+            <CardHeader><CardTitle className="text-base">Akses di Sekitar Aset</CardTitle></CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-xs text-muted-foreground">Kartu katalog selalu berurutan Utara (N), Barat (W), Timur (E), dan Selatan (S). Gunakan baris baru untuk memisahkan beberapa fasilitas atau tujuan.</p>
               {aksesItems.map((a, i) => (
-                <div key={i} className="flex gap-2 items-start">
-                  <Input placeholder="Label" value={a.label} onChange={e => { const n = [...aksesItems]; n[i].label = e.target.value; setAksesItems(n) }} className="w-[180px]" />
-                  <Input placeholder="Nilai (jarak)" value={a.nilai} onChange={e => { const n = [...aksesItems]; n[i].nilai = e.target.value; setAksesItems(n) }} className="w-[100px]" />
-                  <Input placeholder="Keterangan" value={a.keterangan} onChange={e => { const n = [...aksesItems]; n[i].keterangan = e.target.value; setAksesItems(n) }} className="flex-1" />
-                  <Button type="button" variant="ghost" size="icon" onClick={() => removeAkses(i)}><Trash2 className="w-3 h-3 text-red-500" /></Button>
+                <div key={CARD_DIRECTIONS[i]} className="grid grid-cols-[44px_1fr] gap-3 items-start rounded-md border p-3">
+                  <div className="grid place-items-center w-10 h-10 rounded-full bg-primary text-primary-foreground font-bold">{CARD_DIRECTIONS[i]}</div>
+                  <div>
+                    <Label htmlFor={`direction-${CARD_DIRECTIONS[i]}`}>Fasilitas / tujuan ke arah {CARD_DIRECTIONS[i]}</Label>
+                    <Textarea id={`direction-${CARD_DIRECTIONS[i]}`} value={a.keterangan} onChange={e => { const n = [...aksesItems]; n[i] = { ...n[i], keterangan: e.target.value }; setAksesItems(n) }} placeholder={'Contoh: Rumah Sakit A\nBandara B\nPusat Kota'} rows={3} />
+                  </div>
                 </div>
               ))}
-            </CardContent>
-          </Card>
-
-          {/* Lingkungan */}
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-base">Lingkungan Sekitar</CardTitle>
-              <Button type="button" variant="outline" size="sm" onClick={addLingk}><Plus className="w-3 h-3 mr-1" /> Tambah</Button>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {lingkItems.length === 0 && <p className="text-xs text-muted-foreground">Belum ada data lingkungan.</p>}
-              {lingkItems.map((l, i) => (
-                <div key={i} className="flex gap-2 items-start">
-                  <Input placeholder="Nama tempat" value={l.nama} onChange={e => { const n = [...lingkItems]; n[i].nama = e.target.value; setLingkItems(n) }} className="flex-1" />
-                  <Input placeholder="Jarak" value={l.jarak} onChange={e => { const n = [...lingkItems]; n[i].jarak = e.target.value; setLingkItems(n) }} className="w-[80px]" />
-                  <Input placeholder="Tipe" value={l.tipe} onChange={e => { const n = [...lingkItems]; n[i].tipe = e.target.value; setLingkItems(n) }} className="w-[120px]" />
-                  <Button type="button" variant="ghost" size="icon" onClick={() => removeLingk(i)}><Trash2 className="w-3 h-3 text-red-500" /></Button>
-                </div>
-              ))}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+                <div><Label htmlFor="access-radius">Radius akses</Label><Input id="access-radius" value={radius} onChange={e => setRadius(e.target.value)} placeholder="Contoh: 4 Km" /></div>
+                <div><Label htmlFor="access-road">Nama jalan / tol</Label><Input id="access-road" value={tollInfo.name} onChange={e => setTollInfo({ ...tollInfo, name: e.target.value })} placeholder="Contoh: Jalan Tol Medan–Kuala Namu" /></div>
+                <div><Label htmlFor="access-road-distance">Jarak jalan / tol</Label><Input id="access-road-distance" value={tollInfo.distance} onChange={e => setTollInfo({ ...tollInfo, distance: e.target.value })} placeholder="Contoh: 2,6 Km" /></div>
+                <div><Label htmlFor="access-road-time">Waktu tempuh jalan / tol</Label><Input id="access-road-time" value={tollInfo.time} onChange={e => setTollInfo({ ...tollInfo, time: e.target.value })} placeholder="Contoh: 6 Menit" /></div>
+              </div>
             </CardContent>
           </Card>
 
@@ -422,26 +382,10 @@ export default function KatalogForm({ existingKatalog, onSuccess, onCancel }: Pr
             <CardHeader><CardTitle className="text-base">Kontak PIC</CardTitle></CardHeader>
             <CardContent className="grid grid-cols-2 gap-4">
               <div><Label>Nama PIC</Label><Input {...register('pic_nama')} placeholder="Andi Pratama, S.E." /></div>
-              <div><Label>Jabatan</Label><Input {...register('pic_jabatan')} placeholder="Kepala Sub-Divisi Aset & Kerjasama Strategis" /></div>
               <div><Label>Telepon</Label><Input {...register('pic_phone')} placeholder="+62 411 555 0182" /></div>
               <div><Label>Mobile / WA</Label><Input {...register('pic_mobile')} placeholder="+62 812 4400 7711" /></div>
               <div><Label>Email</Label><Input {...register('pic_email')} placeholder="asset.kerjasama@ptpn1.co.id" /></div>
               <div><Label>Kantor</Label><Input {...register('pic_kantor')} placeholder="Kantor Wilayah PTPN I — Makassar" /></div>
-            </CardContent>
-          </Card>
-
-          {/* Dokumen Meta */}
-          <Card>
-            <CardHeader><CardTitle className="text-base">Dokumen</CardTitle></CardHeader>
-            <CardContent className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>Tanggal Dokumen</Label>
-                <Input {...register('tgl_dokumen')} placeholder={new Date().toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })} />
-              </div>
-              <div>
-                <Label>Ref Dokumen</Label>
-                <Input {...register('ref_dokumen')} placeholder="KAT/PTPN1/AST/V/2026-001" />
-              </div>
             </CardContent>
           </Card>
 
@@ -472,11 +416,11 @@ export default function KatalogForm({ existingKatalog, onSuccess, onCancel }: Pr
           </CardHeader>
           <CardContent>
             <p className="text-xs text-muted-foreground mb-4">
-              Pilih file gambar untuk setiap slot foto. Foto langsung muncul di preview.
+              Foto lama otomatis digunakan. Atur foto utama, foto vertikal, empat foto kecil, dan peta sesuai posisi pada preview. Peta harus berupa gambar lokasi/rute yang benar.
             </p>
             <div className="grid grid-cols-2 gap-2">
               {SLOT_IDS.map(slot => {
-                const existingUrl = savedKatalog?.foto?.find(f => f.slot_id === slot.id)?.url
+                const existingUrl = canvaPhoto(Object.fromEntries((savedKatalog?.foto ?? []).map(f => [f.slot_id, f.url])), slot.id)
                 return (
                   <div key={slot.id} className="flex items-center gap-2 p-2 border rounded">
                     {existingUrl && (
@@ -486,7 +430,6 @@ export default function KatalogForm({ existingKatalog, onSuccess, onCancel }: Pr
                     )}
                     <div className="flex-1 min-w-0">
                       <span className="text-xs truncate block">{slot.label}</span>
-                      <span className="text-[10px] text-muted-foreground font-mono">{slot.id}</span>
                     </div>
                     <label className="cursor-pointer flex-shrink-0">
                       <input

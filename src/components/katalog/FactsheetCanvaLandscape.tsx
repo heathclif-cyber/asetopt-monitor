@@ -1,86 +1,101 @@
-import React from 'react'
+import { QRCodeSVG } from 'qrcode.react'
+import type { CSSProperties } from 'react'
 import type { KatalogFactsheetData } from '@/types'
-import { MiniMap } from './factsheet-shared'
+import { accessRows, canvaBox as box, canvaPhoto, locationLink, CANVA_HEIGHT, CANVA_WIDTH } from './canva-layout'
+import './factsheet-canva.css'
 
-const BLUE = '#0063bd'
-const DARK_BLUE = '#004c99'
-const SANS = 'Arial, Helvetica, sans-serif'
+export { CANVA_HEIGHT, CANVA_WIDTH } from './canva-layout'
+const ASSETS = '/canva/page18/'
 
-function ImageSlot({ ids, label, photos, style }: { ids: string[]; label: string; photos: Record<string, string>; style?: React.CSSProperties }) {
-  const src = ids.map(id => photos[id]).find(Boolean)
-  return src ? (
-    <img src={src} alt={label} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', ...style }} />
-  ) : (
-    <div style={{ width: '100%', height: '100%', display: 'grid', placeItems: 'center', background: 'linear-gradient(135deg, #71c0dc, #1c6c91)', color: '#fff', fontSize: 10, textAlign: 'center', padding: 10, ...style }}>{label}</div>
-  )
+function Asset({ name, style, className = '' }: { name: string; style: CSSProperties; className?: string }) {
+  return <img src={`${ASSETS}${name}.png`} alt="" aria-hidden="true" className={`canva-asset ${className}`} style={style} />
 }
 
-function QRPlaceholder() {
-  return <div style={{ width: 58, height: 58, background: '#fff', padding: 4, boxSizing: 'border-box' }}>
-    <svg viewBox="0 0 58 58" width="100%" height="100%" aria-label="QR lokasi">
-      <rect width="58" height="58" fill="white" />
-      {[[2,2],[38,2],[2,38]].map(([x,y]) => <g key={`${x}-${y}`}><rect x={x} y={y} width="18" height="18" fill="#111"/><rect x={x+4} y={y+4} width="10" height="10" fill="#fff"/><rect x={x+7} y={y+7} width="4" height="4" fill="#111"/></g>)}
-      {[23,4,29,9,23,15,30,20,39,22,47,25,23,28,29,34,39,35,46,40,23,44,31,49,40,47,49,49].map((n, i) => <rect key={i} x={n} y={[4,9,15,20,25,28,31,35,39,43,47][i % 11]} width="4" height="4" fill="#111" />)}
-    </svg>
+function Photo({ src, label, style, className = '' }: { src?: string; label: string; style: CSSProperties; className?: string }) {
+  return <div className={`canva-photo ${className}`} style={style}>
+    {src ? <img src={src} alt={label} /> : <div className="canva-photo-empty">{label}<br /><small>Belum diunggah</small></div>}
   </div>
 }
 
+function FramedPhoto({ src, label, x, y, imageX, imageY, imageW, imageH }: {
+  src?: string; label: string; x: number; y: number; imageX: number; imageY: number; imageW: number; imageH: number
+}) {
+  return <>
+    <div className="canva-photo-mat" style={box(x + 20, y + 17, 338, 188)} />
+    <Asset name="frame" style={box(x, y, 378.72, 222.82)} />
+    <Photo src={src} label={label} style={box(imageX, imageY, imageW, imageH)} />
+  </>
+}
+
 export default function FactsheetCanvaLandscape({ data }: { data: KatalogFactsheetData; density?: 'compact' | 'normal' | 'spacious' }) {
-  const access = data.accessibility.slice(0, 4)
-  const surroundings = data.surroundings.slice(0, 6)
-  const displayArea = data.landAreaHa && data.landAreaHa !== '0' ? `${data.landAreaHa} Ha` : data.landArea ? `${data.landArea} m²` : '—'
+  const photo = (slot: string) => canvaPhoto(data.photos, slot)
+  const rows = accessRows(data)
+  const radius = data.accessibility.find(item => /^radius$/i.test(item.label.trim()))?.value
+  const road = data.accessibility.find(item => /tol|toll|jalan|road/i.test(item.label))
+  const roadUnit = road?.sub.match(/^(km|m|kilometer|meter)\b[\s–-]*/i)
+  const locationUrl = locationLink(data)
+  const catalogueUrl = typeof window === 'undefined' ? 'https://opsetreg8.my.id/katalog/factsheet' : `${window.location.origin}/katalog/factsheet`
+  const contacts = [data.pic.name, data.pic.mobile || data.pic.phone, data.pic.email, data.pic.office].filter(Boolean)
+  const nameSize = data.name.length > 65 ? 13 : data.name.length > 40 ? 15 : 18
 
-  const hero = ['cl-hero', 'ed-hero', 'md-hero', 'cp-hero']
-  const nearby1 = ['cl-near-1', 'ed-thumb-1', 'md-media-1', 'cp-thumb-1']
-  const nearby2 = ['cl-near-2', 'ed-thumb-2', 'md-media-2', 'cp-thumb-2']
+  return <article className="factsheet-canva" aria-label={`Katalog ${data.name}`} style={{ width: CANVA_WIDTH, height: CANVA_HEIGHT }}>
+    {/* Original Canva stacking order: map, white fades, hero, cards, identity rail. */}
+    <Asset name="city-map" className="canva-paper-map" style={box(520, 810, 1700, 900)} />
+    <Photo src={photo('cl-map')} label="Peta lokasi / rute" className="canva-map-photo" style={box(1755.03, 637.54, 1452.72, 902.5)} />
+    <div className="canva-map-fade" style={box(1630, 560, 1488, 560)} />
+    <div className="canva-contact-paper" style={box(565, 936, 850, 564)} />
+    <Asset name="white-shadow" style={{ ...box(924.13, 855.28, 1409.92, 793.08), opacity: .95 }} />
+    <Asset name="drop-shadow" style={{ ...box(403.83, -248.47, 1604.05, 1359.54), opacity: .25 }} />
+    <Photo src={photo('cl-hero')} label="Foto utama aset" style={box(531.25, -2.42, 1305.28, 938.51)} />
 
-  return (
-    <div style={{ width: 1040, height: 500, overflow: 'hidden', display: 'grid', gridTemplateColumns: '202px 418px 420px', background: '#fff', color: '#111', fontFamily: SANS, position: 'relative' }}>
-      <aside style={{ background: `linear-gradient(180deg, #006ab9 0%, ${DARK_BLUE} 100%)`, color: '#fff', padding: '12px 13px 10px', display: 'flex', flexDirection: 'column', boxSizing: 'border-box' }}>
-        <div style={{ height: 38, borderBottom: '1px solid rgba(255,255,255,.75)', display: 'flex', alignItems: 'center', gap: 7 }}>
-          <img src="/logo-ptpn-holding-white.png" alt="PT Perkebunan Nusantara" style={{ width: 61, height: 27, objectFit: 'contain' }} />
-          <img src="/logo-ptpn1-white.png" alt="PTPN I" style={{ width: 24, height: 27, objectFit: 'contain' }} />
+    <Asset name="city-map" className="canva-city-decoration" style={box(2606.89, -365.55, 860.66, 857.53)} />
+    <h2 className="canva-access-title" style={box(1837.71, 56.05, 242.38, 54.93)}>ACCESS</h2>
+    {radius && <div className="canva-radius" style={box(2085.95, 48.06, 110, 70.92)}>In<br />{radius}</div>}
+    {rows.map((row, i) => {
+      const y = [137.74, 323.15, 508.96, 702.22][i]
+      const rotation = row.marker === 'N' ? -90 : row.marker === 'S' ? 90 : row.marker === 'W' ? 180 : 0
+      return <div key={i}>
+        <Asset name="card-shadow" style={{ ...box(1593.34, y - 40, 628.69, 278.2), opacity: .35 }} />
+        <div className="canva-access-card" style={box(1666.39, y, 615.24, 166.37)} />
+        <Asset name="arrow" style={{ ...box(1585, y + 56, 126.95, 59.66), transform: `rotate(${rotation}deg)` }} />
+        <Asset name="circle-shadow" style={box(1609.22, y + 37.9, 95.82, 96.3)} />
+        <span className="canva-compass" style={box(1631.02, y + 50.16, 71.78, 71.78)}>{row.marker}</span>
+        <div className="canva-access-copy" style={{ ...box(1718, y + 22, 538, 126), fontSize: row.text.length > 130 ? 7.4 : 8.7 }}>
+          {row.text}
         </div>
-        <div style={{ marginTop: 14, display: 'flex', gap: 7, alignItems: 'center' }}><div style={{ width: 27, height: 27, border: '1px solid #fff', display: 'grid', placeItems: 'center', fontSize: 14 }}>⌗</div><b style={{ fontSize: 12, lineHeight: .87 }}>LAND AND<br />BUILDING<br />ASSETS</b></div>
-        <div style={{ width: '100%', background: '#fff', color: DARK_BLUE, borderRadius: 6, marginTop: 10, textAlign: 'center', padding: '3px 0', fontWeight: 700, fontSize: 9 }}>{data.code || 'R000000'}</div>
-        <div style={{ height: 119, marginTop: 8, overflow: 'hidden' }}><ImageSlot ids={hero} label="FOTO ASET" photos={data.photos} /></div>
-        <div style={{ marginTop: 16, fontWeight: 800, fontSize: 15, lineHeight: .98, textTransform: 'uppercase', maxWidth: 135 }}>{data.name || 'NAMA ASET'}</div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 12, fontSize: 10 }}><b>{displayArea}</b><span>{data.recommendation || 'Commercial'}</span></div>
-        <div style={{ marginTop: 'auto', fontSize: 7, display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ border: '1px solid white', padding: '1px 3px' }}>EN</span> English Version</div>
-      </aside>
-      <main style={{ position: 'relative', display: 'flex', flexDirection: 'column', background: '#fff' }}>
-        <div style={{ height: 305, position: 'relative' }}><ImageSlot ids={hero} label="UPLOAD FOTO UTAMA — LANDSCAPE" photos={data.photos} /></div>
-        <div style={{ padding: '14px 16px 8px', display: 'grid', gridTemplateColumns: '1fr 62px', gap: 11, flex: 1 }}>
-          <div>
-            <div style={{ fontWeight: 800, fontSize: 14, letterSpacing: .3 }}>ADDRESS</div>
-            <p style={{ margin: '4px 0 12px', color: '#3e3e3e', fontSize: 11, lineHeight: 1.25 }}>{data.address || 'Alamat aset'}</p>
-            <div style={{ fontWeight: 800, fontSize: 14, letterSpacing: .3 }}>CONTACT</div>
-            <div style={{ marginTop: 5, fontSize: 10, lineHeight: 1.35 }}><b>{data.pic.name || 'PT Perkebunan Nusantara I (PTPN I)'}</b><br />{data.pic.mobile || data.pic.phone || '+62 8113-3333-214'}<br />{data.pic.email || 'corcom@ptpn1.co.id'}<br />{data.pic.office || 'www.ptpn1.co.id'}</div>
-          </div>
-          <div style={{ textAlign: 'center', fontSize: 6.5, fontWeight: 700, lineHeight: 1.1 }}><div>SCAN HERE</div><QRPlaceholder /><div style={{ marginTop: 3 }}>LOCATION<br />E-CATALOGUE</div></div>
-        </div>
-      </main>
+      </div>
+    })}
 
-      <section style={{ position: 'relative', overflow: 'hidden', paddingTop: 15 }}>
-        <div style={{ position: 'absolute', right: 0, top: 0, width: 125, height: 90, opacity: .23, backgroundImage: 'linear-gradient(90deg, #0094d6 1px, transparent 1px), linear-gradient(#0094d6 1px, transparent 1px)', backgroundSize: '10px 10px', transform: 'rotate(-8deg)' }} />
-        <div style={{ padding: '0 18px 7px', display: 'grid', gridTemplateColumns: '1fr 98px', gap: 10, position: 'relative' }}>
-          <div>
-            <div style={{ fontSize: 14, fontWeight: 800, letterSpacing: .3 }}>ACCESS <span style={{ fontSize: 9 }}>in {data.accessibility[0]?.value || '4 Km'}</span></div>
-            <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 5 }}>
-              {access.length ? access.map((item, index) => <div key={index} style={{ background: BLUE, color: '#fff', borderRadius: 5, padding: '5px 8px 5px 24px', minHeight: 21, fontSize: 8, lineHeight: 1.05, position: 'relative' }}><span style={{ position: 'absolute', left: 8, top: 7, borderRadius: '50%', background: '#fff', color: DARK_BLUE, width: 11, height: 11, display: 'grid', placeItems: 'center', fontWeight: 700 }}>{['N','W','E','S'][index]}</span><b>{item.label}</b><br />{item.sub || item.value}</div>) : <div style={{ color: '#666', fontSize: 10 }}>Tambahkan data akses di form.</div>}
-            </div>
-          </div>
-          <div style={{ display: 'grid', gap: 8, alignContent: 'start' }}><div style={{ height: 48, border: '2px solid #eee' }}><ImageSlot ids={nearby1} label="FOTO 01" photos={data.photos} /></div><div style={{ height: 48, border: '2px solid #eee' }}><ImageSlot ids={nearby2} label="FOTO 02" photos={data.photos} /></div></div>
-        </div>
-        <div style={{ padding: '0 18px', display: 'grid', gridTemplateColumns: '1fr 118px', gap: 10, alignItems: 'start' }}>
-          <div style={{ fontSize: 8, lineHeight: 1.45, color: '#333' }}>{surroundings.length ? surroundings.map((item, i) => <span key={i} style={{ display: 'inline-block', width: '50%' }}>{item.name}</span>) : <span>Tambahkan titik sekitar / fasilitas terdekat.</span>}</div>
-          <div style={{ fontSize: 8, fontWeight: 700, lineHeight: 1.15 }}><div>{data.tagline || data.name}</div><div style={{ marginTop: 5, fontWeight: 400 }}>{data.coordinates.lat && data.coordinates.lng ? `${data.coordinates.lat}, ${data.coordinates.lng}` : 'Lokasi aset'}</div></div>
-        </div>
-        <div style={{ height: 240, marginTop: 8, position: 'relative' }}>
-          {data.photos['cl-map'] ? <ImageSlot ids={['cl-map']} label="PETA LOKASI" photos={data.photos} /> : <MiniMap style={{ width: '100%', height: '100%' }} label="PETA LOKASI" showLabel={false} />}
-          <div style={{ position: 'absolute', left: 18, bottom: 12, background: 'rgba(255,255,255,.85)', padding: '4px 7px', fontSize: 8 }}>{data.coordinates.lat && data.coordinates.lng ? `${data.coordinates.lat}, ${data.coordinates.lng}` : 'Titik lokasi aset'}</div>
-        </div>
-      </section>
+    <FramedPhoto src={photo('cl-near-1')} label="Foto lingkungan 1" x={2422.42} y={102.34} imageX={2456.55} imageY={135.42} imageW={313.53} imageH={157.15} />
+    <FramedPhoto src={photo('cl-near-2')} label="Foto lingkungan 2" x={2412.63} y={343.48} imageX={2446.76} imageY={375.62} imageW={313.53} imageH={160.71} />
+    {road && <div className="canva-road" style={box(2413.1, 605.94, 550, 150)}><strong>{road.label}</strong><br />{[road.value, roadUnit?.[1]].filter(Boolean).join(' ')}<br />{roadUnit ? road.sub.slice(roadUnit[0].length) : road.sub}</div>}
+
+    <h2 className="canva-section-title" style={box(547.07, 1003.85, 378.53, 54.99)}>ADDRESS</h2>
+    <div className="canva-address" style={box(640.93, 1089.25, 448.55, 112)}>{data.address || 'Alamat belum diisi'}</div>
+    <h2 className="canva-section-title" style={box(573.5, 1207, 325.69, 54.99)}>CONTACT</h2>
+    <div className="canva-contact" style={box(638.65, 1285.9, 475, 185)}>{contacts.length ? contacts.map((line, i) => <div key={i}>{line}</div>) : 'Kontak belum diisi'}</div>
+
+    <div className="canva-qr-panel" style={box(1140.23, 1002.51, 247.12, 551.73)}>
+      <strong>scan here</strong>
+      <span>location</span>
+      {locationUrl ? <a href={locationUrl} target="_blank" rel="noreferrer" aria-label="Buka lokasi aset"><QRCodeSVG value={locationUrl} size={62} marginSize={4} level="M" title="QR lokasi aset" /></a> : <div className="canva-qr-missing">Isi alamat atau koordinat</div>}
+      <span>E-catalogue</span>
+      <a href={catalogueUrl} aria-label="Buka e-catalogue"><QRCodeSVG value={catalogueUrl} size={62} marginSize={4} level="M" title="QR e-catalogue" /></a>
     </div>
-  )
+    <FramedPhoto src={photo('cl-near-3')} label="Foto lingkungan 3" x={1418.26} y={1002.51} imageX={1452.74} imageY={1033.1} imageW={312.95} imageH={158.27} />
+    <FramedPhoto src={photo('cl-near-4')} label="Foto lingkungan 4" x={1408.47} y={1243.65} imageX={1443.62} imageY={1270.66} imageW={311.41} imageH={167.65} />
+
+    <aside className="canva-rail" style={box(0, 0, 591.37, 1500)}>
+      <img src={`${ASSETS}holding-white.png`} alt="Holding Perkebunan Nusantara" className="canva-logo" style={box(57.66, 44.81, 226.21, 114.03)} />
+      <img src={`${ASSETS}ptpn1-white.png`} alt="PTPN I" className="canva-logo" style={box(293.43, 44.81, 86.99, 114.03)} />
+      <Asset name="building" className="canva-building-icon" style={box(76.05, 198.84, 145.87, 135.47)} />
+      <div className="canva-category" style={box(241.91, 206.99, 267.22, 129.89)}>LAND AND<br />BUILDING<br />ASSETS</div>
+      <div className="canva-code" style={box(56.66, 346.42, 460.27, 49.27)}>{data.code || 'Kode aset'}</div>
+      <Photo src={photo('cl-portrait')} label="Foto vertikal aset" style={box(56.66, 405.23, 463.41, 666.78)} />
+      <h1 className="canva-asset-name" style={{ ...box(56.66, 1165.84, 516.84, 155), fontSize: nameSize }}>{data.name || 'Nama aset'}</h1>
+      <span className="canva-area" style={box(60.22, 1333.61, 185.25, 44.94)}>{data.landAreaHa || '0'} Ha</span>
+      <span className="canva-recommendation" style={box(254.67, 1333.61, 292, 92)}>{data.recommendation || '—'}</span>
+      <div className="canva-language" style={box(0, 1430.54, 591.37, 69.46)}><Asset name="flag" style={box(44.06, 13.38, 49.48, 34.57)} /><span style={box(100, 13.38, 278, 29.93)}>English Version</span><Asset name="flag" style={box(378.74, 11.65, 49.48, 34.57)} /></div>
+    </aside>
+  </article>
 }
