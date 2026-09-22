@@ -43,6 +43,24 @@ export interface GISDraftFeature {
 
 export interface GISAsetReference { id: string; kode_aset: string; nama_aset: string }
 
+export interface GISAssetSummary {
+  id: string
+  kode_aset: string
+  nama_aset: string
+  konsesi_count: number | null
+  konsesi_names: string[]
+  dataset_ids: string[]
+  bbox: string | null
+  konsesi_area_ha: number | null
+  tanaman_area_ha: number | null
+  hutan_area_ha: number | null
+  okupasi_area_ha: number | null
+  kerja_sama_area_ha: number | null
+  dapat_dimanfaatkan_area_ha: number | null
+  missing_layers: string[]
+  analysis_status: string
+}
+
 export interface GISAdministrasiReference {
   level: 'provinsi' | 'kabupaten_kota' | 'kecamatan' | 'desa_kelurahan'
   region_code: string

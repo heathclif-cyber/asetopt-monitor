@@ -294,6 +294,83 @@ def list_aset_reference(
     return {"data": [{**dict(row), "id": str(row["id"])} for row in rows]}
 
 
+@router.get("/assets/summary")
+def list_asset_summaries(
+    db: Session = Depends(get_db),
+    _user: dict[str, Any] = Depends(require_app_read),
+):
+    """Return a non-overlapping spatial land-use summary for every asset.
+
+    Totals are calculated from active published geometry.  Each thematic kind
+    is unioned before it is intersected with a concession, so adjoining or
+    overlapping KML polygons never inflate the hectares shown in the asset
+    table.  The usable estimate subtracts all mapped use/restriction layers;
+    it is intentionally labelled as an estimate until every layer is loaded.
+    """
+    rows = db.execute(text("""
+      WITH linked_konsesi AS (
+        SELECT ka.aset_id, fv.id AS feature_version_id, d.id AS dataset_id, fv.name, fv.geom
+        FROM gis_konsesi_aset ka
+        JOIN gis_feature_versions fv ON fv.id=ka.konsesi_feature_version_id
+        JOIN gis_dataset_versions v ON v.id=fv.dataset_version_id
+        JOIN gis_datasets d ON d.id=v.dataset_id
+        WHERE d.kind='konsesi' AND d.active_version_id=fv.dataset_version_id
+      ), asset_geom AS (
+        SELECT aset_id, ST_UnaryUnion(ST_Collect(geom)) AS geom,
+          count(*)::integer AS konsesi_count,
+          array_agg(DISTINCT name ORDER BY name) AS konsesi_names,
+          array_agg(DISTINCT dataset_id::text ORDER BY dataset_id::text) AS dataset_ids,
+          ST_Extent(geom)::box2d AS bounds
+        FROM linked_konsesi GROUP BY aset_id
+      ), category_geom AS (
+        SELECT d.kind, ST_UnaryUnion(ST_Collect(fv.geom)) AS geom
+        FROM gis_feature_versions fv
+        JOIN gis_dataset_versions v ON v.id=fv.dataset_version_id
+        JOIN gis_datasets d ON d.id=v.dataset_id
+        WHERE d.active_version_id=fv.dataset_version_id
+          AND d.kind IN ('tanaman', 'hutan', 'opset', 'okupasi')
+        GROUP BY d.kind
+      ), available_mask AS (
+        SELECT ST_UnaryUnion(ST_Collect(geom)) AS geom
+        FROM category_geom WHERE kind IN ('tanaman', 'hutan', 'opset', 'okupasi')
+      )
+      SELECT a.id, a.kode_aset, a.nama_aset,
+        ag.konsesi_count, ag.konsesi_names, ag.dataset_ids,
+        CASE WHEN ag.bounds IS NULL THEN NULL ELSE concat_ws(',', ST_XMin(ag.bounds::box3d), ST_YMin(ag.bounds::box3d), ST_XMax(ag.bounds::box3d), ST_YMax(ag.bounds::box3d)) END AS bbox,
+        CASE WHEN ag.geom IS NULL THEN NULL ELSE round((ST_Area(ag.geom::geography) / 10000)::numeric, 4) END AS konsesi_area_ha,
+        CASE WHEN ag.geom IS NULL THEN NULL ELSE round(coalesce((ST_Area(ST_Intersection(ag.geom, (SELECT geom FROM category_geom WHERE kind='tanaman'))::geography) / 10000), 0)::numeric, 4) END AS tanaman_area_ha,
+        CASE WHEN ag.geom IS NULL THEN NULL ELSE round(coalesce((ST_Area(ST_Intersection(ag.geom, (SELECT geom FROM category_geom WHERE kind='hutan'))::geography) / 10000), 0)::numeric, 4) END AS hutan_area_ha,
+        CASE WHEN ag.geom IS NULL THEN NULL ELSE round(coalesce((ST_Area(ST_Intersection(ag.geom, (SELECT geom FROM category_geom WHERE kind='okupasi'))::geography) / 10000), 0)::numeric, 4) END AS okupasi_area_ha,
+        CASE WHEN ag.geom IS NULL THEN NULL ELSE round(coalesce((ST_Area(ST_Intersection(ag.geom, (SELECT geom FROM category_geom WHERE kind='opset'))::geography) / 10000), 0)::numeric, 4) END AS kerja_sama_area_ha,
+        CASE WHEN ag.geom IS NULL THEN NULL ELSE round((ST_Area(ST_Difference(ag.geom, coalesce((SELECT geom FROM available_mask), ST_GeomFromText('MULTIPOLYGON EMPTY', 4326)))::geography) / 10000)::numeric, 4) END AS dapat_dimanfaatkan_area_ha
+      FROM aset a LEFT JOIN asset_geom ag ON ag.aset_id=a.id
+      ORDER BY a.kode_aset
+    """)).mappings().all()
+    active_kinds = set(db.execute(text("""
+      SELECT DISTINCT kind FROM gis_datasets
+      WHERE active_version_id IS NOT NULL AND archived_at IS NULL
+    """)).scalars().all())
+    required_kinds = {"konsesi", "tanaman", "hutan", "opset", "okupasi"}
+    missing_layers = sorted(required_kinds - active_kinds)
+    result = []
+    for row in rows:
+        item = dict(row)
+        has_konsesi = item["konsesi_area_ha"] is not None
+        item["id"] = str(item["id"])
+        item["konsesi_names"] = item["konsesi_names"] or []
+        item["dataset_ids"] = item["dataset_ids"] or []
+        for field in ("konsesi_area_ha", "tanaman_area_ha", "hutan_area_ha", "okupasi_area_ha", "kerja_sama_area_ha", "dapat_dimanfaatkan_area_ha"):
+            item[field] = float(item[field]) if item[field] is not None else None
+        item["missing_layers"] = missing_layers if has_konsesi else ["konsesi"]
+        item["analysis_status"] = (
+            "belum ada konsesi terkait" if not has_konsesi
+            else "estimasi — layer belum lengkap" if missing_layers
+            else "estimasi berdasarkan layer aktif"
+        )
+        result.append(item)
+    return {"data": result, "availability_note": "Sisa dapat dimanfaatkan adalah estimasi spasial: konsesi dikurangi gabungan unik tanaman, kawasan hutan, okupasi, dan area kerja sama. Konfirmasi legal tetap diperlukan."}
+
+
 @router.get("/reference/administrasi")
 def list_administrasi_reference(
     level: str | None = None,

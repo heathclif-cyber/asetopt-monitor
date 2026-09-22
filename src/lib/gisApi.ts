@@ -1,5 +1,5 @@
 import { clearSession, getStoredToken } from '@/lib/auth'
-import type { GISAsetReference, GISAdministrasiReference, GISCapabilities, GISDataset, GISDraftFeature, GISFeatureCollection, GISImport, GISKerjaSamaReference, GISKind, GISOfficialForestHit, GISOverlapWarning } from '@/types/gis'
+import type { GISAsetReference, GISAdministrasiReference, GISAssetSummary, GISCapabilities, GISDataset, GISDraftFeature, GISFeatureCollection, GISImport, GISKerjaSamaReference, GISKind, GISOfficialForestHit, GISOverlapWarning } from '@/types/gis'
 
 const API_BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? ''
 
@@ -47,6 +47,7 @@ export const gisApi = {
   }),
   kerjaSamaReference: () => request<{ data: GISKerjaSamaReference[] }>('/reference/kerja-sama'),
   asetReference: () => request<{ data: GISAsetReference[] }>('/reference/aset'),
+  assetSummaries: () => request<{ data: GISAssetSummary[]; availability_note: string }>('/assets/summary'),
   administrasiReference: (level?: GISAdministrasiReference['level']) => request<{ data: GISAdministrasiReference[] }>(`/reference/administrasi${level ? `?level=${level}` : ''}`),
   hutanFunctions: () => request<{ data: string[] }>('/reference/hutan-functions'),
   identifyOfficialForest: (lng: number, lat: number) => request<GISOfficialForestHit>(`/official-forest/identify?${new URLSearchParams({ lng: String(lng), lat: String(lat) })}`),
