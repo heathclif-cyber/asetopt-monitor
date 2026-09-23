@@ -14,7 +14,7 @@ import { gisApi } from '@/lib/gisApi'
 import type { GISAsetReference, GISAdministrasiReference, GISCapabilities, GISDataset, GISDraftFeature, GISImport, GISKerjaSamaReference, GISKind, GISOverlapWarning } from '@/types/gis'
 
 const KIND_LABEL: Record<GISKind, string> = { konsesi: 'Konsesi tanah', tanaman: 'Blok tanaman', hutan: 'Kawasan hutan', opset: 'Area OPSET kerja sama', okupasi: 'Okupasi', administrasi: 'Batas administrasi' }
-const KIND_COLOR: Record<GISKind, string> = { konsesi: 'bg-blue-100 text-blue-800', tanaman: 'bg-emerald-100 text-emerald-800', hutan: 'bg-lime-100 text-lime-800', opset: 'bg-sky-100 text-sky-800', okupasi: 'bg-red-100 text-red-800', administrasi: 'bg-slate-100 text-slate-700' }
+const KIND_COLOR: Record<GISKind, string> = { konsesi: 'bg-yellow-100 text-yellow-800', tanaman: 'bg-lime-100 text-lime-800', hutan: 'bg-green-100 text-green-800', opset: 'bg-cyan-100 text-cyan-800', okupasi: 'bg-red-100 text-red-800', administrasi: 'bg-slate-100 text-slate-700' }
 const DOMAIN_BY_KIND: Record<GISKind, string> = { konsesi: 'legal', tanaman: 'tanaman', hutan: 'referensi', opset: 'opset', okupasi: 'legal', administrasi: 'referensi' }
 const ADMIN_LEVEL_LABEL: Record<GISAdministrasiReference['level'], string> = { provinsi: 'Provinsi', kabupaten_kota: 'Kabupaten/kota', kecamatan: 'Kecamatan', desa_kelurahan: 'Desa/kelurahan' }
 type Field = { key: string; label: string; type?: 'number' | 'date' | 'select'; options?: Array<[string, string]>; advanced?: boolean }

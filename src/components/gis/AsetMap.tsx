@@ -6,7 +6,14 @@ import type { GISFeatureCollection, GISKind } from '@/types/gis'
 const INDONESIA_CENTER: L.LatLngExpression = [-2.5, 118]
 
 const COLOR_BY_KIND: Record<GISKind, string> = {
-  konsesi: '#1B4F72', tanaman: '#328A4A', hutan: '#607D3B', opset: '#F4B400', okupasi: '#C0392B', administrasi: '#6B7280',
+  konsesi: '#FFD400', tanaman: '#AEEA00', hutan: '#607D3B', opset: '#00E5FF', okupasi: '#FF3B30', administrasi: '#FFFFFF',
+}
+
+// Konsesi is the outer boundary, so its fill stays faint to keep the layers
+// inside it readable on satellite imagery.
+const STROKE_BY_KIND: Record<GISKind, { weight: number; fillOpacity: number }> = {
+  konsesi: { weight: 3, fillOpacity: 0.05 }, tanaman: { weight: 2, fillOpacity: 0.2 }, hutan: { weight: 3, fillOpacity: 0.2 },
+  opset: { weight: 3, fillOpacity: 0.2 }, okupasi: { weight: 3, fillOpacity: 0.3 }, administrasi: { weight: 1.5, fillOpacity: 0 },
 }
 
 const PANE_BY_KIND: Record<GISKind, string> = {
@@ -124,7 +131,8 @@ export function AsetMap({ data, className = '', onViewportChange, focusBbox, zoo
         const kind = feature?.properties?.kind as GISKind | undefined
         const color = kind ? COLOR_BY_KIND[kind] : '#1B4F72'
         const preview = Boolean(feature?.properties?.preview)
-        return { color, weight: kind === 'administrasi' ? 1 : 3, dashArray: preview ? '7 5' : undefined, fillColor: color, fillOpacity: preview ? 0.08 : kind === 'administrasi' ? 0.03 : 0.2 }
+        const { weight, fillOpacity } = STROKE_BY_KIND[kind ?? layerKind]
+        return { color, weight, dashArray: preview ? '7 5' : undefined, fillColor: color, fillOpacity: preview ? Math.min(fillOpacity, 0.08) : fillOpacity }
       },
       pointToLayer: (feature, latlng) => {
         const kind = feature.properties?.kind as GISKind | undefined
@@ -202,7 +210,15 @@ export function AsetMap({ data, className = '', onViewportChange, focusBbox, zoo
     mapRef.current.fitBounds([[values[1], values[0]], [values[3], values[2]]], { padding: [28, 28], maxZoom: 19, animate: false })
   }, [zoomTarget])
 
+  const legendKinds = (Object.keys(COLOR_BY_KIND) as GISKind[]).filter(kind => data?.features.some(feature => feature.properties.kind === kind))
+
   return <div className={`relative h-[640px] w-full overflow-hidden rounded-lg ${className}`}>
     <div ref={hostRef} className="h-full w-full" aria-label="Peta lokasi aset" />
+    {legendKinds.length > 0 && <div className="pointer-events-none absolute bottom-6 left-2 z-[1000] space-y-1 rounded-md bg-slate-900/75 px-2.5 py-2 text-xs text-white shadow">
+      {legendKinds.map(kind => <div key={kind} className="flex items-center gap-2">
+        <span className="h-3 w-3 rounded-sm border-2" style={{ borderColor: COLOR_BY_KIND[kind], backgroundColor: `${COLOR_BY_KIND[kind]}55` }} />
+        {KIND_LABEL[kind]}
+      </div>)}
+    </div>}
   </div>
 }
