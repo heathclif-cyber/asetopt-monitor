@@ -43,9 +43,11 @@ services:
       SUPERMAN_STATE_PATH: /app/data/.superman_state.json
       SUPERMAN_HEADLESS: "true"
       MIGRATIONS_DIR: /supabase/migrations
+      GIS_UPLOAD_ROOT: /app/gis-data
     volumes:
       - asetopt_uploads:/app/uploads
       - asetopt_superman:/app/data
+      - asetopt_gis_data:/app/gis-data
     ports:
       # Port 8000 is occupied by another application on this host. The web
       # service continues to reach API internally at http://api:8000.
@@ -65,6 +67,27 @@ services:
       timeout: 8s
       retries: 8
       start_period: 45s
+
+  # Processes queued GIS import jobs (KML/KMZ/GeoJSON/Shapefile/GPKG).
+  # Without this service, uploads are saved and queued but never parsed —
+  # they stay stuck in "uploaded"/"processing" with no error shown, and
+  # nothing appears on the map or in the GIS table.
+  gis-worker:
+    build:
+      context: .
+      dockerfile: docker/gis.Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env.selfhost
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-asetopt}:${POSTGRES_PASSWORD:-asetopt_change_me}@db:5432/${POSTGRES_DB:-asetopt}
+      GIS_UPLOAD_ROOT: /app/gis-data
+    command: ["python", "-m", "services.gis.worker"]
+    volumes:
+      - asetopt_gis_data:/app/gis-data
+    depends_on:
+      db:
+        condition: service_healthy
 
   # One-shot schema migration
   #   docker compose --env-file .env.selfhost --profile tools run --rm migrate
@@ -102,3 +125,4 @@ volumes:
   asetopt_pgdata:
   asetopt_uploads:
   asetopt_superman:
+  asetopt_gis_data:

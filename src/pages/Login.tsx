@@ -19,7 +19,7 @@ export default function Login() {
   if (user) {
     const dest = user.role === 'viewer'
       ? VIEWER_HOME
-      : user.role === 'admin_aset'
+      : user.role === 'admin_aset' || user.role === 'viewer_aset'
         ? ASET_ADMIN_HOME
         : (from && from !== '/login' ? from : '/')
     return <Navigate to={dest} replace />
@@ -34,7 +34,7 @@ export default function Login() {
       navigate(
         role === 'viewer'
           ? VIEWER_HOME
-          : role === 'admin_aset'
+          : role === 'admin_aset' || role === 'viewer_aset'
             ? ASET_ADMIN_HOME
             : (from && from !== '/login' ? from : '/'),
         { replace: true },

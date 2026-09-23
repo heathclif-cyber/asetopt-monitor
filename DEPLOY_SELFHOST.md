@@ -16,13 +16,17 @@ Browser  →  http://localhost:3001  (Express: static dist + proxy /api)
                 │
                 └──→  http://api:8000  (FastAPI + Playwright Superman)
                             │
-                            └──→  PostgreSQL :5432
+                            ├──→  PostgreSQL :5432
+                            │
+                            └──→  gis-worker (proses job import KML/KMZ/GeoJSON/
+                                  Shapefile/GPKG dari tabel gis_jobs, tanpa expose port)
 ```
 
 | Service | Port host default | Fungsi |
 |---------|-------------------|--------|
 | `web` | **3001** | UI React (build) + proxy `/api` |
 | `api` | **8000** | REST, upload, otomasi Superman |
+| `gis-worker` | — | Parsing job import GIS (KML/KMZ/dll) di background |
 | `db` | **5432** | PostgreSQL 16 |
 
 Data persisten (Docker volume):
@@ -30,6 +34,11 @@ Data persisten (Docker volume):
 - `asetopt_pgdata` — database  
 - `asetopt_uploads` — file kontrak/invoice/upload  
 - `asetopt_superman` — session Playwright Superman  
+- `asetopt_gis_data` — file asli upload GIS, dibaca bersama oleh `api` dan `gis-worker`  
+
+`gis-worker` wajib jalan agar upload KML/KMZ muncul di peta dan tabel GIS — tanpa
+service ini, upload tersimpan dan masuk antrean tapi tidak pernah diproses (macet
+di status "uploaded"/"processing" tanpa pesan error).
 
 ---
 

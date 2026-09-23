@@ -2,197 +2,41 @@
 from __future__ import annotations
 
 import json
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from io import BytesIO
+import re
+import csv
+import zipfile
+from datetime import datetime, timedelta, timezone
+from io import BytesIO, StringIO
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
+from xml.etree import ElementTree as ET
 
-import httpx
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Header, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse
-from PIL import Image, ImageDraw
+import shapefile
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse, Response
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from database import SessionLocal, get_db
+from database import get_db
 from schemas_gis import (
-    DatasetCreateBody, DatasetUpdateBody, FeatureDraftPatchBody, GrantsBody,
+    DatasetArchiveBody, DatasetCreateBody, DatasetUpdateBody, FeatureDraftPatchBody, GrantsBody,
     ImportMappingBody, PublishBody, RollbackBody,
 )
 from services.auth_deps import CurrentUser, require_admin, require_app_read
 from services.gis.importer import GISImportError
 from services.gis.permissions import DOMAIN_BY_KIND, domains_for_user, require_dataset_domain, require_domain
 from services.gis.repository import (
-    apply_mapping, create_draft_version, dataset_row, refresh_import_readiness, report_hash, version_row, write_detail,
+    DETAIL_TABLES, apply_mapping, create_draft_version, dataset_row, refresh_import_readiness, report_hash, version_row, write_detail,
 )
 from services.gis.storage import GISStorageError, save_original, source_path
 
 
 router = APIRouter(prefix="/api/gis", tags=["GIS"])
 
-OFFICIAL_FOREST_EXPORT = "https://geoportal.planologi.kehutanan.go.id/server/rest/services/Peta_Interaktif_2026/KWSHUTAN_AR_250K/MapServer/export"
-OFFICIAL_FOREST_SOURCE_KEY = "KWSHUTAN_AR_250K_JUN2026"
-OFFICIAL_FOREST_SOURCE_YEAR = 2026
-OFFICIAL_FOREST_RASTER_SIZE = 768
-OFFICIAL_FOREST_COLORS = {
-    (173, 63, 255): "Kawasan Konservasi",
-    (2, 173, 0): "Hutan Lindung",
-    (255, 255, 0): "Hutan Produksi Tetap",
-    (138, 242, 0): "Hutan Produksi Terbatas",
-    (255, 94, 255): "Hutan Produksi yang dapat di Konversi",
-    (255, 255, 255): "Area Penggunaan Lain",
-    (0, 197, 255): "Tubuh Air",
-    (255, 0, 0): "Tidak Terdefinisi",
-}
-
-
-def _forest_class_from_pixel(red: int, green: int, blue: int) -> str | None:
-    """Return a forest class from the official renderer's fill colour.
-
-    Exported images have anti-aliased edges, so nearby colours are accepted.
-    APL, water, and undefined pixels intentionally do not count as forest.
-    """
-    nearest, name = min(
-        OFFICIAL_FOREST_COLORS.items(),
-        key=lambda item: sum((item[0][index] - (red, green, blue)[index]) ** 2 for index in range(3)),
-    )
-    distance = sum((nearest[index] - (red, green, blue)[index]) ** 2 for index in range(3))
-    if distance > 1_800 or name in {"Area Penggunaan Lain", "Tubuh Air", "Tidak Terdefinisi"}:
-        return None
-    return name
-
-
-def _ring_pixels(ring: list[list[float]], bounds: tuple[float, float, float, float], size: int) -> list[tuple[float, float]]:
-    west, south, east, north = bounds
-    span_lng = east - west
-    span_lat = north - south
-    return [
-        ((float(point[0]) - west) / span_lng * (size - 1), (north - float(point[1])) / span_lat * (size - 1))
-        for point in ring
-    ]
-
-
-def _draw_polygon_mask(draw: ImageDraw.ImageDraw, geometry: dict[str, Any], bounds: tuple[float, float, float, float], size: int) -> None:
-    polygons = [geometry.get("coordinates", [])] if geometry.get("type") == "Polygon" else geometry.get("coordinates", [])
-    for polygon in polygons:
-        if not polygon:
-            continue
-        draw.polygon(_ring_pixels(polygon[0], bounds, size), fill=255)
-        for hole in polygon[1:]:
-            draw.polygon(_ring_pixels(hole, bounds, size), fill=0)
-
-
-def _measure_official_forest(item: dict[str, Any]) -> tuple[float, dict[str, float]]:
-    """Estimate forest coverage inside one concession using Kemenhut's official map.
-
-    The public source is a MapServer whose geometry query is disabled.  We
-    therefore rasterise the supplied concession polygon as a mask and measure
-    the official map pixels inside it.  The result is fit for a 1:250,000 map
-    estimate and is never represented as a legal area determination.
-    """
-    west, south, east, north = (float(value) for value in item["bbox"].split(","))
-    pad_lng = max((east - west) * 0.03, 0.0001)
-    pad_lat = max((north - south) * 0.03, 0.0001)
-    bounds = (west - pad_lng, south - pad_lat, east + pad_lng, north + pad_lat)
-    params = {
-        "bbox": ",".join(str(value) for value in bounds),
-        "bboxSR": "4326",
-        "imageSR": "4326",
-        "size": f"{OFFICIAL_FOREST_RASTER_SIZE},{OFFICIAL_FOREST_RASTER_SIZE}",
-        "format": "png32",
-        "transparent": "true",
-        "layers": "show:0",
-        "f": "image",
-    }
-    response = httpx.get(OFFICIAL_FOREST_EXPORT, params=params, timeout=45.0)
-    response.raise_for_status()
-    image = Image.open(BytesIO(response.content)).convert("RGB")
-    if image.size != (OFFICIAL_FOREST_RASTER_SIZE, OFFICIAL_FOREST_RASTER_SIZE):
-        image = image.resize((OFFICIAL_FOREST_RASTER_SIZE, OFFICIAL_FOREST_RASTER_SIZE))
-    mask = Image.new("L", image.size, 0)
-    _draw_polygon_mask(ImageDraw.Draw(mask), json.loads(item["geom_json"]), bounds, OFFICIAL_FOREST_RASTER_SIZE)
-    covered_pixels = mask.histogram()[255]
-    if not covered_pixels:
-        raise ValueError("Masker konsesi tidak menghasilkan piksel yang dapat dihitung")
-    # Let Pillow group identical/anti-aliased colours in C instead of walking
-    # ~600k Python pixels per concession.  This matters for the first regional
-    # refresh with more than one hundred assets.
-    masked = Image.new("RGB", image.size, (0, 0, 0))
-    masked.paste(image, mask=mask)
-    forest_pixels = 0
-    classes: dict[str, int] = {}
-    for count, pixel in masked.getcolors(maxcolors=image.width * image.height) or []:
-        if pixel == (0, 0, 0):
-            continue
-        forest_class = _forest_class_from_pixel(*pixel)
-        if forest_class:
-            forest_pixels += count
-            classes[forest_class] = classes.get(forest_class, 0) + count
-    ratio = forest_pixels / covered_pixels
-    area_ha = round(float(item["konsesi_area_ha"]) * ratio, 4)
-    class_ha = {name: round(float(item["konsesi_area_ha"]) * count / covered_pixels, 4) for name, count in classes.items()}
-    return area_ha, class_ha
-
-
-def _refresh_official_forest_cache(items: list[dict[str, Any]]) -> None:
-    """Run outside the HTTP response; results are durable and reused by all users."""
-    if not items:
-        return
-    db = SessionLocal()
-    try:
-        keys = [item["id"] for item in items]
-        db.execute(text("""
-          UPDATE gis_official_forest_cache SET state='running', updated_at=now(), error_summary=NULL
-          WHERE asset_key = ANY(:keys) AND source_key=:source_key
-        """), {"keys": keys, "source_key": OFFICIAL_FOREST_SOURCE_KEY})
-        db.commit()
-        with ThreadPoolExecutor(max_workers=4) as pool:
-            futures = {pool.submit(_measure_official_forest, item): item for item in items}
-            for future in as_completed(futures):
-                item = futures[future]
-                try:
-                    forest_area_ha, class_breakdown = future.result()
-                    db.execute(text("""
-                      UPDATE gis_official_forest_cache
-                      SET state='complete', forest_area_ha=:forest_area_ha,
-                        class_breakdown=CAST(:class_breakdown AS jsonb), error_summary=NULL,
-                        measured_at=now(), updated_at=now()
-                      WHERE asset_key=:asset_key AND geom_hash=:geom_hash AND source_key=:source_key
-                    """), {"asset_key": item["id"], "geom_hash": item["geom_hash"], "source_key": OFFICIAL_FOREST_SOURCE_KEY,
-                           "forest_area_ha": forest_area_ha, "class_breakdown": json.dumps(class_breakdown)})
-                except Exception as exc:
-                    db.execute(text("""
-                      UPDATE gis_official_forest_cache
-                      SET state='failed', error_summary=:error_summary, updated_at=now()
-                      WHERE asset_key=:asset_key AND geom_hash=:geom_hash AND source_key=:source_key
-                    """), {"asset_key": item["id"], "geom_hash": item["geom_hash"], "source_key": OFFICIAL_FOREST_SOURCE_KEY,
-                           "error_summary": str(exc)[:500]})
-                db.commit()
-    finally:
-        db.close()
-
 
 def _error(exc: Exception) -> HTTPException:
     return HTTPException(status_code=422, detail=str(exc))
-
-
-def _official_forest_class(image_bytes: bytes) -> str | None:
-    """Classify the centre pixel of the official rendered map.
-
-    The public Kemenhut service exposes Map/export only, not feature/query.
-    Its published renderer is therefore the available public source for a
-    class at a clicked coordinate.
-    """
-    image = Image.open(BytesIO(image_bytes)).convert("RGBA")
-    centre_x, centre_y = image.width // 2, image.height // 2
-    candidates = [image.getpixel((x, y)) for y in range(max(0, centre_y - 1), min(image.height, centre_y + 2)) for x in range(max(0, centre_x - 1), min(image.width, centre_x + 2))]
-    for red, green, blue, alpha in candidates:
-        if alpha < 32:
-            continue
-        nearest, function = min(OFFICIAL_FOREST_COLORS.items(), key=lambda item: sum((item[0][index] - (red, green, blue)[index]) ** 2 for index in range(3)))
-        distance = sum((nearest[index] - (red, green, blue)[index]) ** 2 for index in range(3))
-        if distance <= 100:
-            return function
-    return None
 
 
 @router.get("/capabilities")
@@ -213,11 +57,12 @@ def capabilities(
 def list_datasets(
     kind: str | None = None,
     q: str | None = None,
+    include_archived: bool = False,
     limit: int = Query(default=50, ge=1, le=100),
     db: Session = Depends(get_db),
     _user: dict[str, Any] = Depends(require_app_read),
 ):
-    filters = ["archived_at IS NULL"]
+    filters = ["TRUE"] if include_archived else ["archived_at IS NULL"]
     params: dict[str, Any] = {"limit": limit}
     if kind:
         if kind not in DOMAIN_BY_KIND:
@@ -228,12 +73,30 @@ def list_datasets(
         filters.append("name ILIKE :q")
         params["q"] = f"%{q.strip()}%"
     rows = db.execute(text(f"""
-      SELECT d.id, d.kind, d.name, d.scope_key, d.active_version_id, d.revision, d.created_at,
+      SELECT d.id, d.kind, d.name, d.scope_key, d.active_version_id, d.revision, d.archived_at, d.created_at,
         v.version_no AS active_version_no, v.source_name, v.source_year, v.published_at
       FROM gis_datasets d LEFT JOIN gis_dataset_versions v ON v.id = d.active_version_id
       WHERE {' AND '.join(filters)} ORDER BY d.created_at DESC LIMIT :limit
     """), params).mappings().all()
     return {"data": [dict(row) for row in rows]}
+
+
+def _available_scope_key(db: Session, kind: str, name: str) -> str:
+    """Derive a scope key from the layer name.
+
+    gis_datasets enforces UNIQUE (kind, scope_key), so leaving the scope blank
+    allows only one layer per kind — every later upload of that kind would be
+    rejected with a 409.
+    """
+    base = re.sub(r"[^a-z0-9]+", "-", name.strip().lower()).strip("-")[:120] or "layer"
+    candidate, suffix = base, 2
+    while db.execute(
+        text("SELECT 1 FROM gis_datasets WHERE kind = :kind AND scope_key = :scope_key LIMIT 1"),
+        {"kind": kind, "scope_key": candidate},
+    ).first():
+        candidate = f"{base}-{suffix}"
+        suffix += 1
+    return candidate
 
 
 @router.post("/datasets", status_code=201)
@@ -243,11 +106,14 @@ def create_dataset(
     user: CurrentUser = None,  # type: ignore[assignment]
 ):
     require_domain(db, user, body.kind)
+    payload = body.model_dump()
+    if not payload["scope_key"].strip():
+        payload["scope_key"] = _available_scope_key(db, body.kind, body.name)
     try:
         row = db.execute(text("""
           INSERT INTO gis_datasets (kind, name, scope_key, created_by)
           VALUES (:kind, :name, :scope_key, :created_by) RETURNING *
-        """), body.model_dump() | {"created_by": user["id"]}).mappings().one()
+        """), payload | {"created_by": user["id"]}).mappings().one()
         db.execute(text("""
           INSERT INTO gis_audit_events (actor_id, event_type, dataset_id, details)
           VALUES (:actor_id, 'dataset_created', :dataset_id, CAST(:details AS jsonb))
@@ -257,7 +123,7 @@ def create_dataset(
     except Exception as exc:
         db.rollback()
         if "gis_datasets_kind_scope_key_key" in str(exc):
-            raise HTTPException(status_code=409, detail="Dataset dengan cakupan ini sudah ada") from None
+            raise HTTPException(status_code=409, detail="Layer dengan jenis dan cakupan yang sama sudah ada. Pilih layer tujuan yang sudah ada, atau isi cakupan yang berbeda.") from None
         raise
 
 
@@ -280,6 +146,94 @@ def update_dataset(
     return {"dataset": dict(row)}
 
 
+@router.post("/datasets/{dataset_id}/archive")
+def archive_dataset(
+    dataset_id: str,
+    body: DatasetArchiveBody,
+    db: Session = Depends(get_db),
+    user: CurrentUser = None,  # type: ignore[assignment]
+):
+    dataset = require_dataset_domain(db, user, dataset_id)
+    if dataset["archived_at"]:
+        raise HTTPException(status_code=409, detail="Layer sudah diarsipkan")
+    row = db.execute(text("""
+      UPDATE gis_datasets SET archived_at = now(), revision = revision + 1
+      WHERE id = :id AND revision = :expected_revision RETURNING *
+    """), {"id": dataset_id, **body.model_dump()}).mappings().first()
+    if not row:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Dataset telah berubah. Muat ulang data.")
+    db.execute(text("""
+      INSERT INTO gis_audit_events (actor_id, event_type, dataset_id, details)
+      VALUES (:actor_id, 'dataset_archived', :dataset_id, CAST(:details AS jsonb))
+    """), {"actor_id": user["id"], "dataset_id": dataset_id, "details": json.dumps({"name": dataset["name"], "kind": dataset["kind"]})})
+    db.commit()
+    return {"dataset": dict(row)}
+
+
+@router.post("/datasets/{dataset_id}/unarchive")
+def unarchive_dataset(
+    dataset_id: str,
+    body: DatasetArchiveBody,
+    db: Session = Depends(get_db),
+    user: CurrentUser = None,  # type: ignore[assignment]
+):
+    dataset = require_dataset_domain(db, user, dataset_id)
+    if not dataset["archived_at"]:
+        raise HTTPException(status_code=409, detail="Layer belum diarsipkan")
+    row = db.execute(text("""
+      UPDATE gis_datasets SET archived_at = NULL, revision = revision + 1
+      WHERE id = :id AND revision = :expected_revision RETURNING *
+    """), {"id": dataset_id, **body.model_dump()}).mappings().first()
+    if not row:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Dataset telah berubah. Muat ulang data.")
+    db.execute(text("""
+      INSERT INTO gis_audit_events (actor_id, event_type, dataset_id, details)
+      VALUES (:actor_id, 'dataset_unarchived', :dataset_id, CAST(:details AS jsonb))
+    """), {"actor_id": user["id"], "dataset_id": dataset_id, "details": json.dumps({"name": dataset["name"], "kind": dataset["kind"]})})
+    db.commit()
+    return {"dataset": dict(row)}
+
+
+@router.delete("/datasets/{dataset_id}")
+def delete_dataset(
+    dataset_id: str,
+    expected_revision: int = Query(..., ge=0),
+    db: Session = Depends(get_db),
+    user: CurrentUser = None,  # type: ignore[assignment]
+):
+    """Only a layer that was never published can be hard-deleted.
+
+    Published feature versions are protected by a DB trigger (see migration
+    032) that blocks DELETE once a gis_dataset_versions row is 'published' —
+    that history must be archived, not erased. Datasets that are still
+    draft/failed (e.g. an import whose source file was lost) have nothing to
+    protect and can be removed outright.
+    """
+    dataset = require_dataset_domain(db, user, dataset_id)
+    published = db.execute(text("""
+      SELECT 1 FROM gis_dataset_versions WHERE dataset_id = :id AND state = 'published' LIMIT 1
+    """), {"id": dataset_id}).first()
+    if dataset["active_version_id"] is not None or published:
+        raise HTTPException(status_code=409, detail="Layer memiliki versi terbitan dan tidak dapat dihapus. Arsipkan layer ini untuk menyembunyikannya tanpa kehilangan riwayat data.")
+    if dataset["revision"] != expected_revision:
+        raise HTTPException(status_code=409, detail="Dataset telah berubah. Muat ulang data.")
+    db.execute(text("""
+      INSERT INTO gis_audit_events (actor_id, event_type, dataset_id, details)
+      VALUES (:actor_id, 'dataset_deleted', :dataset_id, CAST(:details AS jsonb))
+    """), {"actor_id": user["id"], "dataset_id": dataset_id, "details": json.dumps({"name": dataset["name"], "kind": dataset["kind"]})})
+    # gis_source_files restricts deletion of its version, so it must go first;
+    # everything else hangs off gis_datasets with ON DELETE CASCADE.
+    db.execute(text("""
+      DELETE FROM gis_source_files
+      WHERE version_id IN (SELECT id FROM gis_dataset_versions WHERE dataset_id = :id)
+    """), {"id": dataset_id})
+    db.execute(text("DELETE FROM gis_datasets WHERE id = :id"), {"id": dataset_id})
+    db.commit()
+    return {"deleted": True}
+
+
 @router.get("/datasets/{dataset_id}/versions")
 def list_versions(
     dataset_id: str,
@@ -295,14 +249,246 @@ def list_versions(
     return {"data": [dict(row) for row in rows]}
 
 
-@router.get("/datasets/{dataset_id}/imports/latest")
-def latest_dataset_import(
+@router.post("/datasets/{dataset_id}/edit-draft", status_code=201)
+def begin_dataset_edit(
     dataset_id: str,
     db: Session = Depends(get_db),
     user: CurrentUser = None,  # type: ignore[assignment]
 ):
-    """Return an import a user can resume, preferring an active draft."""
+    """Copy published geometry and metadata into an editable draft version."""
     dataset = require_dataset_domain(db, user, dataset_id)
+    if dataset["archived_at"]:
+        raise HTTPException(status_code=409, detail="Pulihkan layer dari arsip sebelum mengedit")
+    db.execute(text("SELECT id FROM gis_datasets WHERE id=:id FOR UPDATE"), {"id": dataset_id})
+    pending = db.execute(text("""
+      SELECT id FROM gis_imports WHERE dataset_id=:id AND state IN ('mapping_required', 'ready')
+      ORDER BY created_at DESC LIMIT 1
+    """), {"id": dataset_id}).scalar_one_or_none()
+    if pending:
+        db.execute(text("UPDATE gis_imports SET expires_at=now()+interval '30 days' WHERE id=:id"), {"id": pending})
+        db.commit()
+        return {"import_id": str(pending), "reused": True}
+    if not dataset["active_version_id"]:
+        raise HTTPException(status_code=409, detail="Layer belum memiliki versi terbit. Unggah berkas atau lanjutkan draf sebelumnya.")
+    source = version_row(db, str(dataset["active_version_id"]))
+    try:
+        version = create_draft_version(db, dataset, user["id"])
+        db.execute(text("""
+          UPDATE gis_dataset_versions SET source_name=:source_name, source_url=:source_url,
+            source_year=:source_year, effective_date=:effective_date,
+            coverage_note=:coverage_note, change_note='Koreksi informasi poligon'
+          WHERE id=:id
+        """), {"id": version["id"], **{key: source[key] for key in ("source_name", "source_url", "source_year", "effective_date", "coverage_note")}})
+        table = DETAIL_TABLES[dataset["kind"]]
+        features = db.execute(text(f"""
+          SELECT fv.id, fv.feature_id, to_jsonb(d) - 'feature_version_id' AS attributes
+          FROM gis_feature_versions fv LEFT JOIN {table} d ON d.feature_version_id=fv.id
+          WHERE fv.dataset_version_id=:version_id ORDER BY fv.id
+        """), {"version_id": source["id"]}).mappings().all()
+        for feature in features:
+            new_id = db.execute(text("""
+              INSERT INTO gis_feature_versions (dataset_version_id, feature_id, name, geom, original_properties, extra_attributes)
+              SELECT :version_id, feature_id, name, geom, original_properties, extra_attributes
+              FROM gis_feature_versions WHERE id=:old_id RETURNING id
+            """), {"version_id": version["id"], "old_id": feature["id"]}).scalar_one()
+            if feature["attributes"]:
+                write_detail(db, dataset["kind"], str(new_id), feature["attributes"], user["id"])
+            if dataset["kind"] == "konsesi":
+                db.execute(text("""
+                  INSERT INTO gis_konsesi_aset (konsesi_feature_version_id, aset_id, link_note, linked_by)
+                  SELECT :new_id, aset_id, link_note, :actor_id FROM gis_konsesi_aset
+                  WHERE konsesi_feature_version_id=:old_id
+                """), {"new_id": new_id, "old_id": feature["id"], "actor_id": user["id"]})
+        imp = db.execute(text("""
+          INSERT INTO gis_imports (dataset_id, candidate_version_id, requested_by, state, expires_at)
+          VALUES (:dataset_id, :version_id, :actor_id, 'mapping_required', now()+interval '30 days')
+          RETURNING id
+        """), {"dataset_id": dataset_id, "version_id": version["id"], "actor_id": user["id"]}).scalar_one()
+        readiness = refresh_import_readiness(db, str(imp))
+        db.execute(text("""
+          INSERT INTO gis_audit_events (actor_id, event_type, dataset_id, version_id, details)
+          VALUES (:actor_id, 'version_edit_started', :dataset_id, :version_id, CAST(:details AS jsonb))
+        """), {"actor_id": user["id"], "dataset_id": dataset_id, "version_id": version["id"],
+               "details": json.dumps({"based_on_version_id": str(source["id"])})})
+        db.commit()
+        return {"import_id": str(imp), "reused": False, "state": readiness["state"]}
+    except Exception:
+        db.rollback()
+        raise
+
+
+@router.get("/datasets/{dataset_id}/export")
+def export_dataset(
+    dataset_id: str,
+    format: str = Query(default="geojson", pattern="^(geojson|kml|shp)$"),
+    version: str = Query(default="published", pattern="^(published|draft)$"),
+    db: Session = Depends(get_db),
+    user: dict[str, Any] = Depends(require_app_read),
+):
+    dataset = dataset_row(db, dataset_id)
+    if version == "draft":
+        version_id = db.execute(text("""
+          SELECT candidate_version_id FROM gis_imports WHERE dataset_id=:id
+            AND state IN ('mapping_required', 'ready') ORDER BY created_at DESC LIMIT 1
+        """), {"id": dataset_id}).scalar_one_or_none()
+    else:
+        version_id = dataset["active_version_id"]
+    if not version_id:
+        raise HTTPException(status_code=404, detail="Versi yang diminta belum tersedia")
+    layer_version = version_row(db, str(version_id))
+    table = DETAIL_TABLES[dataset["kind"]]
+    rows = db.execute(text(f"""
+      SELECT fv.name, fv.original_properties, fv.computed_area_m2,
+        (coalesce(to_jsonb(d) - 'feature_version_id', '{{}}'::jsonb)
+          || {"jsonb_strip_nulls(jsonb_build_object('nama_mitra', ks.nama_mitra, 'no_perjanjian', ks.no_perjanjian, 'skema_kerja_sama', ks.skema_kerja_sama, 'tanggal_mulai', ks.tgl_mulai, 'tanggal_berakhir', ks.tgl_selesai))" if dataset['kind'] == 'opset' else "'{}'::jsonb"}
+          || fv.extra_attributes) AS attributes,
+        ST_AsGeoJSON(fv.geom) AS geometry, ST_AsKML(fv.geom) AS kml
+      FROM gis_feature_versions fv LEFT JOIN {table} d ON d.feature_version_id=fv.id
+      {"LEFT JOIN kerja_sama ks ON ks.id=d.kerja_sama_id" if dataset['kind'] == 'opset' else ""}
+      WHERE fv.dataset_version_id=:version_id ORDER BY fv.name
+    """), {"version_id": version_id}).mappings().all()
+    if not rows:
+        raise HTTPException(status_code=404, detail="Versi ini belum berisi poligon")
+    safe_name = re.sub(r"[^A-Za-z0-9_-]+", "-", dataset["name"]).strip("-")[:80] or "layer-gis"
+    filename = f"{safe_name}-v{layer_version['version_no']}.{'zip' if format == 'shp' else format}"
+    features = []
+    for row in rows:
+        properties = {"name": row["name"], "kind": dataset["kind"], "dataset_name": dataset["name"],
+                      "computed_area_m2": float(row["computed_area_m2"])}
+        properties.update({f"source_{key}": value for key, value in (row["original_properties"] or {}).items()})
+        properties.update(row["attributes"] or {})
+        features.append({"type": "Feature", "properties": properties, "geometry": json.loads(row["geometry"]), "kml": row["kml"]})
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    content = {"type": "FeatureCollection", "features": [{key: value for key, value in feature.items() if key != "kml"} for feature in features]}
+    if format == "geojson":
+        return Response(json.dumps(content, ensure_ascii=False, default=str), media_type="application/geo+json", headers=headers)
+    if format == "shp":
+        field_names = sorted({key for feature in features for key in feature["properties"]})
+        aliases: dict[str, str] = {}
+        used: set[str] = set()
+        for key in field_names:
+            base = re.sub(r"[^A-Za-z0-9_]", "_", key).upper()[:10] or "FIELD"
+            alias = base
+            suffix = 2
+            while alias in used:
+                tail = str(suffix)
+                alias = f"{base[:10-len(tail)]}{tail}"
+                suffix += 1
+            aliases[key] = alias
+            used.add(alias)
+        with TemporaryDirectory() as directory:
+            base_path = Path(directory) / safe_name
+            writer = shapefile.Writer(str(base_path), shapeType=shapefile.POLYGON, encoding="utf-8")
+            for alias in aliases.values():
+                writer.field(alias, "C", size=254)
+            for feature in features:
+                writer.shape(feature["geometry"])
+                writer.record(*[("" if feature["properties"].get(key) is None else str(feature["properties"][key]))[:254] for key in field_names])
+            writer.close()
+            base_path.with_suffix(".prj").write_text('GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433]]')
+            base_path.with_suffix(".cpg").write_text("UTF-8")
+            field_map = StringIO()
+            csv_writer = csv.writer(field_map)
+            csv_writer.writerow(["kolom_shp", "nama_atribut_lengkap"])
+            csv_writer.writerows((alias, key) for key, alias in aliases.items())
+            archive = BytesIO()
+            with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as zipped:
+                for suffix in ("shp", "shx", "dbf", "prj", "cpg"):
+                    zipped.write(base_path.with_suffix(f".{suffix}"), arcname=f"{safe_name}.{suffix}")
+                zipped.writestr("field_map.csv", field_map.getvalue())
+                zipped.writestr(f"{safe_name}.geojson", json.dumps(content, ensure_ascii=False, default=str))
+        return Response(archive.getvalue(), media_type="application/zip", headers=headers)
+    namespace = "http://www.opengis.net/kml/2.2"
+    ET.register_namespace("", namespace)
+    root = ET.Element(f"{{{namespace}}}kml")
+    document = ET.SubElement(root, f"{{{namespace}}}Document")
+    ET.SubElement(document, f"{{{namespace}}}name").text = dataset["name"]
+    for feature in features:
+        placemark = ET.SubElement(document, f"{{{namespace}}}Placemark")
+        ET.SubElement(placemark, f"{{{namespace}}}name").text = str(feature["properties"]["name"])
+        extended = ET.SubElement(placemark, f"{{{namespace}}}ExtendedData")
+        for key, value in feature["properties"].items():
+            if value is None or isinstance(value, (dict, list)):
+                continue
+            data = ET.SubElement(extended, f"{{{namespace}}}Data", name=str(key))
+            ET.SubElement(data, f"{{{namespace}}}value").text = str(value)
+        geometry = ET.fromstring(feature["kml"])
+        for element in geometry.iter():
+            element.tag = f"{{{namespace}}}{element.tag.split('}')[-1]}"
+        placemark.append(geometry)
+    return Response(ET.tostring(root, encoding="utf-8", xml_declaration=True), media_type="application/vnd.google-earth.kml+xml", headers=headers)
+
+
+@router.get("/datasets/{dataset_id}/bounds")
+def dataset_bounds(
+    dataset_id: str,
+    db: Session = Depends(get_db),
+    user: dict[str, Any] = Depends(require_app_read),
+):
+    """Return the whole layer extent, independent of the map viewport."""
+    dataset = dataset_row(db, dataset_id)
+    row = db.execute(text("""
+      SELECT ST_XMin(extent) AS west, ST_YMin(extent) AS south,
+             ST_XMax(extent) AS east, ST_YMax(extent) AS north
+      FROM (
+        SELECT ST_Extent(fv.geom) AS extent
+        FROM gis_feature_versions fv
+        WHERE fv.dataset_version_id = COALESCE(
+          :active_version_id,
+          (SELECT v.id FROM gis_dataset_versions v
+           WHERE v.dataset_id = :dataset_id AND v.state <> 'failed'
+           ORDER BY v.version_no DESC LIMIT 1)
+        )
+      ) bounds
+    """), {"dataset_id": dataset_id, "active_version_id": dataset["active_version_id"]}).mappings().one()
+    if row["west"] is None:
+        return {"bbox": None}
+    return {"bbox": ",".join(str(row[key]) for key in ("west", "south", "east", "north"))}
+
+
+@router.get("/assets/{aset_id}/bounds")
+def asset_bounds(
+    aset_id: str,
+    db: Session = Depends(get_db),
+    _user: dict[str, Any] = Depends(require_app_read),
+):
+    """Locate an asset through linked concession polygons or OPSET areas of its kerja sama."""
+    row = db.execute(text("""
+      WITH located AS (
+        SELECT fv.geom, d.id AS dataset_id
+        FROM gis_konsesi_aset ka
+        JOIN gis_feature_versions fv ON fv.id=ka.konsesi_feature_version_id
+        JOIN gis_dataset_versions v ON v.id=fv.dataset_version_id
+        JOIN gis_datasets d ON d.id=v.dataset_id
+        WHERE ka.aset_id=CAST(:aset_id AS uuid) AND d.archived_at IS NULL
+          AND (d.active_version_id=fv.dataset_version_id OR (d.active_version_id IS NULL AND EXISTS (
+            SELECT 1 FROM gis_imports i WHERE i.candidate_version_id=fv.dataset_version_id AND i.state IN ('mapping_required', 'ready'))))
+        UNION ALL
+        SELECT fv.geom, d.id
+        FROM gis_opset_details od
+        JOIN gis_feature_versions fv ON fv.id=od.feature_version_id
+        JOIN gis_datasets d ON d.active_version_id=fv.dataset_version_id
+        JOIN kerja_sama ks ON ks.id=od.kerja_sama_id
+        WHERE d.archived_at IS NULL AND (ks.aset_id=CAST(:aset_id AS uuid) OR EXISTS (
+          SELECT 1 FROM kerja_sama_aset ksa WHERE ksa.ks_id=ks.id AND ksa.aset_id=CAST(:aset_id AS uuid)))
+      )
+      SELECT ST_XMin(extent) AS west, ST_YMin(extent) AS south, ST_XMax(extent) AS east, ST_YMax(extent) AS north,
+        dataset_ids
+      FROM (SELECT ST_Extent(geom) AS extent, array_agg(DISTINCT dataset_id::text) AS dataset_ids FROM located) bounds
+    """), {"aset_id": aset_id}).mappings().one()
+    if row["west"] is None:
+        return {"bbox": None, "dataset_ids": []}
+    return {"bbox": ",".join(str(row[key]) for key in ("west", "south", "east", "north")), "dataset_ids": row["dataset_ids"]}
+
+
+@router.get("/datasets/{dataset_id}/imports/latest")
+def latest_dataset_import(
+    dataset_id: str,
+    db: Session = Depends(get_db),
+    user: dict[str, Any] = Depends(require_app_read),
+):
+    """Return an import a user can resume, preferring an active draft."""
+    dataset = dataset_row(db, dataset_id)
     row = db.execute(text("""
       SELECT * FROM gis_imports WHERE dataset_id=:dataset_id
       ORDER BY CASE WHEN state IN ('uploaded', 'processing', 'mapping_required', 'ready') THEN 0 ELSE 1 END,
@@ -377,14 +563,13 @@ def get_import(
 def get_import_features(
     import_id: str,
     db: Session = Depends(get_db),
-    user: CurrentUser = None,  # type: ignore[assignment]
+    user: dict[str, Any] = Depends(require_app_read),
 ):
     imp = db.execute(text("""
       SELECT i.*, d.kind FROM gis_imports i JOIN gis_datasets d ON d.id=i.dataset_id WHERE i.id=:id
     """), {"id": import_id}).mappings().first()
     if not imp:
         raise HTTPException(status_code=404, detail="Impor GIS tidak ditemukan")
-    require_domain(db, user, imp["kind"])
     table = {
         "konsesi": "gis_konsesi_details", "tanaman": "gis_tanaman_details", "hutan": "gis_hutan_details",
         "opset": "gis_opset_details", "okupasi": "gis_okupasi_details", "administrasi": "gis_administrasi_details",
@@ -392,10 +577,13 @@ def get_import_features(
     rows = db.execute(text(f"""
       SELECT fv.id, fv.name, fv.original_properties, fv.computed_area_m2,
         ST_AsGeoJSON(ST_SimplifyPreserveTopology(fv.geom, 0.00001)) AS geometry,
-        to_jsonb(d) - 'feature_version_id' AS attributes,
+        (coalesce(to_jsonb(d) - 'feature_version_id', '{{}}'::jsonb)
+          || {"jsonb_strip_nulls(jsonb_build_object('nama_mitra', ks.nama_mitra, 'no_perjanjian', ks.no_perjanjian, 'skema_kerja_sama', ks.skema_kerja_sama, 'tanggal_mulai', ks.tgl_mulai, 'tanggal_berakhir', ks.tgl_selesai))" if imp['kind'] == 'opset' else "'{}'::jsonb"}
+          || fv.extra_attributes) AS attributes,
         CASE WHEN :kind='konsesi' THEN coalesce((SELECT array_agg(ka.aset_id::text ORDER BY ka.aset_id::text) FROM gis_konsesi_aset ka WHERE ka.konsesi_feature_version_id=fv.id), ARRAY[]::text[]) ELSE ARRAY[]::text[] END AS linked_asset_ids
       FROM gis_feature_versions fv LEFT JOIN {table} d ON d.feature_version_id=fv.id
-      WHERE fv.dataset_version_id=:version_id ORDER BY fv.name LIMIT 500
+      {"LEFT JOIN kerja_sama ks ON ks.id=d.kerja_sama_id" if imp['kind'] == 'opset' else ""}
+      WHERE fv.dataset_version_id=:version_id ORDER BY fv.name LIMIT 5000
     """), {"version_id": imp["candidate_version_id"], "kind": imp["kind"]}).mappings().all()
     return {"data": [{**dict(row), "id": str(row["id"]), "computed_area_m2": float(row["computed_area_m2"]), "geometry": json.loads(row["geometry"]),
                        "attributes": row["attributes"] or {}} for row in rows]}
@@ -576,7 +764,6 @@ def list_konsesi_summaries(
 
 @router.get("/konsesi/summary/grouped")
 def list_grouped_konsesi_summaries(
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     _user: dict[str, Any] = Depends(require_app_read),
 ):
@@ -607,7 +794,16 @@ def list_grouped_konsesi_summaries(
           cv.record_state, d.id AS dataset_id,
           coalesce(max(nullif(kd.nomor_alas_hak, '')), max(nullif(fv.original_properties->>'Nama_Serti', '')), min(fv.name)) AS kode_aset,
           coalesce(max(nullif(fv.original_properties->>'Nama_Serti', '')), regexp_replace(min(fv.name), '\\s+\\(bagian \\d+\\)$', '')) AS nama_aset,
-          coalesce(max(nullif(fv.original_properties->>'Kebun', '')), max(nullif(fv.original_properties->>'kebun', '')), '') AS lokasi,
+          coalesce(max(nullif(fv.extra_attributes->>'lokasi', '')), max(nullif(fv.original_properties->>'Kebun', '')), max(nullif(fv.original_properties->>'kebun', '')), '') AS lokasi,
+          max(nullif(kd.nomor_alas_hak, '')) AS nomor_alas_hak,
+          max(nullif(kd.jenis_alas_hak, '')) AS jenis_alas_hak,
+          max(nullif(fv.extra_attributes->>'pemegang_hak', '')) AS pemegang_hak,
+          max(nullif(fv.extra_attributes->>'sumber_dokumen', '')) AS sumber_dokumen,
+          max(nullif(fv.extra_attributes->>'catatan', '')) AS catatan,
+          max(nullif(fv.extra_attributes->>'tanggal_mulai', '')::date) AS tanggal_mulai,
+          max(kd.tanggal_terbit) AS tanggal_terbit,
+          max(kd.tanggal_berakhir) AS tanggal_berakhir,
+          CASE WHEN bool_or(kd.expiry_mode='fixed') THEN 'fixed' WHEN bool_or(kd.expiry_mode='indefinite') THEN 'indefinite' ELSE 'unknown' END AS expiry_mode,
           ST_UnaryUnion(ST_Collect(fv.geom)) AS geom
         FROM konsesi_version cv
         JOIN gis_feature_versions fv ON fv.dataset_version_id=cv.version_id
@@ -616,6 +812,8 @@ def list_grouped_konsesi_summaries(
         GROUP BY cv.record_state, d.id, coalesce(fv.original_properties->>'Kebun', fv.original_properties->>'kebun', ''), coalesce(fv.original_properties->>'FID_Areal', fv.original_properties->>'fid_areal', fv.original_properties->>'Nama_Serti', fv.name)
       )
       SELECT cg.id, cg.record_state, cg.kode_aset, cg.nama_aset, cg.lokasi,
+        cg.nomor_alas_hak, cg.jenis_alas_hak, cg.pemegang_hak, cg.sumber_dokumen, cg.catatan,
+        cg.tanggal_mulai, cg.tanggal_terbit, cg.tanggal_berakhir, cg.expiry_mode,
         1::integer AS konsesi_count, ARRAY[cg.nama_aset]::text[] AS konsesi_names,
         ARRAY[cg.dataset_id::text]::text[] AS dataset_ids,
         concat_ws(',', ST_XMin(Box2D(cg.geom)::box3d), ST_YMin(Box2D(cg.geom)::box3d), ST_XMax(Box2D(cg.geom)::box3d), ST_YMax(Box2D(cg.geom)::box3d)) AS bbox,
@@ -627,71 +825,52 @@ def list_grouped_konsesi_summaries(
         round(coalesce((ST_Area(ST_Intersection(cg.geom, (SELECT geom FROM category_geom WHERE kind='tanaman'))::geography) / 10000), 0)::numeric, 4) AS tanaman_area_ha,
         CASE WHEN EXISTS (SELECT 1 FROM category_geom WHERE kind='hutan')
           THEN round(coalesce((ST_Area(ST_Intersection(cg.geom, (SELECT geom FROM category_geom WHERE kind='hutan'))::geography) / 10000), 0)::numeric, 4)
-          WHEN ofc.state='complete' THEN ofc.forest_area_ha
           ELSE NULL END AS hutan_area_ha,
         round(coalesce((ST_Area(ST_Intersection(cg.geom, (SELECT geom FROM category_geom WHERE kind='okupasi'))::geography) / 10000), 0)::numeric, 4) AS okupasi_area_ha,
         round(coalesce((ST_Area(ST_Intersection(cg.geom, (SELECT geom FROM category_geom WHERE kind='opset'))::geography) / 10000), 0)::numeric, 4) AS kerja_sama_area_ha,
         CASE WHEN EXISTS (SELECT 1 FROM category_geom WHERE kind='hutan')
           THEN round((ST_Area(ST_Difference(cg.geom, coalesce((SELECT geom FROM available_mask), ST_GeomFromText('MULTIPOLYGON EMPTY', 4326)))::geography) / 10000)::numeric, 4)
-          WHEN ofc.state='complete' THEN round(GREATEST(0, (ST_Area(ST_Difference(cg.geom, coalesce((SELECT geom FROM available_mask), ST_GeomFromText('MULTIPOLYGON EMPTY', 4326)))::geography) / 10000) - ofc.forest_area_ha)::numeric, 4)
-          ELSE NULL END AS dapat_dimanfaatkan_area_ha,
-        ofc.state AS official_forest_state
+          ELSE NULL END AS dapat_dimanfaatkan_area_ha
       FROM konsesi_group cg
-      LEFT JOIN gis_official_forest_cache ofc
-        ON ofc.asset_key=cg.id AND ofc.geom_hash=md5(ST_AsEWKB(cg.geom)::text)
-          AND ofc.source_key=:official_forest_source
       ORDER BY cg.lokasi, cg.nama_aset
-    """), {"official_forest_source": OFFICIAL_FOREST_SOURCE_KEY}).mappings().all()
+    """)).mappings().all()
     active_kinds = set(db.execute(text("""
       SELECT DISTINCT kind FROM gis_datasets
       WHERE active_version_id IS NOT NULL AND archived_at IS NULL
     """)).scalars().all())
     missing_layers = sorted({"konsesi", "tanaman", "hutan", "opset", "okupasi"} - active_kinds)
-    queued_items: list[dict[str, Any]] = []
-    if "hutan" not in active_kinds:
-        for row in rows:
-            item = dict(row)
-            if item["official_forest_state"] in {None, "queued"} and item.get("bbox"):
-                queued = db.execute(text("""
-                  INSERT INTO gis_official_forest_cache (
-                    asset_key, geom_hash, source_key, source_year, state, raster_size, updated_at
-                  ) VALUES (:asset_key, :geom_hash, :source_key, :source_year, 'running', :raster_size, now())
-                  ON CONFLICT (asset_key) DO UPDATE SET
-                    geom_hash=EXCLUDED.geom_hash, source_key=EXCLUDED.source_key,
-                    source_year=EXCLUDED.source_year, state='running', error_summary=NULL,
-                    updated_at=now()
-                  WHERE gis_official_forest_cache.geom_hash <> EXCLUDED.geom_hash
-                    OR gis_official_forest_cache.source_key <> EXCLUDED.source_key
-                    OR gis_official_forest_cache.state='queued'
-                  RETURNING asset_key
-                """), {"asset_key": item["id"], "geom_hash": item["geom_hash"],
-                       "source_key": OFFICIAL_FOREST_SOURCE_KEY, "source_year": OFFICIAL_FOREST_SOURCE_YEAR,
-                       "raster_size": OFFICIAL_FOREST_RASTER_SIZE}).scalar_one_or_none()
-                if queued:
-                    queued_items.append(item)
-        if queued_items:
-            db.commit()
-            background_tasks.add_task(_refresh_official_forest_cache, queued_items)
     result = []
+    today = datetime.now(timezone(timedelta(hours=8))).date()
     for row in rows:
         item = dict(row)
+        if not item['nomor_alas_hak'] and not item['jenis_alas_hak']:
+            item['rights_status'] = 'belum_beralas_hak'
+        elif not item['nomor_alas_hak'] or not item['jenis_alas_hak']:
+            item['rights_status'] = 'belum_lengkap'
+        elif item['tanggal_mulai'] and item['tanggal_mulai'] > today:
+            item['rights_status'] = 'belum_berlaku'
+        elif item['tanggal_berakhir'] and item['tanggal_berakhir'] < today:
+            item['rights_status'] = 'berakhir'
+        elif item['expiry_mode'] == 'indefinite' or item['tanggal_berakhir']:
+            item['rights_status'] = 'berlaku'
+        else:
+            item['rights_status'] = 'belum_diketahui'
         item["konsesi_names"] = item["konsesi_names"] or []
         item["dataset_ids"] = item["dataset_ids"] or []
         for field in ("konsesi_area_ha", "tanaman_area_ha", "hutan_area_ha", "okupasi_area_ha", "kerja_sama_area_ha", "dapat_dimanfaatkan_area_ha"):
             item[field] = float(item[field]) if item[field] is not None else None
         for field in ("center_lat", "center_lng"):
             item[field] = float(item[field]) if item[field] is not None else None
-        item["missing_layers"] = [kind for kind in missing_layers if not (kind == "hutan" and item["official_forest_state"] == "complete")]
+        item["missing_layers"] = missing_layers
         item["analysis_status"] = (
             "draf — lengkapi informasi sebelum diterbitkan" if item["record_state"] == "draf"
-            else "data kawasan hutan sedang dihitung" if item["official_forest_state"] in {"queued", "running"}
             else "estimasi — layer belum lengkap" if item["missing_layers"]
             else "estimasi berdasarkan layer aktif"
         )
         item.pop("geom_json", None)
         item.pop("geom_hash", None)
         result.append(item)
-    return {"data": result, "availability_note": "Kawasan hutan dihitung otomatis dari peta Kemenhut skala 1:250.000 (Juni 2026), lalu disimpan per konsesi. Ini merupakan estimasi spasial, bukan keputusan legal."}
+    return {"data": result, "availability_note": "Kawasan hutan dihitung dari layer kawasan hutan yang diunggah. Sisa dapat dimanfaatkan adalah estimasi spasial: konsesi dikurangi gabungan unik tanaman, kawasan hutan, okupasi, dan area kerja sama. Konfirmasi legal tetap diperlukan."}
 
 
 @router.get("/reference/administrasi")
@@ -743,34 +922,6 @@ def list_hutan_functions(
     return {"data": rows}
 
 
-@router.get("/official-forest/identify")
-def identify_official_forest(
-    lng: float = Query(..., ge=94.9, le=141.1),
-    lat: float = Query(..., ge=-11.1, le=6.1),
-    _user: dict[str, Any] = Depends(require_app_read),
-):
-    """Identify a clicked location in the official Kemenhut national map."""
-    delta = 0.00008
-    params = {
-        "bbox": f"{lng - delta},{lat - delta},{lng + delta},{lat + delta}",
-        "bboxSR": "4326", "imageSR": "4326", "size": "9,9", "format": "png32",
-        "transparent": "true", "layers": "show:0", "f": "image",
-    }
-    try:
-        response = httpx.get(OFFICIAL_FOREST_EXPORT, params=params, timeout=12.0, follow_redirects=True)
-        response.raise_for_status()
-        function = _official_forest_class(response.content)
-    except (httpx.HTTPError, OSError) as exc:
-        raise HTTPException(status_code=502, detail="Referensi kawasan hutan resmi sedang tidak dapat dihubungi") from exc
-    return {
-        "found": function is not None,
-        "function": function,
-        "source": "Kementerian Kehutanan — KWSHUTAN_AR_250K_JUN2026",
-        "year": 2026,
-        "note": "Kelas dibaca dari renderer resmi pada titik yang diklik. Nomor dan tanggal SK per bidang tidak dibuka oleh layanan publik sumber.",
-    }
-
-
 @router.patch("/imports/{import_id}/mapping")
 def update_import_mapping(
     import_id: str,
@@ -809,12 +960,30 @@ def update_draft_feature(
     require_domain(db, user, imp["kind"])
     if imp["state"] not in {"mapping_required", "ready"} or imp["draft_revision"] != body.expected_draft_revision:
         raise HTTPException(status_code=409, detail="Draf impor telah berubah. Muat ulang data.")
-    exists = db.execute(text("""
-      SELECT id FROM gis_feature_versions WHERE id=:feature_id AND dataset_version_id=:version_id
-    """), {"feature_id": feature_id, "version_id": imp["candidate_version_id"]}).scalar_one_or_none()
-    if not exists:
+    current_feature = db.execute(text("""
+      SELECT id, name, original_properties FROM gis_feature_versions
+      WHERE id=:feature_id AND dataset_version_id=:version_id
+    """), {"feature_id": feature_id, "version_id": imp["candidate_version_id"]}).mappings().first()
+    if not current_feature:
         raise HTTPException(status_code=404, detail="Feature draf tidak ditemukan")
+    if body.name is not None and not body.name.strip():
+        raise HTTPException(status_code=422, detail="Nama poligon tidak boleh kosong")
+    if body.original_properties is not None and (
+        len(body.original_properties) > 200
+        or any(not isinstance(key, str) or not key.strip() or len(key) > 150
+               or isinstance(value, (dict, list)) for key, value in body.original_properties.items())
+    ):
+        raise HTTPException(status_code=422, detail="Atribut sumber harus berupa pasangan nama dan nilai sederhana")
     try:
+        if body.name is not None or body.original_properties is not None:
+            db.execute(text("""
+              UPDATE gis_feature_versions
+              SET name=coalesce(:name, name),
+                  original_properties=original_properties || coalesce(CAST(:properties AS jsonb), '{}'::jsonb)
+              WHERE id=:feature_id
+            """), {"name": body.name.strip() if body.name is not None else None,
+                   "properties": json.dumps(body.original_properties, ensure_ascii=False) if body.original_properties is not None else None,
+                   "feature_id": feature_id})
         write_detail(db, imp["kind"], feature_id, body.attributes, user["id"])
         if imp["kind"] == "konsesi" and body.linked_asset_ids is not None:
             db.execute(text("DELETE FROM gis_konsesi_aset WHERE konsesi_feature_version_id=:feature_id"), {"feature_id": feature_id})
@@ -824,6 +993,13 @@ def update_draft_feature(
                   VALUES (:feature_id, :aset_id, :actor_id)
                 """), {"feature_id": feature_id, "aset_id": aset_id, "actor_id": user["id"]})
         readiness = refresh_import_readiness(db, import_id)
+        db.execute(text("""
+          INSERT INTO gis_audit_events (actor_id, event_type, dataset_id, version_id, details)
+          VALUES (:actor_id, 'feature_metadata_updated', :dataset_id, :version_id, CAST(:details AS jsonb))
+        """), {"actor_id": user["id"], "dataset_id": imp["dataset_id"],
+               "version_id": imp["candidate_version_id"],
+               "details": json.dumps({"feature_id": feature_id, "old_name": current_feature["name"],
+                                      "new_name": body.name, "source_properties_changed": body.original_properties is not None})})
         db.commit()
         return {"ok": True, **readiness}
     except GISImportError as exc:
@@ -955,11 +1131,11 @@ def list_features(
         raise HTTPException(status_code=422, detail="Filter wilayah membutuhkan tingkat batas yang valid")
     rows = db.execute(text("""
       SELECT fv.id, fv.feature_id, fv.name, d.id AS dataset_id, d.kind, fv.computed_area_m2,
-        coalesce(
+        (coalesce(
           to_jsonb(kd) - 'feature_version_id', to_jsonb(td) - 'feature_version_id',
           to_jsonb(hd) - 'feature_version_id', to_jsonb(od) - 'feature_version_id',
           to_jsonb(ocd) - 'feature_version_id', to_jsonb(ad) - 'feature_version_id', '{}'::jsonb
-        ) AS attributes,
+        ) || jsonb_strip_nulls(jsonb_build_object('nama_mitra', ks.nama_mitra, 'no_perjanjian', ks.no_perjanjian, 'skema_kerja_sama', ks.skema_kerja_sama, 'tanggal_mulai', ks.tgl_mulai, 'tanggal_berakhir', ks.tgl_selesai)) || fv.extra_attributes) AS attributes,
         ST_AsGeoJSON(ST_SimplifyPreserveTopology(fv.geom, 0.00001)) AS geometry
       FROM gis_feature_versions fv
       JOIN gis_dataset_versions v ON v.id=fv.dataset_version_id
@@ -968,6 +1144,7 @@ def list_features(
       LEFT JOIN gis_tanaman_details td ON td.feature_version_id=fv.id
       LEFT JOIN gis_hutan_details hd ON hd.feature_version_id=fv.id
       LEFT JOIN gis_opset_details od ON od.feature_version_id=fv.id
+      LEFT JOIN kerja_sama ks ON ks.id=od.kerja_sama_id
       LEFT JOIN gis_okupasi_details ocd ON ocd.feature_version_id=fv.id
       LEFT JOIN gis_administrasi_details ad ON ad.feature_version_id=fv.id
       WHERE fv.dataset_version_id = ANY(CAST(:version_ids AS uuid[]))

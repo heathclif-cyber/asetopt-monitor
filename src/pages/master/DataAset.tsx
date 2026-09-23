@@ -44,7 +44,9 @@ export function DataAset() {
   const [importing, setImporting] = useState(false)
   const pageSize = 10
   const { rows: rkapRows, fetchRKAP } = useRKAPStore()
-  const isAsetAdmin = useAuthStore(state => state.user?.role === 'admin_aset')
+  const role = useAuthStore(state => state.user?.role)
+  const isAsetAdmin = role === 'admin_aset'
+  const canEdit = role !== 'viewer_aset'
   const navigate = useNavigate()
 
   const importRKAPAset = async () => {
@@ -117,12 +119,12 @@ export function DataAset() {
           <p className="text-sm text-gray-500">{daftarAset.length} aset terdaftar</p>
         </div>
         <div className="flex gap-2">
-          {!isAsetAdmin && <Button variant="outline" onClick={importRKAPAset} disabled={importing}>
+          {canEdit && !isAsetAdmin && <Button variant="outline" onClick={importRKAPAset} disabled={importing}>
               <Download size={16} /> {importing ? 'Mengimpor...' : 'Import Aset RKAP'}
             </Button>}
-          <Button onClick={openAdd} className="bg-[#1B4F72] hover:bg-[#1B4F72]/90">
+          {canEdit && <Button onClick={openAdd} className="bg-[#1B4F72] hover:bg-[#1B4F72]/90">
             <Plus size={16} /> Tambah Aset
-          </Button>
+          </Button>}
         </div>
       </div>
 
@@ -150,7 +152,7 @@ export function DataAset() {
         {isLoading ? (
           <div className="p-6"><TableSkeleton /></div>
         ) : filtered.length === 0 ? (
-          <EmptyState title="Tidak ada aset" description="Tambahkan aset baru untuk mulai." action={<Button onClick={openAdd} size="sm"><Plus size={14} /> Tambah Aset</Button>} />
+          <EmptyState title="Tidak ada aset" description="Tambahkan aset baru untuk mulai." action={canEdit ? <Button onClick={openAdd} size="sm"><Plus size={14} /> Tambah Aset</Button> : undefined} />
         ) : (
           <table className="w-full text-sm">
             <thead>
@@ -175,15 +177,15 @@ export function DataAset() {
                   <td className="px-4 py-3 text-center"><StatusBadge type="aset" value={a.status} /></td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <Button variant="ghost" size="icon" onClick={() => openEdit(a)}>
+                      {canEdit && <Button variant="ghost" size="icon" onClick={() => openEdit(a)}>
                         <Pencil size={15} />
-                      </Button>
+                      </Button>}
                       <Button variant="ghost" size="icon" title="Buka peta aset" onClick={() => navigate(`/gis?aset=${a.id}`)}>
                         <Map size={15} />
                       </Button>
-                      <Button variant="ghost" size="icon" className="text-red-500 hover:text-red-700" onClick={() => setDeleteTarget(a.id)}>
+                      {canEdit && <Button variant="ghost" size="icon" className="text-red-500 hover:text-red-700" onClick={() => setDeleteTarget(a.id)}>
                         <Trash2 size={15} />
-                      </Button>
+                      </Button>}
                     </div>
                   </td>
                 </tr>

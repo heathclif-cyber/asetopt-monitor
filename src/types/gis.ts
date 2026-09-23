@@ -7,6 +7,7 @@ export interface GISDataset {
   scope_key: string
   active_version_id: string | null
   revision: number
+  archived_at?: string | null
   active_version_no?: number | null
   source_name?: string | null
   source_year?: number | null
@@ -49,6 +50,16 @@ export interface GISAssetSummary {
   kode_aset: string
   nama_aset: string
   lokasi: string
+  nomor_alas_hak: string | null
+  jenis_alas_hak: string | null
+  pemegang_hak: string | null
+  sumber_dokumen: string | null
+  catatan: string | null
+  tanggal_mulai: string | null
+  tanggal_terbit: string | null
+  tanggal_berakhir: string | null
+  expiry_mode: 'fixed' | 'indefinite' | 'unknown'
+  rights_status: 'berlaku' | 'berakhir' | 'belum_beralas_hak' | 'belum_lengkap' | 'belum_berlaku' | 'belum_diketahui'
   konsesi_count: number | null
   konsesi_names: string[]
   dataset_ids: string[]
@@ -62,8 +73,6 @@ export interface GISAssetSummary {
   okupasi_area_ha: number | null
   kerja_sama_area_ha: number | null
   dapat_dimanfaatkan_area_ha: number | null
-  /** Status pengukuran otomatis dari peta kawasan hutan resmi. */
-  official_forest_state?: 'queued' | 'running' | 'complete' | 'failed' | null
   missing_layers: string[]
   analysis_status: string
 }
@@ -92,14 +101,6 @@ export interface GISOverlapWarning {
   intersection_area_m2: number
   subject_percent: number | null
   target_name: string
-}
-
-export interface GISOfficialForestHit {
-  found: boolean
-  function: string | null
-  source: string
-  year: number
-  note: string
 }
 
 export interface GISFeatureCollection {

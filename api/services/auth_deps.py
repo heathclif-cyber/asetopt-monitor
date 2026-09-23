@@ -99,7 +99,7 @@ def require_write(user: Annotated[dict[str, Any], Depends(get_current_user)]) ->
 
 def require_app_read(user: Annotated[dict[str, Any], Depends(get_current_user)]) -> dict[str, Any]:
     """Akses baca aplikasi untuk akun UI; akun integrasi dikecualikan."""
-    if user.get("role") not in {"admin", "staf", "viewer", "admin_aset"}:
+    if user.get("role") not in {"admin", "staf", "viewer", "admin_aset", "viewer_aset"}:
         raise HTTPException(status_code=403, detail="Akses aplikasi diperlukan")
     return user
 
@@ -109,7 +109,7 @@ def require_rest_read(
     user: Annotated[dict[str, Any], Depends(get_current_user)],
 ) -> dict[str, Any]:
     """Batasi pembacaan REST untuk Admin Data Aset pada tiga tabel master."""
-    if user.get("role") == "admin_aset":
+    if user.get("role") in {"admin_aset", "viewer_aset"}:
         table = request.path_params.get("table")
         if table not in ASSET_MASTER_TABLES:
             raise HTTPException(status_code=403, detail="Akses hanya untuk Master Data Aset")
@@ -133,6 +133,12 @@ def require_integration_read(user: Annotated[dict[str, Any], Depends(get_current
     """Akses baca terbatas bagi aplikasi internal melalui Layer Zero."""
     if user.get("role") not in {"admin", "integrasi"}:
         raise HTTPException(status_code=403, detail="Akses integrasi diperlukan")
+    return user
+
+
+def require_business_documents(user: Annotated[dict[str, Any], Depends(get_current_user)]) -> dict[str, Any]:
+    if user.get("role") not in {"admin", "staf", "viewer"}:
+        raise HTTPException(status_code=403, detail="Akses dokumen bisnis tidak tersedia untuk role ini")
     return user
 
 

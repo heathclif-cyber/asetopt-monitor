@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo } from 'react'
+import { useAuthStore } from '@/store/authStore'
 import { useAsetStore } from '@/store/asetStore'
 import { useNJOPStore } from '@/store/njopStore'
 import { NJOP } from '@/types'
@@ -33,6 +34,7 @@ export function DataNJOP() {
   const { daftarAset, fetchAset } = useAsetStore()
   const { dataNJOP, fetchAllNJOP, addNJOP, updateNJOP, deleteNJOP } = useNJOPStore()
   const [filterAsetId, setFilterAsetId] = useState<string>('semua')
+  const canEdit = useAuthStore(state => state.user?.role !== 'viewer_aset')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<NJOP | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; asetId: string } | null>(null)
@@ -105,9 +107,9 @@ export function DataNJOP() {
           <h1 className="text-2xl font-bold text-gray-900">Data NJOP</h1>
           <p className="text-sm text-gray-500">{allNJOP.length} data NJOP terdaftar</p>
         </div>
-        <Button onClick={openAdd} className="bg-[#1B4F72]">
+        {canEdit && <Button onClick={openAdd} className="bg-[#1B4F72]">
           <Plus size={16} /> Tambah NJOP
-        </Button>
+        </Button>}
       </div>
 
       <div className="flex items-center gap-3">
@@ -130,7 +132,7 @@ export function DataNJOP() {
 
       <div className="bg-white rounded-xl border overflow-hidden">
         {filtered.length === 0 ? (
-          <EmptyState title="Belum ada data NJOP" description="Tambahkan data NJOP untuk aset yang terdaftar." action={<Button onClick={openAdd} size="sm"><Plus size={14} /> Tambah NJOP</Button>} />
+          <EmptyState title="Belum ada data NJOP" description="Tambahkan data NJOP untuk aset yang terdaftar." action={canEdit ? <Button onClick={openAdd} size="sm"><Plus size={14} /> Tambah NJOP</Button> : undefined} />
         ) : (
           <table className="w-full text-sm">
             <thead>
@@ -165,12 +167,12 @@ export function DataNJOP() {
                     <td className="px-4 py-3 text-right font-semibold text-[#117A65]"><CurrencyDisplay value={pot.totalPotensi} size="sm" /></td>
                     <td className="px-4 py-3 hidden md:table-cell text-gray-500">{n.sumber ?? '-'}</td>
                     <td className="px-4 py-3 text-right">
-                      <div className="flex items-center justify-end gap-1">
+                      {canEdit && <div className="flex items-center justify-end gap-1">
                         <Button variant="ghost" size="icon" onClick={() => openEdit(n)}><Pencil size={14} /></Button>
                         <Button variant="ghost" size="icon" className="text-red-500" onClick={() => setDeleteTarget({ id: n.id, asetId: n.aset_id })}>
                           <Trash2 size={14} />
                         </Button>
-                      </div>
+                      </div>}
                     </td>
                   </tr>
                 )

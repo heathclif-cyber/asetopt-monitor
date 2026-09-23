@@ -22,13 +22,11 @@ from services.auth_service import (
 )
 
 router = APIRouter(prefix="/api/users", tags=["Users"])
-Role = Literal["admin", "viewer", "integrasi", "staf", "admin_aset"]
+Role = Literal["admin", "viewer", "integrasi", "staf", "admin_aset", "viewer_aset"]
 
 
 def _min_password_length(role: str) -> int:
-    # Staf: akun operasional bervolume tinggi, admin sengaja izinkan kata sandi
-    # pendek (mis. "123") untuk kemudahan reset massal. Role lain tetap 12 karakter.
-    return 3 if role == "staf" else 12
+    return 3
 
 
 class UserCreateBody(BaseModel):
@@ -46,6 +44,7 @@ class UserCreateBody(BaseModel):
 
 
 class UserUpdateBody(BaseModel):
+    username: str | None = Field(default=None, min_length=3, max_length=64, pattern=r"^[A-Za-z0-9._-]+$")
     full_name: str | None = Field(default=None, min_length=1, max_length=255)
     role: Role | None = None
     is_active: bool | None = None

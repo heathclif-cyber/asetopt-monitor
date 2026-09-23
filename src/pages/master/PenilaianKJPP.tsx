@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useAuthStore } from '@/store/authStore'
 import { useAsetStore } from '@/store/asetStore'
 import { useKJPPStore } from '@/store/kjppStore'
 import { PenilaianKJPP as PKType } from '@/types'
@@ -46,6 +47,7 @@ function getKJPPStatus(berlakuHingga: string | null): { label: string; variant: 
 export function PenilaianKJPP() {
   const { daftarAset, fetchAset } = useAsetStore()
   const { dataPenilaian, fetchAllKJPP, addKJPP, updateKJPP, deleteKJPP } = useKJPPStore()
+  const canEdit = useAuthStore(state => state.user?.role !== 'viewer_aset')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<PKType | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; asetId: string } | null>(null)
@@ -96,14 +98,14 @@ export function PenilaianKJPP() {
           <h1 className="text-2xl font-bold text-gray-900">Penilaian KJPP</h1>
           <p className="text-sm text-gray-500">{allKJPP.length} penilaian terdaftar</p>
         </div>
-        <Button onClick={openAdd} className="bg-[#1B4F72]">
+        {canEdit && <Button onClick={openAdd} className="bg-[#1B4F72]">
           <Plus size={16} /> Tambah Penilaian
-        </Button>
+        </Button>}
       </div>
 
       <div className="bg-white rounded-xl border overflow-hidden">
         {allKJPP.length === 0 ? (
-          <EmptyState title="Belum ada penilaian KJPP" description="Tambahkan penilaian KJPP untuk aset yang sudah dinilai." action={<Button onClick={openAdd} size="sm"><Plus size={14} /> Tambah</Button>} />
+          <EmptyState title="Belum ada penilaian KJPP" description="Tambahkan penilaian KJPP untuk aset yang sudah dinilai." action={canEdit ? <Button onClick={openAdd} size="sm"><Plus size={14} /> Tambah</Button> : undefined} />
         ) : (
           <table className="w-full text-sm">
             <thead>
@@ -140,12 +142,12 @@ export function PenilaianKJPP() {
                       <Badge variant={status.variant as any}>{status.label}</Badge>
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <div className="flex items-center justify-end gap-1">
+                      {canEdit && <div className="flex items-center justify-end gap-1">
                         <Button variant="ghost" size="icon" onClick={() => openEdit(k)}><Pencil size={14} /></Button>
                         <Button variant="ghost" size="icon" className="text-red-500" onClick={() => setDeleteTarget({ id: k.id, asetId: k.aset_id })}>
                           <Trash2 size={14} />
                         </Button>
-                      </div>
+                      </div>}
                     </td>
                   </tr>
                 )

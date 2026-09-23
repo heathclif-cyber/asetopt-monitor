@@ -56,10 +56,10 @@ switch ($Command) {
 AsetOpt self-host (Windows + Docker Desktop)
 
   .\scripts\selfhost.ps1 init       # salin .env.selfhost.example → .env.selfhost
-  .\scripts\selfhost.ps1 up         # build + start db, api, web
+  .\scripts\selfhost.ps1 up         # build + start db, api, gis-worker, web
   .\scripts\selfhost.ps1 migrate    # jalankan skema SQL (DB kosong / update)
   .\scripts\selfhost.ps1 status     # docker compose ps
-  .\scripts\selfhost.ps1 logs       # log api + web (ikuti)
+  .\scripts\selfhost.ps1 logs       # log api + gis-worker + web (ikuti)
   .\scripts\selfhost.ps1 down       # stop container (volume data tetap)
   .\scripts\selfhost.ps1 backup-db  # dump Postgres ke .\backups\
 
@@ -111,7 +111,7 @@ URL setelah up:
 
   "logs" {
     Assert-Docker
-    Invoke-Compose @("logs", "-f", "--tail=100", "api", "web")
+    Invoke-Compose @("logs", "-f", "--tail=100", "api", "gis-worker", "web")
   }
 
   "down" {

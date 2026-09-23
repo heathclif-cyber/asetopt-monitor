@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import type { GISFeatureCollection, GISKind, GISOfficialForestHit } from '@/types/gis'
+import type { GISFeatureCollection, GISKind } from '@/types/gis'
 
 const INDONESIA_CENTER: L.LatLngExpression = [-2.5, 118]
 
@@ -25,6 +25,8 @@ const ATTRIBUTE_LABEL: Record<string, string> = {
   kode_blok: 'Kode blok', komoditas: 'Komoditas', tahun_tanam: 'Tahun tanam', fungsi_normalized: 'Status kawasan hutan',
   fungsi_asli: 'Status asli sumber', sumber: 'Sumber', tahun: 'Tahun', nomor_sk: 'Nomor SK', tanggal_sk: 'Tanggal SK',
   pihak_pengokupasi: 'Pihak pengokupasi', catatan: 'Catatan', level: 'Tingkat batas', region_name: 'Wilayah', region_code: 'Kode wilayah',
+  tanggal_mulai: 'Tanggal mulai', pemegang_hak: 'Pemegang hak', lokasi: 'Lokasi dokumen', sumber_dokumen: 'Sumber dokumen',
+  luas_dokumen_m2: 'Luas dokumen (m²)', nama_mitra: 'Mitra', no_perjanjian: 'Nomor perjanjian', skema_kerja_sama: 'Skema kerja sama',
 }
 
 function popupContent(title: string, entries: Array<[string, string]>) {
@@ -46,43 +48,23 @@ function popupContent(title: string, entries: Array<[string, string]>) {
   return container
 }
 
-const OFFICIAL_FOREST_CODES: Record<string, number[]> = {
-  'Kawasan Konservasi': [100000, 100200, 100210, 100220, 100230, 100240, 100250, 100260],
-  'Kawasan Konservasi Laut': [100201, 100211, 100221, 100241, 100251],
-  'Hutan Lindung': [100100],
-  'Hutan Produksi Tetap': [100300],
-  'Hutan Produksi Terbatas': [100400],
-  'Hutan Produksi yang dapat di Konversi': [100500],
-  'Area Penggunaan Lain': [100700],
-  'Tubuh Air': [500100, 500300],
-  'Tidak Terdefinisi': [0],
-}
-
-const OFFICIAL_FOREST_SERVICE = 'https://geoportal.planologi.kehutanan.go.id/server/rest/services/Peta_Interaktif_2026/KWSHUTAN_AR_250K/MapServer/export'
-
 function currentBounds(map: L.Map) {
   const bounds = map.getBounds()
   return [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()].join(',')
 }
 
-export function AsetMap({ data, className = '', onViewportChange, focusBbox, zoomTarget, officialForestVisible = false, officialForestFunction = 'all', officialForestZoomRequest = 0, onOfficialForestClick }: {
+export function AsetMap({ data, className = '', onViewportChange, focusBbox, zoomTarget }: {
   data?: GISFeatureCollection | null
   className?: string
   onViewportChange?: (bbox: string) => void
   focusBbox?: string | null
-  zoomTarget?: { datasetId: string; request: number } | null
-  officialForestVisible?: boolean
-  officialForestFunction?: string
-  officialForestZoomRequest?: number
-  onOfficialForestClick?: (lng: number, lat: number) => Promise<GISOfficialForestHit>
+  zoomTarget?: { bbox: string; request: number } | null
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<L.Map | null>(null)
   const layerRef = useRef<L.FeatureGroup | null>(null)
-  const officialForestRef = useRef<L.ImageOverlay | null>(null)
-  const officialForestTimerRef = useRef<number | null>(null)
-  const officialForestRequestKeyRef = useRef('')
   const hasAutoFittedRef = useRef(false)
+  const hasFittedKonsesiRef = useRef(false)
 
   useEffect(() => {
     if (!hostRef.current || mapRef.current) return
@@ -132,10 +114,11 @@ export function AsetMap({ data, className = '', onViewportChange, focusBbox, zoo
     // empty or refreshed for the same layer.
     if (!data?.features.length) return
     const layer = L.featureGroup().addTo(map)
+    let konsesiBounds: L.LatLngBounds | null = null
     for (const layerKind of Object.keys(COLOR_BY_KIND) as GISKind[]) {
       const kindFeatures = data.features.filter(feature => feature.properties.kind === layerKind)
       if (!kindFeatures.length) continue
-      L.geoJSON({ type: 'FeatureCollection', features: kindFeatures } as GeoJSON.FeatureCollection, {
+      const kindLayer = L.geoJSON({ type: 'FeatureCollection', features: kindFeatures } as GeoJSON.FeatureCollection, {
       pane: PANE_BY_KIND[layerKind],
       style: feature => {
         const kind = feature?.properties?.kind as GISKind | undefined
@@ -174,7 +157,7 @@ export function AsetMap({ data, className = '', onViewportChange, focusBbox, zoo
             // always frames its complete boundary before showing details.
             if (concessionBounds?.isValid()) {
               map.invalidateSize({ pan: false, debounceMoveend: true })
-              map.fitBounds(concessionBounds, { padding: [28, 28], maxZoom: 15, animate: false })
+              map.fitBounds(concessionBounds, { padding: [28, 28], maxZoom: 19, animate: false })
             }
             target.openPopup(event.latlng)
           })
@@ -183,141 +166,41 @@ export function AsetMap({ data, className = '', onViewportChange, focusBbox, zoo
         if (item instanceof L.LayerGroup) item.eachLayer(bindDetailPopup)
       },
       }).addTo(layer)
+      if (layerKind === 'konsesi') konsesiBounds = kindLayer.getBounds()
     }
     layerRef.current = layer
     const bounds = layer.getBounds()
     // A table-row "Peta" request supplies a specific concession bbox.  Do
     // not let the asynchronous KML refresh auto-fit every Regional 8 feature
     // afterwards and overwrite that requested location.
-    if (!focusBbox && !hasAutoFittedRef.current && bounds.isValid()) {
+    if (focusBbox) { hasAutoFittedRef.current = true; hasFittedKonsesiRef.current = true; return }
+    // Draft concession layers load after published OPSET layers; frame the
+    // whole concession once it arrives instead of the first small OPSET area.
+    if (!hasFittedKonsesiRef.current && konsesiBounds?.isValid()) {
+      hasAutoFittedRef.current = true
+      hasFittedKonsesiRef.current = true
+      map.fitBounds(konsesiBounds, { padding: [28, 28], maxZoom: 17 })
+    } else if (!hasAutoFittedRef.current && bounds.isValid()) {
       hasAutoFittedRef.current = true
       map.fitBounds(bounds, { padding: [28, 28], maxZoom: 17 })
     }
   }, [data, focusBbox])
 
   useEffect(() => {
-    const map = mapRef.current
-    if (!map) return
-
-    const remove = () => {
-      if (officialForestTimerRef.current !== null) window.clearTimeout(officialForestTimerRef.current)
-      officialForestTimerRef.current = null
-      officialForestRequestKeyRef.current = ''
-      officialForestRef.current?.remove()
-      officialForestRef.current = null
-    }
-    if (!officialForestVisible) {
-      remove()
-      return
-    }
-
-    const refreshOfficialForest = () => {
-      officialForestTimerRef.current = null
-      const bounds = map.getBounds()
-      const size = map.getSize()
-      // The government map is an image-export service, not a tile feed. Snap
-      // nearby viewports to a shared request box so returning/panning slightly
-      // can reuse the browser image cache instead of downloading again.
-      const spanLng = bounds.getEast() - bounds.getWest()
-      const spanLat = bounds.getNorth() - bounds.getSouth()
-      const gridLng = Math.max(spanLng / 2, 0.01)
-      const gridLat = Math.max(spanLat / 2, 0.01)
-      const west = Math.floor(bounds.getWest() / gridLng) * gridLng
-      const east = Math.ceil(bounds.getEast() / gridLng) * gridLng
-      const south = Math.floor(bounds.getSouth() / gridLat) * gridLat
-      const north = Math.ceil(bounds.getNorth() / gridLat) * gridLat
-      const requestBounds = L.latLngBounds([[south, west], [north, east]])
-      const params = new URLSearchParams({
-        bbox: [west, south, east, north].join(','),
-        bboxSR: '4326',
-        imageSR: '4326',
-        size: `${Math.max(1, Math.round(size.x))},${Math.max(1, Math.round(size.y))}`,
-        format: 'png32',
-        transparent: 'true',
-        layers: 'show:0',
-        f: 'image',
-      })
-      const codes = OFFICIAL_FOREST_CODES[officialForestFunction]
-      // "Semua kawasan hutan" intentionally excludes APL, water, and
-      // undefined polygons. Those are available as explicit filters but
-      // would otherwise wash out the satellite imagery with white fills.
-      const where = codes?.length ? `FUNGSIKWS IN (${codes.join(',')})` : 'FUNGSIKWS NOT IN (0,100700,500100,500300)'
-      params.set('layerDefs', JSON.stringify({ 0: where }))
-      const requestKey = `${officialForestFunction}:${params.toString()}`
-      if (requestKey === officialForestRequestKeyRef.current) return
-      officialForestRequestKeyRef.current = requestKey
-      const url = `${OFFICIAL_FOREST_SERVICE}?${params.toString()}`
-      if (officialForestRef.current) {
-        officialForestRef.current.setUrl(url)
-        officialForestRef.current.setBounds(requestBounds)
-      } else {
-        officialForestRef.current = L.imageOverlay(url, requestBounds, { pane: PANE_BY_KIND.hutan, opacity: 0.55, interactive: false, zIndex: 250 }).addTo(map)
-      }
-    }
-
-    const updateOfficialForest = (delay = 450) => {
-      if (officialForestTimerRef.current !== null) window.clearTimeout(officialForestTimerRef.current)
-      officialForestTimerRef.current = window.setTimeout(refreshOfficialForest, delay)
-    }
-    updateOfficialForest(0)
-    const scheduleOfficialForest = () => updateOfficialForest(450)
-    map.on('moveend', scheduleOfficialForest)
-    return () => {
-      map.off('moveend', scheduleOfficialForest)
-      remove()
-    }
-  }, [officialForestVisible, officialForestFunction])
-
-  useEffect(() => {
-    const map = mapRef.current
-    if (!map || !officialForestVisible || !onOfficialForestClick) return
-    const identify = async (event: L.LeafletMouseEvent) => {
-      if (event.sourceTarget !== map) return
-      const popup = L.popup({ maxWidth: 330 }).setLatLng(event.latlng).setContent('Memeriksa kawasan hutan…').openOn(map)
-      try {
-        const hit = await onOfficialForestClick(event.latlng.lng, event.latlng.lat)
-        const nonForestClasses = ['Area Penggunaan Lain', 'Tubuh Air', 'Tidak Terdefinisi']
-        const isNonForest = nonForestClasses.includes(hit.function ?? '')
-        if (isNonForest && officialForestFunction !== hit.function) {
-          popup.remove()
-          return
-        }
-        const referenceTitle = isNonForest ? 'Referensi tata guna lahan nasional' : 'Referensi kawasan hutan nasional'
-        const entries: Array<[string, string]> = [
-          ['Jenis referensi', isNonForest ? 'Tata guna lahan pemerintah' : 'Kawasan hutan pemerintah'],
-          [isNonForest ? 'Klasifikasi' : 'Status kawasan', hit.function ?? 'Tidak ditemukan pada referensi ini'],
-          ['Sumber', hit.source],
-          ['Tahun', String(hit.year)],
-          ['Catatan', hit.note],
-        ]
-        popup.setContent(popupContent(referenceTitle, entries))
-      } catch {
-        popup.setContent(popupContent('Referensi pemerintah', [['Status', 'Informasi resmi belum dapat dimuat. Coba lagi.']]))
-      }
-    }
-    map.on('click', identify)
-    return () => { map.off('click', identify) }
-  }, [officialForestVisible, officialForestFunction, onOfficialForestClick])
-
-  useEffect(() => {
     if (!focusBbox || !mapRef.current) return
     const values = focusBbox.split(',').map(Number)
     if (values.length !== 4 || values.some(value => !Number.isFinite(value))) return
-    mapRef.current.fitBounds([[values[1], values[0]], [values[3], values[2]]], { padding: [28, 28], maxZoom: 13, animate: false })
+    mapRef.current.fitBounds([[values[1], values[0]], [values[3], values[2]]], { padding: [28, 28], maxZoom: 19, animate: false })
   }, [focusBbox])
 
   useEffect(() => {
-    if (!zoomTarget || !mapRef.current || !data?.features.length) return
-    const targetFeatures = data.features.filter(feature => feature.properties.dataset_id === zoomTarget.datasetId)
-    if (!targetFeatures.length) return
-    const bounds = L.geoJSON({ type: 'FeatureCollection', features: targetFeatures } as GeoJSON.FeatureCollection).getBounds()
-    if (bounds.isValid()) mapRef.current.fitBounds(bounds, { padding: [28, 28], maxZoom: 17, animate: false })
-  }, [zoomTarget, data])
-
-  useEffect(() => {
-    if (!officialForestZoomRequest || !mapRef.current) return
-    mapRef.current.fitBounds([[-11.01, 94.97], [6.08, 141.02]], { padding: [28, 28], maxZoom: 6, animate: false })
-  }, [officialForestZoomRequest])
+    if (!zoomTarget || !mapRef.current) return
+    const values = zoomTarget.bbox.split(',').map(Number)
+    if (values.length !== 4 || values.some(value => !Number.isFinite(value))) return
+    hasAutoFittedRef.current = true
+    hasFittedKonsesiRef.current = true
+    mapRef.current.fitBounds([[values[1], values[0]], [values[3], values[2]]], { padding: [28, 28], maxZoom: 19, animate: false })
+  }, [zoomTarget])
 
   return <div className={`relative h-[640px] w-full overflow-hidden rounded-lg ${className}`}>
     <div ref={hostRef} className="h-full w-full" aria-label="Peta lokasi aset" />

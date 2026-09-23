@@ -1,6 +1,6 @@
 /** Role & path access helpers */
 
-export type AppRole = 'admin' | 'staf' | 'viewer' | 'integrasi' | 'admin_aset'
+export type AppRole = 'admin' | 'staf' | 'viewer' | 'integrasi' | 'admin_aset' | 'viewer_aset'
 
 /** Staf: akses sama seperti admin, kecuali halaman Kelola Pengguna */
 const STAF_BLOCKED_PATHS = ['/admin/users'] as const
@@ -48,7 +48,7 @@ export function canAccessPath(role: AppRole | null | undefined, pathname: string
   if (role === 'admin') return true
   if (role === 'integrasi') return false
   if (pathname === '/login') return true
-  if (role === 'admin_aset') {
+  if (role === 'admin_aset' || role === 'viewer_aset') {
     return ASET_ADMIN_ALLOWED_PATHS.some(
       p => pathname === p || pathname.startsWith(p + '/'),
     )

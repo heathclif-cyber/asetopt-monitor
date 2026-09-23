@@ -30,7 +30,7 @@ export function RequireAuth() {
   if (!canAccessPath(user.role, location.pathname)) {
     const fallback = user.role === 'viewer'
       ? VIEWER_HOME
-      : user.role === 'admin_aset'
+      : user.role === 'admin_aset' || user.role === 'viewer_aset'
         ? ASET_ADMIN_HOME
         : user.role === 'staf'
           ? '/'

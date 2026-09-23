@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 import models
 import schemas
 from database import get_db
-from services.auth_deps import get_current_user, require_write
+from services.auth_deps import require_business_documents, require_write
 from services.storage import (
     StorageError,
     delete_file,
@@ -22,7 +22,7 @@ from services.superman.documents import superman_doc_requirements_for_kompensasi
 router = APIRouter(
     prefix="/api/documents",
     tags=["Documents"],
-    dependencies=[Depends(get_current_user)],
+    dependencies=[Depends(require_business_documents)],
 )
 
 VALID_ENTITY_TYPES = {"kerja_sama", "kompensasi", "pembayaran"}

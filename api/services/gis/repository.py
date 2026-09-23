@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import date
+from math import isfinite
 from hashlib import sha256
 from typing import Any
 
@@ -20,6 +22,15 @@ DETAIL_TABLES = {
     "opset": "gis_opset_details",
     "okupasi": "gis_okupasi_details",
     "administrasi": "gis_administrasi_details",
+}
+
+EXTRA_FIELDS = {
+    "konsesi": {"tanggal_mulai", "pemegang_hak", "lokasi", "sumber_dokumen", "catatan"},
+    "opset": {"jenis_alas_hak", "nomor_alas_hak", "nama_mitra", "no_perjanjian", "skema_kerja_sama", "tanggal_mulai", "tanggal_berakhir", "luas_dokumen_m2", "lokasi", "sumber_dokumen", "catatan"},
+    "tanaman": {"tanggal_mulai", "tanggal_berakhir", "pemegang_hak", "lokasi", "sumber_dokumen", "catatan"},
+    "hutan": {"tanggal_mulai", "tanggal_berakhir", "lokasi", "sumber_dokumen", "catatan"},
+    "okupasi": {"tanggal_mulai", "tanggal_berakhir", "lokasi", "sumber_dokumen"},
+    "administrasi": {"tanggal_mulai", "tanggal_berakhir", "lokasi", "sumber_dokumen", "catatan"},
 }
 
 
@@ -207,6 +218,29 @@ def _value(props: dict, mapping: dict, field: str):
 
 
 def write_detail(db: Session, kind: str, feature_version_id: str, attributes: dict[str, Any], actor_id: str | None = None) -> None:
+    attributes = dict(attributes)
+    if kind == "konsesi":
+        if attributes.get("tanggal_berakhir"):
+            attributes["expiry_mode"] = "fixed"
+        elif attributes.get("expiry_mode") != "fixed":
+            attributes["tanggal_berakhir"] = None
+    for key in ("tanggal_mulai", "tanggal_berakhir"):
+        if attributes.get(key):
+            try:
+                date.fromisoformat(str(attributes[key]))
+            except ValueError as exc:
+                raise GISImportError(f"{key} harus berupa tanggal yang valid") from exc
+    if attributes.get("tanggal_mulai") and attributes.get("tanggal_berakhir"):
+        if str(attributes["tanggal_berakhir"]) < str(attributes["tanggal_mulai"]):
+            raise GISImportError("Tanggal berakhir tidak boleh sebelum tanggal mulai")
+    if kind == "opset" and attributes.get("luas_dokumen_m2") not in (None, ""):
+        try:
+            area = float(attributes["luas_dokumen_m2"])
+        except (TypeError, ValueError) as exc:
+            raise GISImportError("Luas dokumen harus berupa angka") from exc
+        if not isfinite(area) or area < 0:
+            raise GISImportError("Luas dokumen harus berupa angka positif yang valid")
+        attributes["luas_dokumen_m2"] = area
     if kind == "konsesi":
         db.execute(text("""
           INSERT INTO gis_konsesi_details (feature_version_id, nomor_alas_hak, jenis_alas_hak, declared_area_m2, tanggal_terbit, expiry_mode, tanggal_berakhir, incomplete_reason)
@@ -253,6 +287,15 @@ def write_detail(db: Session, kind: str, feature_version_id: str, attributes: di
         """), {"id": feature_version_id, "level": attributes.get("level") or "desa_kelurahan", "code": attributes.get("region_code") or feature_version_id,
             "name": attributes.get("region_name") or "Belum dinamai", "parent": attributes.get("parent_code"), "system": attributes.get("code_system"),
             "sumber": attributes.get("sumber") or "Belum diisi", "tahun": attributes.get("tahun"), "status": attributes.get("status_batas", "indikatif")})
+
+    extra = {key: (value if value != "" else None) for key, value in attributes.items()
+             if key in EXTRA_FIELDS[kind]}
+    if extra:
+        db.execute(text("""
+          UPDATE gis_feature_versions
+          SET extra_attributes = extra_attributes || CAST(:attributes AS jsonb)
+          WHERE id=:id
+        """), {"id": feature_version_id, "attributes": json.dumps(extra, default=str)})
 
 
 def refresh_import_readiness(db: Session, import_id: str) -> dict[str, Any]:

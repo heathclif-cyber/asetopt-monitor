@@ -20,6 +20,10 @@ class DatasetUpdateBody(BaseModel):
     expected_revision: int = Field(ge=0)
 
 
+class DatasetArchiveBody(BaseModel):
+    expected_revision: int = Field(ge=0)
+
+
 class ImportMappingBody(BaseModel):
     selected_feature_ids: list[str] | None = None
     property_mapping: dict[str, str] = Field(default_factory=dict)
@@ -34,6 +38,8 @@ class ImportMappingBody(BaseModel):
 
 class FeatureDraftPatchBody(BaseModel):
     attributes: dict[str, Any] = Field(default_factory=dict)
+    name: str | None = Field(default=None, min_length=1, max_length=500)
+    original_properties: dict[str, Any] | None = None
     linked_asset_ids: list[str] | None = None
     expected_draft_revision: int = Field(ge=0)
 

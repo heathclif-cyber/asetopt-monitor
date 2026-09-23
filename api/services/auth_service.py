@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
-ROLES = ("admin", "viewer", "integrasi", "staf", "admin_aset")
+ROLES = ("admin", "viewer", "integrasi", "staf", "admin_aset", "viewer_aset")
 JWT_ALG = "HS256"
 TOKEN_TTL_HOURS = int(os.getenv("AUTH_TOKEN_TTL_HOURS", "72"))
 
@@ -89,7 +89,7 @@ def ensure_app_users_table(db: Session) -> None:
           ) THEN
             ALTER TABLE app_users
               ADD CONSTRAINT app_users_role_check
-              CHECK (role IN ('admin', 'viewer', 'integrasi', 'staf', 'admin_aset'));
+              CHECK (role IN ('admin', 'viewer', 'integrasi', 'staf', 'admin_aset', 'viewer_aset'));
           END IF;
         END $$;
     """))
@@ -267,6 +267,7 @@ def update_user(
     user_id: str,
     *,
     full_name: str | None = None,
+    username: str | None = None,
     role: str | None = None,
     is_active: bool | None = None,
 ) -> dict[str, Any] | None:
@@ -275,10 +276,18 @@ def update_user(
         return None
     if role is not None and role not in ROLES:
         raise ValueError("Role tidak valid")
+    if username is not None:
+        username = username.strip().lower()
+        if not username:
+            raise ValueError("Username wajib diisi")
+        taken = db.execute(text("SELECT 1 FROM app_users WHERE lower(username)=:username AND id<>:user_id"), {"username": username, "user_id": user_id}).first()
+        if taken:
+            raise ValueError("Username sudah digunakan")
 
     row = db.execute(text("""
         UPDATE app_users
-        SET full_name = COALESCE(:full_name, full_name),
+        SET username = COALESCE(:username, username),
+            full_name = COALESCE(:full_name, full_name),
             role = COALESCE(:role, role),
             is_active = COALESCE(:is_active, is_active),
             updated_at = now()
@@ -286,6 +295,7 @@ def update_user(
         RETURNING id, username, full_name, role, is_active, created_at, updated_at
     """), {
         "user_id": user_id,
+        "username": username,
         "full_name": full_name.strip() if full_name is not None else None,
         "role": role,
         "is_active": is_active,
