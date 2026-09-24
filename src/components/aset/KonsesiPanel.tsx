@@ -17,7 +17,7 @@ import { formatAngka, formatRupiah, formatTanggal } from '@/lib/utils'
 import { KondisiBangunan, KonsesiBangunan, KonsesiSPPT } from '@/types'
 import { StatusBadge } from '@/components/common/StatusBadge'
 
-type Tab = 'info' | 'sppt' | 'bangunan'
+export type Tab = 'info' | 'sppt' | 'bangunan'
 
 const KONDISI_LABEL: Record<KondisiBangunan, string> = { baik: 'Baik', sedang: 'Sedang', rusak_ringan: 'Rusak ringan', rusak_berat: 'Rusak berat' }
 const selectClass = 'mt-1 h-10 w-full rounded-md border border-input bg-white px-3 text-sm'
@@ -57,7 +57,7 @@ type BangunanForm = z.infer<typeof bangunanSchema>
 
 const blank = (value: string | undefined) => value?.trim() ? value.trim() : null
 
-export function KonsesiPanel({ konsesiKey, onClose }: { konsesiKey: string | null; onClose: () => void }) {
+export function KonsesiPanel({ konsesiKey, onClose, initialTab = 'info' }: { konsesiKey: string | null; onClose: () => void; initialTab?: Tab }) {
   const navigate = useNavigate()
   const { daftarKonsesi, fetchKonsesi } = useKonsesiStore()
   const { daftarAset, fetchAset } = useAsetStore()
@@ -78,7 +78,7 @@ export function KonsesiPanel({ konsesiKey, onClose }: { konsesiKey: string | nul
 
   useEffect(() => {
     if (!konsesiKey) return
-    setTab('info'); setEditingSPPT(null); setEditingBangunan(null); setConfirmDelete(null); setMessage('')
+    setTab(initialTab); setEditingSPPT(null); setEditingBangunan(null); setConfirmDelete(null); setMessage('')
     void fetchKonsesi(); fetchAset(); void fetchDetail(konsesiKey)
   }, [konsesiKey])
   useEffect(() => {

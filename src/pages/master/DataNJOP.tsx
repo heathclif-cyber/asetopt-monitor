@@ -1,255 +1,96 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { ClipboardList, Plus, Search } from 'lucide-react'
+import { useKonsesiStore } from '@/store/konsesiStore'
+import { useKonsesiMasterStore } from '@/store/konsesiMasterStore'
 import { useAuthStore } from '@/store/authStore'
-import { useAsetStore } from '@/store/asetStore'
-import { useNJOPStore } from '@/store/njopStore'
-import { NJOP } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { SearchableSelect } from '@/components/common/SearchableSelect'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
-import { CurrencyInput } from '@/components/common/CurrencyInput'
-import { CurrencyDisplay } from '@/components/common/CurrencyDisplay'
-import { EmptyState } from '@/components/common/EmptyState'
-import { hitungPotensiNJOP } from '@/utils/potensiUtils'
-import { formatRupiah } from '@/lib/utils'
-import { Plus, Pencil, Trash2 } from 'lucide-react'
-import { useForm, Controller } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
-import { z } from 'zod'
-import { ConfirmDialog } from '@/components/common/ConfirmDialog'
+import { TableSkeleton } from '@/components/common/LoadingSkeleton'
+import { KonsesiPanel } from '@/components/aset/KonsesiPanel'
+import { konsesiLabel } from '@/components/aset/KonsesiPicker'
+import { formatAngka, formatRupiah, formatTanggal } from '@/lib/utils'
 
-const njopSchema = z.object({
-  aset_id: z.string().min(1, 'Pilih aset'),
-  tahun: z.coerce.number().min(2000).max(2099),
-  nilai_tanah_per_m2: z.coerce.number().min(0),
-  nilai_bangunan_per_m2: z.coerce.number().min(0).default(0),
-  sumber: z.string().optional(),
-})
-
-type NJOPForm = z.infer<typeof njopSchema>
-
+// NJOP and PBB belong to the concession (bidang tanah): each SPPT row is
+// entered once in the concession panel and reused by potensi and KS PBB.
 export function DataNJOP() {
-  const { daftarAset, fetchAset } = useAsetStore()
-  const { dataNJOP, fetchAllNJOP, addNJOP, updateNJOP, deleteNJOP } = useNJOPStore()
-  const [filterAsetId, setFilterAsetId] = useState<string>('semua')
-  const canEdit = useAuthStore(state => state.user?.role !== 'viewer_aset')
-  const [dialogOpen, setDialogOpen] = useState(false)
-  const [editTarget, setEditTarget] = useState<NJOP | null>(null)
-  const [deleteTarget, setDeleteTarget] = useState<{ id: string; asetId: string } | null>(null)
+  const { daftarKonsesi, fetchKonsesi } = useKonsesiStore()
+  const { semuaSPPT, isLoadingSemua, fetchAllSPPT } = useKonsesiMasterStore()
+  const role = useAuthStore(state => state.user?.role)
+  const canEdit = role !== 'viewer' && role !== 'viewer_aset'
+  const [search, setSearch] = useState('')
+  const [tahun, setTahun] = useState('')
+  const [panelKey, setPanelKey] = useState<string | null>(null)
+  const [addKey, setAddKey] = useState('')
 
-  const { register, handleSubmit, reset, setValue, watch, control, formState: { errors } } = useForm<NJOPForm>({
-    resolver: zodResolver(njopSchema),
-    defaultValues: { tahun: new Date().getFullYear(), nilai_bangunan_per_m2: 0 },
-  })
+  useEffect(() => { void fetchKonsesi(); void fetchAllSPPT() }, [])
 
-  const watchedAsetId = watch('aset_id')
-  const watchedTanah = watch('nilai_tanah_per_m2')
-  const watchedBangunan = watch('nilai_bangunan_per_m2')
-
-  useEffect(() => { fetchAset(); fetchAllNJOP() }, [])
-
-  // Master Data harus bisa dikelola tanpa akses ke RKAP. Gunakan seluruh aset
-  // yang terdaftar sebagai referensi NJOP.
-  const rkapAset = daftarAset
-  const allNJOP = Object.values(dataNJOP).flat()
-
-  const filtered = useMemo(() => {
-    if (filterAsetId === 'semua') return allNJOP
-    return allNJOP.filter(n => n.aset_id === filterAsetId)
-  }, [allNJOP, filterAsetId])
-
-  const previewPotensi = useMemo(() => {
-    if (!watchedAsetId || !watchedTanah) return null
-    const aset = daftarAset.find(a => a.id === watchedAsetId)
-    if (!aset) return null
-    return hitungPotensiNJOP({
-      njopTanahPerM2: watchedTanah ?? 0,
-      luasTanahM2: aset.luas_tanah_m2 ?? 0,
-      njopBangunanPerM2: watchedBangunan ?? 0,
-      luasBangunanM2: aset.luas_bangunan_m2 ?? 0,
+  const konsesiByKey = useMemo(() => new Map(daftarKonsesi.map(item => [item.key, item])), [daftarKonsesi])
+  const tahunOptions = useMemo(() => [...new Set(semuaSPPT.map(row => row.tahun))].sort((a, b) => b - a), [semuaSPPT])
+  const rows = useMemo(() => {
+    const needle = search.trim().toLocaleLowerCase('id-ID')
+    return semuaSPPT.filter(row => {
+      const konsesi = konsesiByKey.get(row.konsesi_key)
+      return (!tahun || row.tahun === Number(tahun)) &&
+        (!needle || `${konsesi?.nama ?? ''} ${konsesi?.lokasi ?? ''} ${konsesi?.kabupaten ?? ''} ${row.no_sppt ?? ''}`.toLocaleLowerCase('id-ID').includes(needle))
     })
-  }, [watchedAsetId, watchedTanah, watchedBangunan, daftarAset])
+  }, [semuaSPPT, konsesiByKey, search, tahun])
+  const konsesiWithSPPT = new Set(semuaSPPT.map(row => row.konsesi_key)).size
 
-  const openAdd = () => {
-    setEditTarget(null)
-    reset({ tahun: new Date().getFullYear(), nilai_bangunan_per_m2: 0 })
-    setDialogOpen(true)
-  }
-
-  const openEdit = (n: NJOP) => {
-    setEditTarget(n)
-    reset({
-      aset_id: n.aset_id,
-      tahun: n.tahun,
-      nilai_tanah_per_m2: n.nilai_tanah_per_m2,
-      nilai_bangunan_per_m2: n.nilai_bangunan_per_m2,
-      sumber: n.sumber ?? '',
-    })
-    setDialogOpen(true)
-  }
-
-  const onSubmit = async (data: NJOPForm) => {
-    if (editTarget) {
-      await updateNJOP(editTarget.id, data)
-    } else {
-      await addNJOP(data as Omit<NJOP, 'id' | 'created_at'>)
-    }
-    setDialogOpen(false)
-    fetchAllNJOP()
-  }
-
-  return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Data NJOP</h1>
-          <p className="text-sm text-gray-500">{allNJOP.length} data NJOP terdaftar</p>
-        </div>
-        {canEdit && <Button onClick={openAdd} className="bg-[#1B4F72]">
-          <Plus size={16} /> Tambah NJOP
-        </Button>}
-      </div>
-
-      <div className="flex items-center gap-3">
-        <Label className="shrink-0">Filter Aset:</Label>
-        <SearchableSelect
-          className="max-w-xs"
-          value={filterAsetId === 'semua' ? '' : filterAsetId}
-          onValueChange={v => setFilterAsetId(v || 'semua')}
-          options={rkapAset.map(a => ({
-            value: a.id,
-            label: `${a.kode_aset} — ${a.nama_aset}`,
-            searchText: `${a.kode_aset} ${a.nama_aset}`,
-          }))}
-          placeholder="Semua Aset"
-          searchPlaceholder="Cari kode / nama aset..."
-          allowClear
-          clearLabel="Semua Aset"
-        />
-      </div>
-
-      <div className="bg-white rounded-xl border overflow-hidden">
-        {filtered.length === 0 ? (
-          <EmptyState title="Belum ada data NJOP" description="Tambahkan data NJOP untuk aset yang terdaftar." action={canEdit ? <Button onClick={openAdd} size="sm"><Plus size={14} /> Tambah NJOP</Button> : undefined} />
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b bg-gray-50 text-gray-600 text-xs uppercase">
-                <th className="text-left px-4 py-3">Aset</th>
-                <th className="text-center px-4 py-3">Tahun</th>
-                <th className="text-right px-4 py-3">Nilai Tanah/m²</th>
-                <th className="text-right px-4 py-3 hidden lg:table-cell">Nilai Bangunan/m²</th>
-                <th className="text-right px-4 py-3">Potensi Total</th>
-                <th className="text-left px-4 py-3 hidden md:table-cell">Sumber</th>
-                <th className="text-right px-4 py-3">Aksi</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {filtered.map(n => {
-                const aset = daftarAset.find(a => a.id === n.aset_id)
-                const pot = hitungPotensiNJOP({
-                  njopTanahPerM2: n.nilai_tanah_per_m2,
-                  luasTanahM2: aset?.luas_tanah_m2 ?? 0,
-                  njopBangunanPerM2: n.nilai_bangunan_per_m2,
-                  luasBangunanM2: aset?.luas_bangunan_m2 ?? 0,
-                })
-                return (
-                  <tr key={n.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-3">
-                      <p className="font-medium text-gray-900">{aset?.nama_aset ?? '-'}</p>
-                      <p className="text-xs text-gray-500 font-mono">{aset?.kode_aset}</p>
-                    </td>
-                    <td className="px-4 py-3 text-center font-medium">{n.tahun}</td>
-                    <td className="px-4 py-3 text-right"><CurrencyDisplay value={n.nilai_tanah_per_m2} size="sm" /></td>
-                    <td className="px-4 py-3 text-right hidden lg:table-cell"><CurrencyDisplay value={n.nilai_bangunan_per_m2} size="sm" /></td>
-                    <td className="px-4 py-3 text-right font-semibold text-[#117A65]"><CurrencyDisplay value={pot.totalPotensi} size="sm" /></td>
-                    <td className="px-4 py-3 hidden md:table-cell text-gray-500">{n.sumber ?? '-'}</td>
-                    <td className="px-4 py-3 text-right">
-                      {canEdit && <div className="flex items-center justify-end gap-1">
-                        <Button variant="ghost" size="icon" onClick={() => openEdit(n)}><Pencil size={14} /></Button>
-                        <Button variant="ghost" size="icon" className="text-red-500" onClick={() => setDeleteTarget({ id: n.id, asetId: n.aset_id })}>
-                          <Trash2 size={14} />
-                        </Button>
-                      </div>}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>{editTarget ? 'Edit NJOP' : 'Tambah Data NJOP'}</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-            <div>
-              <Label>Aset</Label>
-              <div className="mt-1">
-                <SearchableSelect
-                  value={watch('aset_id') || editTarget?.aset_id || ''}
-                  onValueChange={v => setValue('aset_id', v, { shouldValidate: true })}
-                  options={rkapAset.map(a => ({
-                    value: a.id,
-                    label: `${a.kode_aset} — ${a.nama_aset}`,
-                    searchText: `${a.kode_aset} ${a.nama_aset}`,
-                  }))}
-                  placeholder="Cari & pilih aset..."
-                  searchPlaceholder="Ketik kode atau nama aset..."
-                />
-              </div>
-              {errors.aset_id && <p className="text-xs text-red-500 mt-1">{errors.aset_id.message}</p>}
-            </div>
-            <div>
-              <Label>Tahun</Label>
-              <Input type="number" {...register('tahun')} className="mt-1" />
-            </div>
-            <div>
-              <Label>Nilai Tanah per m² (Rp)</Label>
-              <Controller control={control} name="nilai_tanah_per_m2" render={({ field }) => (
-                <CurrencyInput value={field.value} onChange={field.onChange} className="mt-1" />
-              )} />
-            </div>
-            <div>
-              <Label>Nilai Bangunan per m² (Rp)</Label>
-              <Controller control={control} name="nilai_bangunan_per_m2" render={({ field }) => (
-                <CurrencyInput value={field.value} onChange={field.onChange} className="mt-1" />
-              )} />
-            </div>
-            <div>
-              <Label>Sumber Data</Label>
-              <Input {...register('sumber')} className="mt-1" placeholder="cth: SPPT 2025, SK Kepala Daerah" />
-            </div>
-            {previewPotensi && (
-              <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-sm space-y-1">
-                <p className="font-semibold text-green-800 mb-2">Preview Potensi Pendapatan:</p>
-                <p className="text-green-700">Tanah: {formatRupiah(previewPotensi.potensiTanah)}</p>
-                <p className="text-green-700">Bangunan: {formatRupiah(previewPotensi.potensiBangunan)}</p>
-                <p className="font-bold text-green-800">Total: {formatRupiah(previewPotensi.totalPotensi)}</p>
-              </div>
-            )}
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Batal</Button>
-              <Button type="submit" className="bg-[#1B4F72]">{editTarget ? 'Simpan' : 'Tambah'}</Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      <ConfirmDialog
-        open={!!deleteTarget}
-        onOpenChange={o => !o && setDeleteTarget(null)}
-        title="Hapus Data NJOP"
-        description="Apakah Anda yakin ingin menghapus data NJOP ini?"
-        onConfirm={() => deleteTarget && deleteNJOP(deleteTarget.id, deleteTarget.asetId)}
-        confirmLabel="Hapus"
-        isDestructive
-      />
+  return <div className="space-y-5">
+    <div>
+      <h1 className="text-2xl font-bold text-gray-900">NJOP & SPPT</h1>
+      <p className="text-sm text-gray-500">NJOP dan PBB per bidang konsesi. {konsesiWithSPPT} dari {daftarKonsesi.length} bidang sudah memiliki SPPT/NJOP. PBB kerja sama dihitung proporsional dari luas KS terhadap bidang.</p>
     </div>
-  )
+
+    <div className="flex flex-wrap items-end gap-3">
+      <div className="relative w-full max-w-sm">
+        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+        <Input className="pl-9" placeholder="Cari sertifikat, kebun, kabupaten, atau no. SPPT" value={search} onChange={event => setSearch(event.target.value)} />
+      </div>
+      <select className="h-10 rounded-md border border-input bg-white px-3 text-sm" value={tahun} onChange={event => setTahun(event.target.value)}>
+        <option value="">Semua tahun</option>
+        {tahunOptions.map(year => <option key={year} value={year}>{year}</option>)}
+      </select>
+      {canEdit && <div className="flex min-w-[320px] flex-1 items-center gap-2 sm:justify-end">
+        <div className="w-full max-w-sm">
+          <SearchableSelect value={addKey} onValueChange={setAddKey} placeholder="Pilih bidang untuk isi SPPT/NJOP" searchPlaceholder="Cari sertifikat, kebun, atau kabupaten..."
+            options={daftarKonsesi.map(item => ({ value: item.key, label: konsesiLabel(item), searchText: `${item.nama} ${item.lokasi} ${item.kabupaten ?? ''}`, description: [item.kecamatan && `Kec. ${item.kecamatan}`, item.kabupaten].filter(Boolean).join(', ') || undefined }))} />
+        </div>
+        <Button disabled={!addKey} className="bg-[#1B4F72]" onClick={() => setPanelKey(addKey)}><Plus size={15} /> Isi SPPT</Button>
+      </div>}
+    </div>
+
+    <div className="overflow-x-auto rounded-xl border bg-white">
+      {isLoadingSemua && !semuaSPPT.length ? <div className="p-6"><TableSkeleton /></div> : <table className="w-full min-w-[980px] text-sm">
+        <thead><tr className="border-b bg-gray-50 text-left text-xs uppercase text-gray-600">
+          <th className="px-4 py-3">Bidang konsesi</th>
+          <th className="px-4 py-3">Tahun / SPPT</th>
+          <th className="px-4 py-3 text-right">Luas SPPT (m²)</th>
+          <th className="px-4 py-3 text-right">NJOP tanah/m²</th>
+          <th className="px-4 py-3 text-right">NJOP bangunan/m²</th>
+          <th className="px-4 py-3 text-right">PBB</th>
+          <th className="px-4 py-3">Status</th>
+          <th className="px-4 py-3" />
+        </tr></thead>
+        <tbody className="divide-y">
+          {rows.map(row => {
+            const konsesi = konsesiByKey.get(row.konsesi_key)
+            return <tr key={row.id} className="align-top hover:bg-gray-50">
+              <td className="px-4 py-3"><p className="font-medium text-gray-900">{konsesi?.nama ?? 'Konsesi tidak ditemukan di GIS'}</p><p className="text-xs text-gray-500">{[konsesi?.lokasi, konsesi?.kabupaten].filter(Boolean).join(' · ')}</p></td>
+              <td className="px-4 py-3"><p className="font-medium">{row.tahun}</p><p className="font-mono text-[11px] text-gray-500">{row.no_sppt ?? (row.nilai_pbb === null ? 'NJOP saja' : '—')}</p></td>
+              <td className="px-4 py-3 text-right tabular-nums">{row.luas_tanah_sppt_m2 || row.luas_bangunan_sppt_m2 ? <>{formatAngka(row.luas_tanah_sppt_m2)}<p className="text-[11px] text-gray-500">bgn {formatAngka(row.luas_bangunan_sppt_m2)}</p></> : '—'}</td>
+              <td className="px-4 py-3 text-right tabular-nums">{formatRupiah(row.njop_tanah_per_m2)}</td>
+              <td className="px-4 py-3 text-right tabular-nums">{formatRupiah(row.njop_bangunan_per_m2)}</td>
+              <td className="px-4 py-3 text-right tabular-nums">{row.nilai_pbb === null ? '—' : formatRupiah(row.nilai_pbb)}{row.tgl_jatuh_tempo && <p className="text-[11px] text-gray-500">JT {formatTanggal(row.tgl_jatuh_tempo)}</p>}</td>
+              <td className="px-4 py-3">{row.nilai_pbb === null ? <span className="text-xs text-gray-400">—</span> : row.status_bayar === 'lunas' ? <span className="text-emerald-700">Lunas</span> : <span className="text-amber-700">Belum</span>}</td>
+              <td className="px-4 py-3 text-right"><Button variant="ghost" size="icon" title="Kelola di panel bidang" onClick={() => setPanelKey(row.konsesi_key)}><ClipboardList size={15} /></Button></td>
+            </tr>
+          })}
+          {!isLoadingSemua && rows.length === 0 && <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-500">{semuaSPPT.length ? 'Tidak ada data yang cocok.' : 'Belum ada SPPT/NJOP. Pilih bidang di atas untuk mulai mengisi.'}</td></tr>}
+        </tbody>
+      </table>}
+    </div>
+    <KonsesiPanel konsesiKey={panelKey} initialTab="sppt" onClose={() => setPanelKey(null)} />
+  </div>
 }

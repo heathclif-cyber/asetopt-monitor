@@ -9,6 +9,9 @@ interface KonsesiMasterStore {
   sppt: KonsesiSPPT[]
   bangunan: KonsesiBangunan[]
   isLoading: boolean
+  semuaSPPT: KonsesiSPPT[]
+  isLoadingSemua: boolean
+  fetchAllSPPT: () => Promise<void>
   fetchDetail: (konsesiKey: string) => Promise<void>
   saveProfil: (data: Omit<KonsesiProfil, 'updated_at'>) => Promise<boolean>
   saveSPPT: (data: Omit<KonsesiSPPT, 'id' | 'created_at'>, id?: string) => Promise<boolean>
@@ -19,9 +22,11 @@ interface KonsesiMasterStore {
 
 // Keeps master aset counters (SPPT year, bangunan) current after an edit.
 async function refreshAfterEdit(konsesiKey: string) {
+  const store = useKonsesiMasterStore.getState()
   await Promise.all([
-    useKonsesiMasterStore.getState().fetchDetail(konsesiKey),
+    store.fetchDetail(konsesiKey),
     useKonsesiStore.getState().fetchKonsesi(true),
+    store.semuaSPPT.length ? store.fetchAllSPPT() : Promise.resolve(),
   ])
 }
 
@@ -31,6 +36,15 @@ export const useKonsesiMasterStore = create<KonsesiMasterStore>((set, get) => ({
   sppt: [],
   bangunan: [],
   isLoading: false,
+  semuaSPPT: [],
+  isLoadingSemua: false,
+
+  fetchAllSPPT: async () => {
+    set({ isLoadingSemua: true })
+    const { data, error } = await supabase.from('konsesi_sppt').select('*').order('tahun', { ascending: false })
+    if (error) console.error('[fetchAllSPPT]', error)
+    set({ semuaSPPT: (data ?? []) as KonsesiSPPT[], isLoadingSemua: false })
+  },
 
   fetchDetail: async (konsesiKey) => {
     set({ isLoading: true, konsesiKey })

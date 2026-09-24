@@ -56,7 +56,7 @@ const navItems: NavItem[] = [
     children: [
       { label: 'Master Aset (GIS)', to: '/master/aset' },
       { label: 'Aset Dioptimalkan', to: '/master/aset/dioptimalkan' },
-      { label: 'Data NJOP', to: '/master/njop' },
+      { label: 'NJOP & SPPT', to: '/master/njop' },
       { label: 'Penilaian KJPP', to: '/master/kjpp' },
     ],
   },

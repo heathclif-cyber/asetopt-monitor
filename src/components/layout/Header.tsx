@@ -21,7 +21,7 @@ const breadcrumbMap: Record<string, string[]> = {
   '/jalur-b/monitoring-kompensasi': ['Jalur B', 'Monitoring Kompensasi'],
   '/master/aset': ['Master Data', 'Master Aset (GIS)'],
   '/master/aset/dioptimalkan': ['Master Data', 'Aset Dioptimalkan'],
-  '/master/njop': ['Master Data', 'Data NJOP'],
+  '/master/njop': ['Master Data', 'NJOP & SPPT'],
   '/master/kjpp': ['Master Data', 'Penilaian KJPP'],
   '/rkap': ['RKAP Monitor 2026'],
   '/katalog': ['Katalog Aset', 'Daftar Katalog'],
