@@ -1,4 +1,4 @@
-﻿import { useEffect, useState, useMemo } from 'react'
+﻿import { Fragment, useEffect, useState, useMemo } from 'react'
 import { useKompensasiStore } from '@/store/kompensasiStore'
 import { useKerjaSamaStore } from '@/store/kerjaSamaStore'
 import { useNotifikasiStore } from '@/store/notifikasiStore'
@@ -37,6 +37,7 @@ import type { Aset } from '@/types'
 type ProgramOption = { kode: string; nama: string; inRkap: boolean }
 type PaymentFilter = 'perlu_tindak_lanjut' | 'semua' | 'belum_bayar' | 'terlambat' | 'sebagian' | 'lunas'
 type ViewMode = 'daftar' | 'kalender' | 'alur'
+const PAGE_SIZE = 20
 
 
 
@@ -299,6 +300,7 @@ export function Kompensasi() {
   const [viewMode, setViewMode] = useState<ViewMode>('daftar')
   const [calendarMonth, setCalendarMonth] = useState(() => new Date().toISOString().slice(0, 7))
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [page, setPage] = useState(1)
 
   const kompForm = useForm<KompForm>({
     resolver: zodResolver(kompSchema),
@@ -431,6 +433,27 @@ export function Kompensasi() {
       }
     })
   }, [allKompensasi, filterKS, filterBulan, filterStatus, sortBy, getKompensasiWithStatus])
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+  useEffect(() => { setPage(1) }, [filterKS, filterBulan, filterStatus, sortBy])
+  // Calendar and flow views open an item in the list; show the page holding it.
+  useEffect(() => {
+    if (!expandedId || viewMode !== 'daftar') return
+    const index = filtered.findIndex(k => k.id === expandedId)
+    if (index >= 0) setPage(Math.floor(index / PAGE_SIZE) + 1)
+  }, [expandedId, viewMode])
+
+  const ringkasan = useMemo(() => {
+    let tagihan = 0, sisa = 0, terlambat = 0, denda = 0
+    filtered.forEach(k => {
+      const ws = getKompensasiWithStatus(k, (k as any).pembayaran ?? [])
+      tagihan += ws.efektifTagihan
+      sisa += ws.sisaTagihan
+      if (ws.statusBayar === 'terlambat') { terlambat += 1; denda += ws.dendaAkumulasi.nominalDenda }
+    })
+    return { tagihan, sisa, terlambat, denda }
+  }, [filtered, getKompensasiWithStatus])
 
   const calendarData = useMemo(() => {
     const [year, month] = calendarMonth.split('-').map(Number)
@@ -669,16 +692,249 @@ export function Kompensasi() {
     genForm.reset(GEN_DEFAULTS)
   }
 
+  const renderTags = (k: KType) => (k.rkap_kode || k.no_invoice || k.superman) ? (
+    <div className="mt-1 flex flex-wrap items-center gap-1">
+      {k.rkap_kode && <span className="rounded bg-blue-50 px-1.5 py-0.5 font-mono text-[10px] text-blue-600">{k.rkap_kode}</span>}
+      {k.no_invoice && <span className="text-[10px] text-gray-500">{k.no_invoice}</span>}
+      {k.superman && <span className="rounded bg-green-50 px-1.5 py-0.5 text-[10px] text-green-700">{k.superman}</span>}
+    </div>
+  ) : null
+
+  const renderLate = (ws: ReturnType<typeof getKompensasiWithStatus>) => ws.dendaAkumulasi.hariTerlambat > 0 ? (
+    <p className="mt-1 text-xs text-red-600">
+      {ws.statusBayar === 'lunas' ? 'Dibayar terlambat' : 'Terlambat'} {ws.dendaAkumulasi.hariTerlambat} hari
+      {ws.dendaAkumulasi.nominalDenda > 0.5 && <span className="block">denda {formatRupiah(ws.dendaAkumulasi.nominalDenda)}</span>}
+    </p>
+  ) : null
+
+  const renderPaymentProgress = (ws: ReturnType<typeof getKompensasiWithStatus>) => {
+    const persen = ws.efektifTagihan > 0 ? Math.min(100, (ws.totalDibayar / ws.efektifTagihan) * 100) : 0
+    return <div>
+      <div className="flex justify-between gap-2 text-xs"><span className="text-green-700">{formatRupiah(ws.totalDibayar)}</span><span className="text-gray-400">{persen.toFixed(0)}%</span></div>
+      <div className="mt-1 h-1.5 rounded-full bg-gray-100"><div className="h-1.5 rounded-full bg-green-500" style={{ width: `${persen}%` }} /></div>
+      {ws.sisaTagihan > 0 && <p className="mt-1 text-xs text-red-700">Sisa {formatRupiah(ws.sisaTagihan)}</p>}
+    </div>
+  }
+
+  const renderActions = (k: KType, ws: ReturnType<typeof getKompensasiWithStatus>, expanded: boolean) => (
+    <div className="flex items-center gap-0.5">
+      <Button variant="ghost" size="icon" className="h-8 w-8" title="Edit kompensasi" onClick={() => openEdit(k)}><Pencil size={14} /></Button>
+      <Button variant="ghost" size="icon" className="h-8 w-8" title="Buat invoice" asChild><Link to={`/jalur-b/invoice?kompensasi_id=${k.id}`}><FileText size={14} /></Link></Button>
+      <Button variant="ghost" size="icon" className="h-8 w-8" title="Kirim WA" onClick={() => handleSendWA(k)}><MessageSquare size={14} /></Button>
+      {ws.statusBayar === 'terlambat' && <Button variant="ghost" size="icon" className="h-8 w-8 text-orange-600" title="Terbitkan SP" onClick={() => handleSP(k)}><FileWarning size={14} /></Button>}
+      <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 hover:text-red-600" title="Hapus kompensasi" onClick={() => setDeleteKompId(k.id)}><Trash2 size={14} /></Button>
+      <Button variant="ghost" size="icon" className="h-8 w-8" title={expanded ? 'Tutup rincian' : 'Lihat rincian'} onClick={() => setExpandedId(expanded ? null : k.id)}>{expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</Button>
+    </div>
+  )
+
+  // Breakdown shown under an expanded row (desktop) or card (mobile).
+  const renderDetail = (k: KType, ws: ReturnType<typeof getKompensasiWithStatus>, pembayaran: Pembayaran[], ks: (typeof daftarKS)[number] | undefined) => (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 text-xs">
+
+          {/* ── Rincian Tagihan + Denda ───────────────────── */}
+          <div className="space-y-3">
+            <p className="font-semibold text-gray-700 text-[11px] uppercase tracking-wide">Rincian Tagihan</p>
+            <div className="space-y-1">
+              <div className="flex justify-between">
+                <span className="text-gray-500">Kompensasi</span>
+                <span className="font-medium">{formatRupiah(k.nominal)}</span>
+              </div>
+              <div className="flex justify-between text-blue-700">
+                <span>+ PPN ({k.ppn_persen}%)</span>
+                <span>+ {formatRupiah(k.nominal_ppn)}</span>
+              </div>
+              {k.pph_mode === 'bukti_potong' && k.pph_persen > 0 && (
+                <div className="flex justify-between text-orange-700">
+                  <span>− PPh ({k.pph_persen}%) <span className="text-[10px] bg-orange-100 px-1 rounded">Bukti Potong</span></span>
+                  <span>− {formatRupiah(k.nominal_pph)}</span>
+                </div>
+              )}
+              <div className="flex justify-between text-gray-600 border-t pt-1 mt-1">
+                <span>Bruto (sebelum pengurang)</span>
+                <span>{formatRupiah(k.total_tagihan)}</span>
+              </div>
+              {(k.pengurang ?? 0) > 0 && (
+                <div className="flex justify-between text-purple-700">
+                  <span>− Pengurang {k.keterangan_pengurang ? `(${k.keterangan_pengurang})` : ''}</span>
+                  <span>− {formatRupiah(k.pengurang!)}</span>
+                </div>
+              )}
+              <div className="flex justify-between font-semibold text-[#1B4F72] border-t pt-1.5 mt-0.5">
+                <span>Tagihan (efektif)</span>
+                <span>{formatRupiah(ws.efektifTagihan)}</span>
+              </div>
+            </div>
+
+            {ws.dendaAkumulasi.hariTerlambat > 0 && (
+              <div className="mt-2 pt-2 border-t space-y-1">
+                <p className="font-semibold text-red-700 text-[11px] uppercase tracking-wide">
+                  Denda{ws.statusBayar === 'lunas' ? ' (saat pelunasan)' : ''}
+                </p>
+                <div className="flex justify-between text-red-600">
+                  <span>
+                    Terlambat {ws.dendaAkumulasi.hariTerlambat} hr
+                    {' '}× {k.persen_denda_per_hari}%/hr
+                  </span>
+                  <span className="font-medium">{formatRupiah(ws.dendaAkumulasi.nominalDenda)}</span>
+                </div>
+                <div className="flex justify-between text-red-500">
+                  <span>Kumulatif</span>
+                  <span>{ws.dendaAkumulasi.persenAkumulasi.toFixed(2)}%</span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ── Pembayaran ────────────────────────────────── */}
+          <div className="space-y-2">
+            <p className="font-semibold text-gray-700 text-[11px] uppercase tracking-wide">Pembayaran Diterima</p>
+            <Link to={`/jalur-b/pembayaran?kompensasi_id=${k.id}`} className="text-[11px] text-[#1B4F72] hover:underline">
+              Catat pembayaran di Input Pembayaran →
+            </Link>
+            {pembayaran.length === 0
+              ? <p className="text-gray-400 italic">Belum ada pembayaran</p>
+              : (
+                <div className="space-y-1.5">
+                  {pembayaran.map(p => (
+                    <div key={p.id} className="group/payment flex items-center gap-2">
+                      <span className="text-gray-400 shrink-0 w-24">{formatTanggal(p.tgl_bayar)}</span>
+                      <span className="font-medium flex-1">{formatRupiah(p.nominal_bayar)}</span>
+                      <div className="flex items-center gap-1.5">
+                        {p.keterangan && <span className="text-gray-400 text-[10px]">{p.keterangan}</span>}
+                        {p.bukti_url && <a href={p.bukti_url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">Bukti</a>}
+                        <button
+                          type="button"
+                          onClick={() => openPaymentEdit(p, k)}
+                          className="rounded p-0.5 text-gray-400 hover:bg-blue-50 hover:text-[#1B4F72] opacity-0 transition-opacity group-hover/payment:opacity-100 focus:opacity-100"
+                          title="Edit pembayaran"
+                          aria-label="Edit pembayaran"
+                        >
+                          <Pencil size={12} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  <div className="border-t pt-1.5 space-y-0.5">
+                    <div className="flex justify-between text-green-700 font-semibold">
+                      <span>Total Dibayar</span>
+                      <span>{formatRupiah(ws.totalDibayar)}</span>
+                    </div>
+                    <div className="flex justify-between text-red-700 font-semibold">
+                      <span>Sisa Tagihan</span>
+                      <span>{formatRupiah(ws.sisaTagihan)}</span>
+                    </div>
+                  </div>
+                </div>
+              )
+            }
+          </div>
+
+
+           {/* -- Cash In Lainnya (denda, dll) -- */}
+           <div className="space-y-2">
+             <div className="flex items-center justify-between">
+               <p className="font-semibold text-gray-700 text-[11px] uppercase tracking-wide">Cash In Lainnya</p>
+               <button
+                 onClick={() => openCashIn(k.ks_id)}
+                 className="flex items-center gap-1 text-[10px] text-[#5B2C6F] hover:underline"
+                 title="Tambah denda / pendapatan lain"
+               >
+                 <Plus size={10} /> Tambah
+               </button>
+             </div>
+             {(() => {
+               const ciList = allCashIn.filter(ci => ci.ks_id === k.ks_id)
+               if (ciList.length === 0)
+                 return <p className="text-gray-400 italic">Belum ada catatan</p>
+               return (
+                 <div className="space-y-1.5">
+                   {ciList.map(ci => (
+                     <div key={ci.id} className="flex items-center gap-2 group/ci">
+                       <ArrowDownCircle size={11} className="text-green-600 shrink-0" />
+                       <span className="text-gray-400 shrink-0 w-20 text-[10px]">{formatTanggal(ci.tgl_terima)}</span>
+                       <span className="text-[10px] text-purple-700 bg-purple-50 px-1 rounded shrink-0">
+                         {CASH_IN_JENIS_LABEL[ci.jenis]}
+                       </span>
+                       {ci.rkap_kode && (
+                         <span className="font-mono text-[10px] text-blue-600 bg-blue-50 px-1 rounded shrink-0">{ci.rkap_kode}</span>
+                       )}
+                       <span className="font-medium flex-1 text-green-700">{formatRupiah(ci.nominal)}</span>
+                       {ci.keterangan && <span className="text-gray-400 text-[10px]">{ci.keterangan}</span>}
+                       <button
+                         onClick={() => setDeleteCashInId(ci.id)}
+                         className="p-0.5 rounded hover:bg-red-100 text-gray-400 hover:text-red-500 opacity-0 group-hover/ci:opacity-100 transition-opacity"
+                         title="Hapus cash in"
+                       ><Trash2 size={10} /></button>
+                     </div>
+                   ))}
+                   <div className="border-t pt-1 flex justify-between text-green-700 font-semibold text-[11px]">
+                     <span>Total Cash In Lain</span>
+                     <span>{formatRupiah(ciList.reduce((s, ci) => s + ci.nominal, 0))}</span>
+                   </div>
+                 </div>
+               )
+             })()}
+           </div>
+          {/* ── PBB Aset ──────────────────────────────────── */}
+          <div className="space-y-2">
+            <p className="font-semibold text-gray-700 text-[11px] uppercase tracking-wide">PBB Aset Terkait</p>
+            {(() => {
+              const asetId = (ks?.aset as any)?.id
+              const pbbList = asetId ? (dataPBB[asetId] ?? []) : []
+              if (!asetId || pbbList.length === 0)
+                return <p className="text-gray-400 italic">Tidak ada data PBB</p>
+              return (
+                <div className="space-y-1.5">
+                  {pbbList.map(p => (
+                    <div key={p.id} className="flex items-center gap-2">
+                      <span className="text-gray-500 w-10">{p.tahun}</span>
+                      <span className="flex-1 font-medium">{formatRupiah(p.nilai_pbb)}</span>
+                      <span className={p.status_bayar === 'lunas' ? 'text-green-600' : 'text-red-500'}>
+                        {p.status_bayar}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )
+            })()}
+          </div>
+          {/* ── PDDM / PSAK 73 ────────────────────────────── */}
+          <div className="space-y-2">
+            <p className="font-semibold text-gray-700 text-[11px] uppercase tracking-wide">Amortisasi PSAK 73</p>
+            {(() => {
+              const pddmList = daftarPDDM.filter(p => p.ks_id === k.ks_id)
+              if (pddmList.length === 0)
+                return <p className="text-gray-400 italic text-[11px]">Belum ada kontrak akrual untuk KS ini.</p>
+              return (
+                <div className="space-y-1.5">
+                  {pddmList.map(p => {
+                    const prog = hitungProgressPersen(p.total_nkm, p.sudah_diakui)
+                    return (
+                      <div key={p.id} className="flex items-center gap-2 text-[11px]">
+                        <span className="flex-1 truncate font-medium text-gray-700">{p.nama_kontrak}</span>
+                        <span className="text-gray-400">{formatRupiah(p.sudah_diakui)} / {formatRupiah(p.total_nkm)}</span>
+                        <span className={`font-semibold ${prog >= 100 ? 'text-green-600' : 'text-[#5B2C6F]'}`}>{prog.toFixed(0)}%</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })()}
+          </div>
+
+        </div>
+  )
+
   // ─── Render ─────────────────────────────────────────────────────────
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Kompensasi</h1>
           <p className="text-sm text-gray-500">Monitoring dan pencatatan kompensasi kerja sama</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => { setGenStep(1); setGenDialog(true) }}>
             <Wand2 size={15} /> Generate Periode
           </Button>
@@ -689,10 +945,10 @@ export function Kompensasi() {
       </div>
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <div className="flex items-center gap-2">
-          <Label className="shrink-0 text-xs text-gray-500">Status:</Label>
+        <div className="flex w-full items-center gap-2 sm:w-auto">
+          <Label className="w-14 shrink-0 text-xs text-gray-500 sm:w-auto">Status:</Label>
           <Select value={filterStatus} onValueChange={v => setFilterStatus(v as PaymentFilter)}>
-            <SelectTrigger className="w-52 h-8 text-xs"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="h-8 w-full text-xs sm:w-52"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="perlu_tindak_lanjut">Perlu ditindaklanjuti</SelectItem>
               <SelectItem value="semua">Semua status</SelectItem>
@@ -705,10 +961,10 @@ export function Kompensasi() {
         </div>
 
         {/* Filter KS */}
-        <div className="flex items-center gap-2">
-          <Label className="shrink-0 text-xs text-gray-500">KS:</Label>
+        <div className="flex w-full items-center gap-2 sm:w-auto">
+          <Label className="w-14 shrink-0 text-xs text-gray-500 sm:w-auto">KS:</Label>
           <SearchableSelect
-            className="w-64 h-8 text-xs"
+            className="h-8 w-full text-xs sm:w-64"
             value={filterKS === 'semua' ? '' : filterKS}
             onValueChange={v => setFilterKS(v || 'semua')}
             options={ksOptions}
@@ -721,10 +977,10 @@ export function Kompensasi() {
         </div>
 
         {/* Filter Bulan */}
-        <div className="flex items-center gap-2">
-          <Label className="shrink-0 text-xs text-gray-500">Bulan:</Label>
+        <div className="flex w-full items-center gap-2 sm:w-auto">
+          <Label className="w-14 shrink-0 text-xs text-gray-500 sm:w-auto">Bulan:</Label>
           <Select value={filterBulan} onValueChange={setFilterBulan}>
-            <SelectTrigger className="w-44 h-8 text-xs">
+            <SelectTrigger className="h-8 w-full text-xs sm:w-44">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -742,10 +998,10 @@ export function Kompensasi() {
         </div>
 
         {/* Sort */}
-        <div className="flex items-center gap-2">
-          <Label className="shrink-0 text-xs text-gray-500">Urutan:</Label>
+        <div className="flex w-full items-center gap-2 sm:w-auto">
+          <Label className="w-14 shrink-0 text-xs text-gray-500 sm:w-auto">Urutan:</Label>
           <Select value={sortBy} onValueChange={setSortBy}>
-            <SelectTrigger className="w-48 h-8 text-xs">
+            <SelectTrigger className="h-8 w-full text-xs sm:w-48">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -761,6 +1017,21 @@ export function Kompensasi() {
         {(filterKS !== 'semua' || filterBulan !== 'semua' || filterStatus !== 'semua') && (
           <span className="text-xs text-gray-400">{filtered.length} kompensasi ditampilkan</span>
         )}
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+        {([
+          ['Jumlah tagihan', filtered.length.toLocaleString('id-ID'), 'sesuai filter', 'text-gray-900'],
+          ['Total tagihan', formatRupiah(ringkasan.tagihan), 'termasuk PPN, setelah pengurang', 'text-gray-900'],
+          ['Sisa belum dibayar', formatRupiah(ringkasan.sisa), 'dari tagihan yang tampil', ringkasan.sisa > 0 ? 'text-red-700' : 'text-green-700'],
+          ['Terlambat', `${ringkasan.terlambat} tagihan`, ringkasan.denda > 0.5 ? `denda ${formatRupiah(ringkasan.denda)}` : 'tanpa denda berjalan', ringkasan.terlambat ? 'text-red-700' : 'text-gray-900'],
+        ] as const).map(([label, value, note, tone]) => (
+          <div key={label} className="rounded-xl border bg-white px-4 py-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">{label}</p>
+            <p className={`mt-1 text-lg font-bold tabular-nums ${tone}`}>{value}</p>
+            <p className="text-[11px] text-gray-500">{note}</p>
+          </div>
+        ))}
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-white px-4 py-3">
@@ -830,321 +1101,106 @@ export function Kompensasi() {
         </div>
       )}
 
-      {viewMode === 'daftar' && <div className="bg-white rounded-xl border overflow-hidden">
+      {viewMode === 'daftar' && <div className="space-y-3">
         {isLoading ? (
-          <div className="p-6"><TableSkeleton /></div>
+          <div className="rounded-xl border bg-white p-6"><TableSkeleton /></div>
         ) : filtered.length === 0 ? (
-          <EmptyState title="Belum ada kompensasi" description="Tambahkan kompensasi untuk kerja sama aktif." action={<Button onClick={openAdd} size="sm"><Plus size={14} /> Tambah</Button>} />
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b bg-gray-50 text-gray-600 text-xs uppercase">
-                <th className="text-left px-4 py-3">Mitra / Aset</th>
-                <th className="text-left px-4 py-3 hidden md:table-cell">Periode</th>
-                <th className="text-right px-4 py-3">Total Tagihan</th>
-                <th className="text-right px-4 py-3 hidden md:table-cell text-[#5B2C6F]">Pendapatan Akrual</th>
-                <th className="text-right px-4 py-3 hidden lg:table-cell">Sudah Dibayar</th>
-                <th className="text-right px-4 py-3 hidden lg:table-cell">Sisa</th>
-                <th className="text-left px-4 py-3 hidden lg:table-cell">Cetak Tagihan</th>
-                <th className="text-left px-4 py-3 hidden md:table-cell">Jatuh Tempo</th>
-                <th className="text-center px-4 py-3">Status</th>
-                <th className="text-right px-4 py-3">Aksi</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {filtered.map(k => {
-                const pembayaran = (k as any).pembayaran as Pembayaran[] ?? []
-                const ws = getKompensasiWithStatus(k, pembayaran)
-                const ks = daftarKS.find(x => x.id === k.ks_id)
-                const expanded = expandedId === k.id
-
-                return (
-                  <>
-                    <tr key={k.id} className="hover:bg-gray-50 transition-colors align-top">
-                      <td className="px-4 py-2.5 align-top">
-                        <p className="font-medium text-gray-900">{ks?.nama_mitra ?? '-'}</p>
-                        <p className="text-xs text-gray-500">{(ks?.aset as any)?.nama_aset ?? '-'}</p>
-                        {(k.rkap_kode || k.no_invoice || k.superman) && (
-                          <div className="flex flex-wrap items-center gap-1 mt-1">
-                            {k.rkap_kode && (
-                              <span className="font-mono text-[10px] text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">{k.rkap_kode}</span>
-                            )}
-                            {k.no_invoice && (
-                              <span className="text-[10px] text-gray-500">{k.no_invoice}</span>
-                            )}
-                            {k.superman && (
-                              <span className="text-[10px] text-green-700 bg-green-50 px-1.5 py-0.5 rounded">{k.superman}</span>
-                            )}
-                          </div>
-                        )}
-                        {ws.dendaAkumulasi.hariTerlambat > 0 && (
-                          <p className="text-xs text-red-600 mt-1">
-                            {ws.statusBayar === 'lunas' ? 'Dibayar terlambat' : 'Terlambat'}{' '}
-                            {ws.dendaAkumulasi.hariTerlambat} hari
-                            {ws.dendaAkumulasi.nominalDenda > 0.5 && (
-                              <> · denda {formatRupiah(ws.dendaAkumulasi.nominalDenda)}</>
-                            )}
-                          </p>
-                        )}
-                      </td>
-                      <td className="px-4 py-2.5 align-top hidden md:table-cell text-gray-600">{k.periode_label ?? '-'}</td>
-                      <td className="px-4 py-2.5 align-top text-right font-semibold">
-                        <CurrencyDisplay value={ws.efektifTagihan} size="sm" />
-                        {(k.pengurang ?? 0) > 0 && (
-                          <p className="text-[10px] text-gray-400 font-normal mt-0.5">
-                            bruto {formatRupiah(k.total_tagihan)}
-                          </p>
-                        )}
-                      </td>
-                      <td className="px-4 py-2.5 align-top text-right hidden md:table-cell">
-                        <CurrencyDisplay value={k.nominal ?? 0} size="sm" className="text-[#5B2C6F]" />
-                      </td>
-                      <td className="px-4 py-2.5 align-top text-right hidden lg:table-cell text-green-700">
-                        <CurrencyDisplay value={ws.totalDibayar} size="sm" />
-                      </td>
-                      <td className="px-4 py-2.5 align-top text-right hidden lg:table-cell text-red-700">
-                        <CurrencyDisplay value={ws.sisaTagihan} size="sm" />
-                      </td>
-                      <td className="px-4 py-2.5 align-top hidden lg:table-cell text-gray-600 text-xs">
-                        {k.invoice_tgl ? formatTanggal(k.invoice_tgl) : <span className="text-gray-300">—</span>}
-                      </td>
-                      <td className="px-4 py-2.5 align-top hidden md:table-cell text-gray-600 text-xs">{formatTanggal(k.tgl_jatuh_tempo)}</td>
-                      <td className="px-4 py-2.5 align-top text-center">
-                        <StatusBadge type="bayar" value={ws.statusBayar} />
-                      </td>
-                      <td className="px-4 py-2.5 align-top">
-                        <div className="flex items-center justify-end gap-1">
-                          <Button variant="ghost" size="icon" title="Edit kompensasi" onClick={() => openEdit(k)}>
-                            <Pencil size={14} />
-                          </Button>
-                          <Button variant="ghost" size="icon" title="Hapus kompensasi" className="text-gray-400 hover:text-red-600" onClick={() => setDeleteKompId(k.id)}>
-                            <Trash2 size={14} />
-                          </Button>
-                          <Button variant="ghost" size="icon" title="Buat Invoice" asChild>
-                            <Link to={`/jalur-b/invoice?kompensasi_id=${k.id}`}>
-                              <FileText size={14} />
-                            </Link>
-                          </Button>
-                          <Button variant="ghost" size="icon" title="Kirim WA" onClick={() => handleSendWA(k)}>
-                            <MessageSquare size={14} />
-                          </Button>
-                          {ws.statusBayar === 'terlambat' && (
-                            <Button variant="ghost" size="icon" title="Terbitkan SP" className="text-orange-600" onClick={() => handleSP(k)}>
-                              <FileWarning size={14} />
-                            </Button>
-                          )}
-                          <Button variant="ghost" size="icon" title="Lihat breakdown" onClick={() => setExpandedId(expanded ? null : k.id)}>
-                            {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                    {expanded && (
-                      <tr key={`${k.id}-detail`} className="bg-gray-50/60">
-                        <td colSpan={9} className="px-6 py-4">
-                          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 text-xs">
-
-                            {/* ── Rincian Tagihan + Denda ───────────────────── */}
-                            <div className="space-y-3">
-                              <p className="font-semibold text-gray-700 text-[11px] uppercase tracking-wide">Rincian Tagihan</p>
-                              <div className="space-y-1">
-                                <div className="flex justify-between">
-                                  <span className="text-gray-500">Kompensasi</span>
-                                  <span className="font-medium">{formatRupiah(k.nominal)}</span>
-                                </div>
-                                <div className="flex justify-between text-blue-700">
-                                  <span>+ PPN ({k.ppn_persen}%)</span>
-                                  <span>+ {formatRupiah(k.nominal_ppn)}</span>
-                                </div>
-                                {k.pph_mode === 'bukti_potong' && k.pph_persen > 0 && (
-                                  <div className="flex justify-between text-orange-700">
-                                    <span>− PPh ({k.pph_persen}%) <span className="text-[10px] bg-orange-100 px-1 rounded">Bukti Potong</span></span>
-                                    <span>− {formatRupiah(k.nominal_pph)}</span>
-                                  </div>
-                                )}
-                                <div className="flex justify-between text-gray-600 border-t pt-1 mt-1">
-                                  <span>Bruto (sebelum pengurang)</span>
-                                  <span>{formatRupiah(k.total_tagihan)}</span>
-                                </div>
-                                {(k.pengurang ?? 0) > 0 && (
-                                  <div className="flex justify-between text-purple-700">
-                                    <span>− Pengurang {k.keterangan_pengurang ? `(${k.keterangan_pengurang})` : ''}</span>
-                                    <span>− {formatRupiah(k.pengurang!)}</span>
-                                  </div>
-                                )}
-                                <div className="flex justify-between font-semibold text-[#1B4F72] border-t pt-1.5 mt-0.5">
-                                  <span>Tagihan (efektif)</span>
-                                  <span>{formatRupiah(ws.efektifTagihan)}</span>
-                                </div>
-                              </div>
-
-                              {ws.dendaAkumulasi.hariTerlambat > 0 && (
-                                <div className="mt-2 pt-2 border-t space-y-1">
-                                  <p className="font-semibold text-red-700 text-[11px] uppercase tracking-wide">
-                                    Denda{ws.statusBayar === 'lunas' ? ' (saat pelunasan)' : ''}
-                                  </p>
-                                  <div className="flex justify-between text-red-600">
-                                    <span>
-                                      Terlambat {ws.dendaAkumulasi.hariTerlambat} hr
-                                      {' '}× {k.persen_denda_per_hari}%/hr
-                                    </span>
-                                    <span className="font-medium">{formatRupiah(ws.dendaAkumulasi.nominalDenda)}</span>
-                                  </div>
-                                  <div className="flex justify-between text-red-500">
-                                    <span>Kumulatif</span>
-                                    <span>{ws.dendaAkumulasi.persenAkumulasi.toFixed(2)}%</span>
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-
-                            {/* ── Pembayaran ────────────────────────────────── */}
-                            <div className="space-y-2">
-                              <p className="font-semibold text-gray-700 text-[11px] uppercase tracking-wide">Pembayaran Diterima</p>
-                              <Link to={`/jalur-b/pembayaran?kompensasi_id=${k.id}`} className="text-[11px] text-[#1B4F72] hover:underline">
-                                Catat pembayaran di Input Pembayaran →
-                              </Link>
-                              {pembayaran.length === 0
-                                ? <p className="text-gray-400 italic">Belum ada pembayaran</p>
-                                : (
-                                  <div className="space-y-1.5">
-                                    {pembayaran.map(p => (
-                                      <div key={p.id} className="group/payment flex items-center gap-2">
-                                        <span className="text-gray-400 shrink-0 w-24">{formatTanggal(p.tgl_bayar)}</span>
-                                        <span className="font-medium flex-1">{formatRupiah(p.nominal_bayar)}</span>
-                                        <div className="flex items-center gap-1.5">
-                                          {p.keterangan && <span className="text-gray-400 text-[10px]">{p.keterangan}</span>}
-                                          {p.bukti_url && <a href={p.bukti_url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">Bukti</a>}
-                                          <button
-                                            type="button"
-                                            onClick={() => openPaymentEdit(p, k)}
-                                            className="rounded p-0.5 text-gray-400 hover:bg-blue-50 hover:text-[#1B4F72] opacity-0 transition-opacity group-hover/payment:opacity-100 focus:opacity-100"
-                                            title="Edit pembayaran"
-                                            aria-label="Edit pembayaran"
-                                          >
-                                            <Pencil size={12} />
-                                          </button>
-                                        </div>
-                                      </div>
-                                    ))}
-                                    <div className="border-t pt-1.5 space-y-0.5">
-                                      <div className="flex justify-between text-green-700 font-semibold">
-                                        <span>Total Dibayar</span>
-                                        <span>{formatRupiah(ws.totalDibayar)}</span>
-                                      </div>
-                                      <div className="flex justify-between text-red-700 font-semibold">
-                                        <span>Sisa Tagihan</span>
-                                        <span>{formatRupiah(ws.sisaTagihan)}</span>
-                                      </div>
-                                    </div>
-                                  </div>
-                                )
-                              }
-                            </div>
-
-
-                             {/* -- Cash In Lainnya (denda, dll) -- */}
-                             <div className="space-y-2">
-                               <div className="flex items-center justify-between">
-                                 <p className="font-semibold text-gray-700 text-[11px] uppercase tracking-wide">Cash In Lainnya</p>
-                                 <button
-                                   onClick={() => openCashIn(k.ks_id)}
-                                   className="flex items-center gap-1 text-[10px] text-[#5B2C6F] hover:underline"
-                                   title="Tambah denda / pendapatan lain"
-                                 >
-                                   <Plus size={10} /> Tambah
-                                 </button>
-                               </div>
-                               {(() => {
-                                 const ciList = allCashIn.filter(ci => ci.ks_id === k.ks_id)
-                                 if (ciList.length === 0)
-                                   return <p className="text-gray-400 italic">Belum ada catatan</p>
-                                 return (
-                                   <div className="space-y-1.5">
-                                     {ciList.map(ci => (
-                                       <div key={ci.id} className="flex items-center gap-2 group/ci">
-                                         <ArrowDownCircle size={11} className="text-green-600 shrink-0" />
-                                         <span className="text-gray-400 shrink-0 w-20 text-[10px]">{formatTanggal(ci.tgl_terima)}</span>
-                                         <span className="text-[10px] text-purple-700 bg-purple-50 px-1 rounded shrink-0">
-                                           {CASH_IN_JENIS_LABEL[ci.jenis]}
-                                         </span>
-                                         {ci.rkap_kode && (
-                                           <span className="font-mono text-[10px] text-blue-600 bg-blue-50 px-1 rounded shrink-0">{ci.rkap_kode}</span>
-                                         )}
-                                         <span className="font-medium flex-1 text-green-700">{formatRupiah(ci.nominal)}</span>
-                                         {ci.keterangan && <span className="text-gray-400 text-[10px]">{ci.keterangan}</span>}
-                                         <button
-                                           onClick={() => setDeleteCashInId(ci.id)}
-                                           className="p-0.5 rounded hover:bg-red-100 text-gray-400 hover:text-red-500 opacity-0 group-hover/ci:opacity-100 transition-opacity"
-                                           title="Hapus cash in"
-                                         ><Trash2 size={10} /></button>
-                                       </div>
-                                     ))}
-                                     <div className="border-t pt-1 flex justify-between text-green-700 font-semibold text-[11px]">
-                                       <span>Total Cash In Lain</span>
-                                       <span>{formatRupiah(ciList.reduce((s, ci) => s + ci.nominal, 0))}</span>
-                                     </div>
-                                   </div>
-                                 )
-                               })()}
-                             </div>
-                            {/* ── PBB Aset ──────────────────────────────────── */}
-                            <div className="space-y-2">
-                              <p className="font-semibold text-gray-700 text-[11px] uppercase tracking-wide">PBB Aset Terkait</p>
-                              {(() => {
-                                const asetId = (ks?.aset as any)?.id
-                                const pbbList = asetId ? (dataPBB[asetId] ?? []) : []
-                                if (!asetId || pbbList.length === 0)
-                                  return <p className="text-gray-400 italic">Tidak ada data PBB</p>
-                                return (
-                                  <div className="space-y-1.5">
-                                    {pbbList.map(p => (
-                                      <div key={p.id} className="flex items-center gap-2">
-                                        <span className="text-gray-500 w-10">{p.tahun}</span>
-                                        <span className="flex-1 font-medium">{formatRupiah(p.nilai_pbb)}</span>
-                                        <span className={p.status_bayar === 'lunas' ? 'text-green-600' : 'text-red-500'}>
-                                          {p.status_bayar}
-                                        </span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )
-                              })()}
-                            </div>
-                            {/* ── PDDM / PSAK 73 ────────────────────────────── */}
-                            <div className="space-y-2">
-                              <p className="font-semibold text-gray-700 text-[11px] uppercase tracking-wide">Amortisasi PSAK 73</p>
-                              {(() => {
-                                const pddmList = daftarPDDM.filter(p => p.ks_id === k.ks_id)
-                                if (pddmList.length === 0)
-                                  return <p className="text-gray-400 italic text-[11px]">Belum ada kontrak akrual untuk KS ini.</p>
-                                return (
-                                  <div className="space-y-1.5">
-                                    {pddmList.map(p => {
-                                      const prog = hitungProgressPersen(p.total_nkm, p.sudah_diakui)
-                                      return (
-                                        <div key={p.id} className="flex items-center gap-2 text-[11px]">
-                                          <span className="flex-1 truncate font-medium text-gray-700">{p.nama_kontrak}</span>
-                                          <span className="text-gray-400">{formatRupiah(p.sudah_diakui)} / {formatRupiah(p.total_nkm)}</span>
-                                          <span className={`font-semibold ${prog >= 100 ? 'text-green-600' : 'text-[#5B2C6F]'}`}>{prog.toFixed(0)}%</span>
-                                        </div>
-                                      )
-                                    })}
-                                  </div>
-                                )
-                              })()}
-                            </div>
-
-                          </div>
+          <div className="rounded-xl border bg-white"><EmptyState title="Belum ada kompensasi" description="Tambahkan kompensasi untuk kerja sama aktif." action={<Button onClick={openAdd} size="sm"><Plus size={14} /> Tambah</Button>} /></div>
+        ) : <>
+          <div className="hidden overflow-x-auto rounded-xl border bg-white md:block">
+            <table className="w-full min-w-[940px] text-sm">
+              <thead>
+                <tr className="border-b bg-gray-50 text-left text-xs uppercase text-gray-600">
+                  <th className="px-4 py-3">Mitra / Aset</th>
+                  <th className="px-4 py-3">Periode / jatuh tempo</th>
+                  <th className="px-4 py-3 text-right">Tagihan</th>
+                  <th className="px-4 py-3">Pembayaran</th>
+                  <th className="px-4 py-3">Status</th>
+                  <th className="sticky right-0 bg-gray-50 px-3 py-3 text-right shadow-[-6px_0_8px_-6px_rgba(0,0,0,0.15)]">Aksi</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {paged.map(k => {
+                  const pembayaran = (k as any).pembayaran as Pembayaran[] ?? []
+                  const ws = getKompensasiWithStatus(k, pembayaran)
+                  const ks = daftarKS.find(x => x.id === k.ks_id)
+                  const expanded = expandedId === k.id
+                  return (
+                    <Fragment key={k.id}>
+                      <tr className={`align-top transition-colors hover:bg-gray-50 ${expanded ? 'bg-purple-50/40' : ''}`}>
+                        <td className="min-w-[190px] max-w-[300px] px-4 py-3">
+                          <p className="font-medium text-gray-900">{ks?.nama_mitra ?? '-'}</p>
+                          <p className="text-xs text-gray-500">{(ks?.aset as any)?.nama_aset ?? '-'}</p>
+                          {renderTags(k)}
                         </td>
+                        <td className="min-w-[130px] px-4 py-3">
+                          <p className="text-gray-700">{k.periode_label ?? '-'}</p>
+                          <p className="whitespace-nowrap text-xs text-gray-500">JT {formatTanggal(k.tgl_jatuh_tempo)}</p>
+                          {k.invoice_tgl && <p className="whitespace-nowrap text-[11px] text-gray-400">Invoice {formatTanggal(k.invoice_tgl)}</p>}
+                        </td>
+                        <td className="whitespace-nowrap px-4 py-3 text-right">
+                          <CurrencyDisplay value={ws.efektifTagihan} size="sm" className="font-semibold" />
+                          {(k.pengurang ?? 0) > 0 && <p className="text-[11px] text-gray-400">bruto {formatRupiah(k.total_tagihan)}</p>}
+                          <p className="text-[11px] text-[#5B2C6F]">akrual {formatRupiah(k.nominal ?? 0)}</p>
+                        </td>
+                        <td className="min-w-[150px] px-4 py-3">{renderPaymentProgress(ws)}</td>
+                        <td className="min-w-[150px] px-4 py-3">
+                          <StatusBadge type="bayar" value={ws.statusBayar} />
+                          {renderLate(ws)}
+                        </td>
+                        <td className={`sticky right-0 px-2 py-3 shadow-[-6px_0_8px_-6px_rgba(0,0,0,0.15)] ${expanded ? 'bg-purple-50' : 'bg-white'}`}><div className="flex justify-end">{renderActions(k, ws, expanded)}</div></td>
                       </tr>
-                    )}
-                  </>
-                )
-              })}
-            </tbody>
-          </table>
-        )}
+                      {expanded && (
+                        <tr className="bg-gray-50/60">
+                          <td colSpan={6} className="px-6 py-4">{renderDetail(k, ws, pembayaran, ks)}</td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="space-y-3 md:hidden">
+            {paged.map(k => {
+              const pembayaran = (k as any).pembayaran as Pembayaran[] ?? []
+              const ws = getKompensasiWithStatus(k, pembayaran)
+              const ks = daftarKS.find(x => x.id === k.ks_id)
+              const expanded = expandedId === k.id
+              return (
+                <div key={k.id} className="rounded-xl border bg-white p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-medium text-gray-900">{ks?.nama_mitra ?? '-'}</p>
+                      <p className="text-xs text-gray-500">{(ks?.aset as any)?.nama_aset ?? '-'}</p>
+                    </div>
+                    <StatusBadge type="bayar" value={ws.statusBayar} />
+                  </div>
+                  {renderTags(k)}
+                  <p className="mt-2 text-xs text-gray-500">{k.periode_label ?? '-'} · jatuh tempo {formatTanggal(k.tgl_jatuh_tempo)}</p>
+                  <div className="mt-3 grid grid-cols-2 gap-3">
+                    <div><p className="text-[11px] text-gray-500">Tagihan</p><CurrencyDisplay value={ws.efektifTagihan} size="sm" className="font-semibold" /></div>
+                    <div><p className="text-[11px] text-gray-500">Sisa</p><CurrencyDisplay value={ws.sisaTagihan} size="sm" className={ws.sisaTagihan > 0 ? 'font-semibold text-red-700' : 'font-semibold text-green-700'} /></div>
+                  </div>
+                  {renderLate(ws)}
+                  <div className="mt-3 flex justify-end border-t pt-2">{renderActions(k, ws, expanded)}</div>
+                  {expanded && <div className="mt-3 border-t pt-3">{renderDetail(k, ws, pembayaran, ks)}</div>}
+                </div>
+              )
+            })}
+          </div>
+
+          {totalPages > 1 && (
+            <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-gray-600">
+              <span>Menampilkan {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filtered.length)} dari {filtered.length}</span>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage(p => p - 1)}>Sebelumnya</Button>
+                <Button variant="outline" size="sm" disabled={page === totalPages} onClick={() => setPage(p => p + 1)}>Berikutnya</Button>
+              </div>
+            </div>
+          )}
+        </>}
       </div>}
 
       {/* Dialog generate periode */}
