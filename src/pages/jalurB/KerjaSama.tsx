@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useKerjaSamaStore } from '@/store/kerjaSamaStore'
 import { useAsetStore } from '@/store/asetStore'
+import { useKonsesiStore } from '@/store/konsesiStore'
+import { konsesiLabel } from '@/components/aset/KonsesiPicker'
 import { KerjaSama as KSType } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -35,6 +37,8 @@ type KSForm = z.infer<typeof ksSchema>
 export function KerjaSama() {
   const { daftarKS, isLoading, fetchKS, addKS, updateKS } = useKerjaSamaStore()
   const { daftarAset, fetchAset } = useAsetStore()
+  const { daftarKonsesi, fetchKonsesi } = useKonsesiStore()
+  const [konsesiFilter, setKonsesiFilter] = useState('')
   const [searchParams, setSearchParams] = useSearchParams()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<KSType | null>(null)
@@ -43,7 +47,13 @@ export function KerjaSama() {
     resolver: zodResolver(ksSchema),
   })
 
-  useEffect(() => { fetchKS(); fetchAset() }, [])
+  useEffect(() => { fetchKS(); fetchAset(); void fetchKonsesi() }, [])
+  // Only concessions that already carry an optimised asset can be chosen here.
+  const konsesiOptions = useMemo(() => {
+    const linked = new Set(daftarAset.flatMap(a => (a.aset_konsesi ?? []).map(link => link.konsesi_key)))
+    return daftarKonsesi.filter(item => linked.has(item.key))
+  }, [daftarAset, daftarKonsesi])
+  const asetOptions = konsesiFilter ? daftarAset.filter(a => a.aset_konsesi?.some(link => link.konsesi_key === konsesiFilter)) : daftarAset
 
   useEffect(() => {
     if (searchParams.get('tambah') === '1') openAdd()
@@ -51,6 +61,7 @@ export function KerjaSama() {
 
   const openAdd = () => {
     setEditTarget(null)
+    setKonsesiFilter('')
     reset()
     setDialogOpen(true)
   }
@@ -62,6 +73,7 @@ export function KerjaSama() {
 
   const openEdit = (ks: KSType) => {
     setEditTarget(ks)
+    setKonsesiFilter('')
     reset({
       aset_id: ks.aset_id,
       nama_mitra: ks.nama_mitra,
@@ -172,12 +184,29 @@ export function KerjaSama() {
           </DialogHeader>
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div>
-              <Label>Aset</Label>
+              <Label>Konsesi GIS <span className="text-gray-400">(penyaring)</span></Label>
+              <div className="mt-1">
+                <SearchableSelect
+                  value={konsesiFilter}
+                  onValueChange={value => { setKonsesiFilter(value); const current = watch('aset_id'); if (value && current && !daftarAset.find(a => a.id === current)?.aset_konsesi?.some(link => link.konsesi_key === value)) setValue('aset_id', '') }}
+                  options={[{ value: '', label: 'Semua konsesi' }, ...konsesiOptions.map(item => ({
+                    value: item.key,
+                    label: konsesiLabel(item),
+                    searchText: `${item.nama} ${item.lokasi} ${item.kabupaten ?? ''} ${item.kecamatan ?? ''}`,
+                    description: [item.kecamatan && `Kec. ${item.kecamatan}`, item.kabupaten].filter(Boolean).join(', ') || undefined,
+                  }))]}
+                  placeholder="Semua konsesi"
+                  searchPlaceholder="Cari sertifikat, kebun, atau kabupaten..."
+                />
+              </div>
+            </div>
+            <div>
+              <Label>Aset dioptimalkan</Label>
               <div className="mt-1">
                 <SearchableSelect
                   value={watch('aset_id') || editTarget?.aset_id || ''}
                   onValueChange={v => setValue('aset_id', v, { shouldValidate: true })}
-                  options={daftarAset.map(a => ({
+                  options={asetOptions.map(a => ({
                     value: a.id,
                     label: `${a.kode_aset} — ${a.nama_aset}`,
                     searchText: `${a.kode_aset} ${a.nama_aset} ${a.alamat ?? ''}`,
@@ -188,6 +217,7 @@ export function KerjaSama() {
                 />
               </div>
               {errors.aset_id && <p className="text-xs text-red-500 mt-1">Pilih aset terlebih dahulu</p>}
+              <p className="text-[11px] text-gray-500 mt-1">Aset belum ada? Tambahkan di <Link className="text-[#1B4F72] underline" to="/master/aset/dioptimalkan">Aset Dioptimalkan</Link> dan tautkan ke konsesi GIS-nya.</p>
             </div>
             <div>
               <Label>Nama Mitra</Label>

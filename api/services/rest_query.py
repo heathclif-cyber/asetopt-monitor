@@ -12,7 +12,7 @@ ALLOWED_TABLES = {
     "kerja_sama", "kerja_sama_aset", "kompensasi", "pembayaran", "pbb", "pbb_objek",
     "cash_in", "surat_peringatan", "log_notifikasi", "rkap_target", "rkap_prognosa",
     "katalog_aset", "katalog_aksesibilitas", "katalog_lingkungan", "katalog_skema", "katalog_foto",
-    "pendapatan_diterima_dimuka", "pengakuan_pendapatan", "document_upload", "aset_gis",
+    "pendapatan_diterima_dimuka", "pengakuan_pendapatan", "document_upload", "aset_gis", "aset_konsesi",
 }
 
 GENERATED_COLS: dict[str, set[str]] = {
@@ -23,6 +23,9 @@ GENERATED_COLS: dict[str, set[str]] = {
 
 # parent_table -> embed_name -> config
 EMBEDS: dict[str, dict[str, dict[str, Any]]] = {
+    "aset": {
+        "aset_konsesi": {"kind": "o2m", "table": "aset_konsesi", "fk": "aset_id"},
+    },
     "kerja_sama": {
         "aset": {"kind": "m2o", "table": "aset", "fk": "aset_id"},
     },

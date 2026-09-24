@@ -16,6 +16,7 @@ import MonitoringKompensasi from './pages/jalurB/MonitoringKompensasi'
 import Piutang from './pages/jalurB/Piutang'
 import LaporanHO from './pages/jalurB/LaporanHO'
 import { DataAset } from './pages/master/DataAset'
+import { MasterAset } from './pages/master/MasterAset'
 import { DataNJOP } from './pages/master/DataNJOP'
 import { PenilaianKJPP } from './pages/master/PenilaianKJPP'
 import { RKAPMonitor } from './pages/RKAPMonitor'
@@ -44,7 +45,8 @@ function App() {
           <Route path="/jalur-b/laporan-ho" element={<LaporanHO />} />
           <Route path="/jalur-b/monitoring-kompensasi" element={<MonitoringKompensasi />} />
           <Route path="/jalur-b/piutang" element={<Piutang />} />
-          <Route path="/master/aset" element={<DataAset />} />
+          <Route path="/master/aset" element={<MasterAset />} />
+          <Route path="/master/aset/dioptimalkan" element={<DataAset />} />
           <Route path="/master/njop" element={<DataNJOP />} />
           <Route path="/master/kjpp" element={<PenilaianKJPP />} />
           <Route path="/gis" element={<GISMap />} />

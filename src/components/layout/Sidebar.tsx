@@ -54,7 +54,8 @@ const navItems: NavItem[] = [
     label: 'Master Data',
     icon: <Database size={15} />,
     children: [
-      { label: 'Data Aset', to: '/master/aset' },
+      { label: 'Master Aset (GIS)', to: '/master/aset' },
+      { label: 'Aset Dioptimalkan', to: '/master/aset/dioptimalkan' },
       { label: 'Data NJOP', to: '/master/njop' },
       { label: 'Penilaian KJPP', to: '/master/kjpp' },
     ],
@@ -126,6 +127,7 @@ function NavGroup({ item, onNavigate }: { item: NavItem; onNavigate?: () => void
             <NavLink
               key={child.to}
               to={child.to!}
+              end
               onClick={onNavigate}
               className={({ isActive }) =>
                 cn(

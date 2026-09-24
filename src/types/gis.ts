@@ -113,3 +113,20 @@ export interface GISFeatureCollection {
   }>
   truncated?: boolean
 }
+
+// One concession land asset (grouped KMZ polygons) as the master aset.
+export interface GISKonsesiReference {
+  key: string
+  record_state: 'draf' | 'terbit'
+  dataset_ids: string[]
+  nama: string
+  lokasi: string
+  jenis_alas_hak: string | null
+  nomor_alas_hak: string | null
+  luas_dokumen_ha: number | null
+  luas_gis_ha: number | null
+  bbox: string
+  provinsi: string | null
+  kabupaten: string | null
+  kecamatan: string | null
+}

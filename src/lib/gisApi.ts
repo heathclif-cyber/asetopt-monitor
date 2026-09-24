@@ -1,5 +1,5 @@
 import { clearSession, getStoredToken } from '@/lib/auth'
-import type { GISAsetReference, GISAdministrasiReference, GISAssetSummary, GISCapabilities, GISDataset, GISDraftFeature, GISFeatureCollection, GISImport, GISKerjaSamaReference, GISKind, GISOverlapWarning } from '@/types/gis'
+import type { GISAsetReference, GISAdministrasiReference, GISAssetSummary, GISCapabilities, GISDataset, GISDraftFeature, GISFeatureCollection, GISImport, GISKerjaSamaReference, GISKind, GISKonsesiReference, GISOverlapWarning } from '@/types/gis'
 
 const API_BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? ''
 
@@ -88,6 +88,7 @@ export const gisApi = {
   kerjaSamaReference: () => request<{ data: GISKerjaSamaReference[] }>('/reference/kerja-sama'),
   asetReference: () => request<{ data: GISAsetReference[] }>('/reference/aset'),
   assetSummaries: () => request<{ data: GISAssetSummary[]; availability_note: string }>('/assets/summary'),
+  konsesiReference: () => request<{ data: GISKonsesiReference[] }>('/konsesi/reference'),
   konsesiSummaries: (region?: { level: GISAdministrasiReference['level']; code: string }) => request<{ data: GISAssetSummary[]; availability_note: string }>(`/konsesi/summary/grouped${region ? `?${new URLSearchParams({ admin_level: region.level, admin_region_code: region.code })}` : ''}`),
   administrasiReference: (level?: GISAdministrasiReference['level']) => request<{ data: GISAdministrasiReference[] }>(`/reference/administrasi${level ? `?level=${level}` : ''}`),
   hutanFunctions: () => request<{ data: string[] }>('/reference/hutan-functions'),

@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useAsetStore } from '@/store/asetStore'
-import { Aset, AsetStatus } from '@/types'
+import { Aset, AsetKonsesi, AsetStatus } from '@/types'
 import { supabase } from '@/lib/supabase'
 import { useRKAPStore } from '@/store/rkapStore'
+import { useKonsesiStore } from '@/store/konsesiStore'
+import { KonsesiPicker } from '@/components/aset/KonsesiPicker'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -34,7 +36,10 @@ const asetSchema = z.object({
 type AsetForm = z.infer<typeof asetSchema>
 
 export function DataAset() {
-  const { daftarAset, isLoading, fetchAset, addAset, updateAset, deleteAset } = useAsetStore()
+  const { daftarAset, isLoading, fetchAset, addAset, updateAset, deleteAset, saveKonsesiLinks } = useAsetStore()
+  const { daftarKonsesi, isLoading: konsesiLoading, fetchKonsesi } = useKonsesiStore()
+  const [konsesiLinks, setKonsesiLinks] = useState<Pick<AsetKonsesi, 'konsesi_key' | 'konsesi_nama'>[]>([])
+  const [konsesiError, setKonsesiError] = useState('')
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState<string>('semua')
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -71,11 +76,13 @@ export function DataAset() {
     resolver: zodResolver(asetSchema),
   })
 
-  useEffect(() => { fetchAset() }, [])
+  useEffect(() => { fetchAset(); void fetchKonsesi() }, [])
 
   const filtered = daftarAset.filter(a => {
-    const matchSearch = a.nama_aset.toLowerCase().includes(search.toLowerCase()) ||
-      a.kode_aset.toLowerCase().includes(search.toLowerCase())
+    const needle = search.toLowerCase()
+    const matchSearch = a.nama_aset.toLowerCase().includes(needle) ||
+      a.kode_aset.toLowerCase().includes(needle) ||
+      (a.aset_konsesi ?? []).some(link => link.konsesi_nama.toLowerCase().includes(needle))
     const matchStatus = filterStatus === 'semua' || a.status === filterStatus
     return matchSearch && matchStatus
   })
@@ -85,6 +92,7 @@ export function DataAset() {
   const openAdd = () => {
     setEditTarget(null)
     reset({ kode_aset: `AST-${String(daftarAset.length + 1).padStart(3, '0')}` })
+    setKonsesiLinks([]); setKonsesiError('')
     setDialogOpen(true)
   }
 
@@ -99,14 +107,21 @@ export function DataAset() {
       keterangan: a.keterangan ?? '',
       sertifikat: (a as any).sertifikat ?? '',
     })
+    setKonsesiLinks((a.aset_konsesi ?? []).map(({ konsesi_key, konsesi_nama }) => ({ konsesi_key, konsesi_nama })))
+    setKonsesiError('')
     setDialogOpen(true)
   }
 
   const onSubmit = async (data: AsetForm) => {
+    // New optimised assets must sit on a GIS concession; older rows may still
+    // be saved while their links are being reviewed.
+    if (!editTarget && konsesiLinks.length === 0) { setKonsesiError('Pilih minimal satu konsesi GIS tempat aset ini berada.'); return }
     if (editTarget) {
       await updateAset(editTarget.id, data as Partial<Aset>)
+      await saveKonsesiLinks(editTarget.id, konsesiLinks)
+      await fetchAset()
     } else {
-      await addAset({ ...data, status: 'pipeline' } as Omit<Aset, 'id' | 'created_at' | 'updated_at'>)
+      await addAset({ ...data, status: 'pipeline', aset_konsesi: konsesiLinks } as unknown as Omit<Aset, 'id' | 'created_at' | 'updated_at'>)
     }
     setDialogOpen(false)
   }
@@ -115,8 +130,8 @@ export function DataAset() {
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Data Aset</h1>
-          <p className="text-sm text-gray-500">{daftarAset.length} aset terdaftar</p>
+          <h1 className="text-2xl font-bold text-gray-900">Aset Dioptimalkan</h1>
+          <p className="text-sm text-gray-500">{daftarAset.length} objek optimalisasi · {daftarAset.filter(a => !a.aset_konsesi?.length).length} belum ditautkan ke konsesi GIS</p>
         </div>
         <div className="flex gap-2">
           {canEdit && !isAsetAdmin && <Button variant="outline" onClick={importRKAPAset} disabled={importing}>
@@ -159,7 +174,7 @@ export function DataAset() {
               <tr className="border-b bg-gray-50 text-gray-600 text-xs uppercase">
                 <th className="text-left px-4 py-3">Kode</th>
                 <th className="text-left px-4 py-3">Nama Aset</th>
-                <th className="text-left px-4 py-3 hidden md:table-cell">Alamat</th>
+                <th className="text-left px-4 py-3 hidden md:table-cell">Konsesi (GIS)</th>
                 <th className="text-right px-4 py-3 hidden lg:table-cell">Luas Tanah (m²)</th>
                 <th className="text-right px-4 py-3 hidden lg:table-cell">Luas Bgn (m²)</th>
                 <th className="text-center px-4 py-3">Status</th>
@@ -171,7 +186,9 @@ export function DataAset() {
                 <tr key={a.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-4 py-3 font-mono text-xs text-gray-600">{a.kode_aset}</td>
                   <td className="px-4 py-3 font-medium text-gray-900">{a.nama_aset}</td>
-                  <td className="px-4 py-3 text-gray-500 hidden md:table-cell max-w-[200px] truncate">{a.alamat ?? '-'}</td>
+                  <td className="px-4 py-3 hidden md:table-cell max-w-[260px]">{a.aset_konsesi?.length
+                    ? <span className="block truncate text-gray-700" title={a.aset_konsesi.map(link => link.konsesi_nama).join('\n')}>{a.aset_konsesi[0].konsesi_nama}{a.aset_konsesi.length > 1 && <span className="text-gray-400"> +{a.aset_konsesi.length - 1}</span>}</span>
+                    : <span className="rounded bg-amber-50 px-1.5 py-0.5 text-xs text-amber-700">Belum ditautkan</span>}</td>
                   <td className="px-4 py-3 text-right hidden lg:table-cell">{a.luas_tanah_m2 ? formatAngka(a.luas_tanah_m2) : '-'}</td>
                   <td className="px-4 py-3 text-right hidden lg:table-cell">{a.luas_bangunan_m2 ? formatAngka(a.luas_bangunan_m2) : '-'}</td>
                   <td className="px-4 py-3 text-center"><StatusBadge type="aset" value={a.status} /></td>
@@ -208,7 +225,7 @@ export function DataAset() {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{editTarget ? 'Edit Aset' : 'Tambah Aset Baru'}</DialogTitle>
+            <DialogTitle>{editTarget ? 'Edit Aset Dioptimalkan' : 'Tambah Aset Dioptimalkan'}</DialogTitle>
             <DialogDescription>
               Isi dua informasi utama terlebih dahulu. Detail lain dapat dilengkapi kapan saja.
             </DialogDescription>
@@ -229,6 +246,12 @@ export function DataAset() {
                 <Label>Nama aset <span className="text-red-500">*</span></Label>
                 <Input {...register('nama_aset')} className="mt-1" placeholder="Contoh: Lahan Eks Pabrik Kapas" autoFocus />
                 {errors.nama_aset && <p className="text-xs text-red-500 mt-1">{errors.nama_aset.message}</p>}
+              </div>
+              <div>
+                <Label>Konsesi GIS (master aset) {!editTarget && <span className="text-red-500">*</span>}</Label>
+                <p className="mb-1.5 text-[11px] text-gray-500">Sertifikat/bidang di peta GIS tempat objek ini berada. Boleh lebih dari satu.</p>
+                <KonsesiPicker konsesi={daftarKonsesi} value={konsesiLinks} onChange={links => { setKonsesiLinks(links); setKonsesiError('') }} loading={konsesiLoading} />
+                {konsesiError && <p className="text-xs text-red-500 mt-1">{konsesiError}</p>}
               </div>
               <div className="rounded-md border border-blue-100 bg-white px-3 py-2 text-xs text-gray-600">
                 Status aset akan diperbarui otomatis sesuai proses prospek dan kerja sama.

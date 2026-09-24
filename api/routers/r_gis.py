@@ -34,6 +34,25 @@ from services.gis.storage import GISStorageError, save_original, source_path
 
 router = APIRouter(prefix="/api/gis", tags=["GIS"])
 
+# Stable identity of one concession land asset: multipart KMZ polygons share
+# Kebun + FID_Areal, and the value survives new GIS versions. aset_konsesi
+# stores it to link optimised assets to the master concession.
+KONSESI_KEY_SQL = "md5(concat_ws('|', coalesce(fv.original_properties->>'Kebun', fv.original_properties->>'kebun', ''), coalesce(fv.original_properties->>'FID_Areal', fv.original_properties->>'fid_areal', fv.original_properties->>'Nama_Serti', fv.name)))"
+
+# Active version per concession layer; an unpublished layer falls back to its
+# latest reviewable draft so the master list is usable before publication.
+KONSESI_VERSION_CTE = """
+  konsesi_version AS (
+    SELECT d.id AS dataset_id,
+      coalesce(d.active_version_id, (
+        SELECT i.candidate_version_id FROM gis_imports i
+        WHERE i.dataset_id=d.id AND i.state IN ('mapping_required', 'ready')
+        ORDER BY i.created_at DESC LIMIT 1
+      )) AS version_id,
+      CASE WHEN d.active_version_id IS NULL THEN 'draf' ELSE 'terbit' END AS record_state
+    FROM gis_datasets d WHERE d.kind='konsesi' AND d.archived_at IS NULL
+  )"""
+
 
 def _error(exc: Exception) -> HTTPException:
     return HTTPException(status_code=422, detail=str(exc))
@@ -454,7 +473,12 @@ def asset_bounds(
 ):
     """Locate an asset through linked concession polygons or OPSET areas of its kerja sama."""
     row = db.execute(text("""
-      WITH located AS (
+      WITH """ + KONSESI_VERSION_CTE + """, located AS (
+        SELECT fv.geom, cv.dataset_id
+        FROM konsesi_version cv
+        JOIN gis_feature_versions fv ON fv.dataset_version_id=cv.version_id
+        WHERE """ + KONSESI_KEY_SQL + """ IN (SELECT konsesi_key FROM aset_konsesi WHERE aset_id=CAST(:aset_id AS uuid))
+        UNION ALL
         SELECT fv.geom, d.id AS dataset_id
         FROM gis_konsesi_aset ka
         JOIN gis_feature_versions fv ON fv.id=ka.konsesi_feature_version_id
@@ -762,6 +786,67 @@ def list_konsesi_summaries(
     return {"data": result, "availability_note": "Satu baris adalah satu polygon konsesi yang diterbitkan. Sisa dapat dimanfaatkan adalah estimasi spasial: konsesi dikurangi gabungan unik tanaman, kawasan hutan, okupasi, dan area kerja sama. Konfirmasi legal tetap diperlukan."}
 
 
+@router.get("/konsesi/reference")
+def list_konsesi_reference(
+    db: Session = Depends(get_db),
+    _user: dict[str, Any] = Depends(require_app_read),
+):
+    """Light list of concession land assets for pickers and the master aset page.
+
+    Unlike the grouped summary it skips land-use overlays, so it stays fast
+    enough to load on every form that selects an asset.
+    """
+    rows = db.execute(text("""
+      WITH """ + KONSESI_VERSION_CTE + """, konsesi_group AS (
+        SELECT """ + KONSESI_KEY_SQL + """ AS key,
+          min(cv.record_state) AS record_state,
+          array_agg(DISTINCT cv.dataset_id::text) AS dataset_ids,
+          coalesce(max(nullif(fv.original_properties->>'Nama_Serti', '')), regexp_replace(min(fv.name), '\\s+\\(bagian \\d+\\)$', '')) AS nama,
+          coalesce(max(nullif(fv.extra_attributes->>'lokasi', '')), max(nullif(fv.original_properties->>'Kebun', '')), max(nullif(fv.original_properties->>'kebun', '')), '') AS lokasi,
+          max(nullif(kd.jenis_alas_hak, '')) AS jenis_alas_hak,
+          max(nullif(kd.nomor_alas_hak, '')) AS nomor_alas_hak,
+          max(kd.declared_area_m2) AS luas_dokumen_m2,
+          ST_UnaryUnion(ST_Collect(fv.geom)) AS geom
+        FROM konsesi_version cv
+        JOIN gis_feature_versions fv ON fv.dataset_version_id=cv.version_id
+        LEFT JOIN gis_konsesi_details kd ON kd.feature_version_id=fv.id
+        GROUP BY 1
+      ), admin_region AS (
+        SELECT ad.level, ad.region_code, ad.region_name, ad.parent_code, fv.geom
+        FROM gis_administrasi_details ad
+        JOIN gis_feature_versions fv ON fv.id=ad.feature_version_id
+        JOIN gis_datasets d ON d.active_version_id=fv.dataset_version_id AND d.archived_at IS NULL
+      )
+      -- Only kecamatan outlines are tested spatially; province outlines are far
+      -- too detailed, and kabupaten/provinsi follow from the parent codes.
+      SELECT g.key, g.record_state, g.dataset_ids, g.nama, g.lokasi, g.jenis_alas_hak, g.nomor_alas_hak,
+        round((g.luas_dokumen_m2 / 10000)::numeric, 4) AS luas_dokumen_ha,
+        round((ST_Area(g.geom::geography) / 10000)::numeric, 4) AS luas_gis_ha,
+        concat_ws(',', ST_XMin(Box2D(g.geom)::box3d), ST_YMin(Box2D(g.geom)::box3d), ST_XMax(Box2D(g.geom)::box3d), ST_YMax(Box2D(g.geom)::box3d)) AS bbox,
+        prov.region_name AS provinsi, kab.region_name AS kabupaten, kec.region_name AS kecamatan
+      FROM konsesi_group g
+      LEFT JOIN LATERAL (
+        SELECT r.region_name, r.parent_code FROM admin_region r
+        WHERE r.level='kecamatan' AND ST_Intersects(r.geom, ST_PointOnSurface(g.geom)) LIMIT 1
+      ) kec ON true
+      LEFT JOIN LATERAL (
+        SELECT r.region_name, r.parent_code FROM admin_region r
+        WHERE r.level='kabupaten_kota' AND (r.region_code=kec.parent_code
+          OR (kec.parent_code IS NULL AND ST_Intersects(r.geom, ST_PointOnSurface(g.geom))))
+        LIMIT 1
+      ) kab ON true
+      LEFT JOIN LATERAL (SELECT r.region_name FROM admin_region r WHERE r.level='provinsi' AND r.region_code=kab.parent_code LIMIT 1) prov ON true
+      ORDER BY g.lokasi, g.nama
+    """)).mappings().all()
+    data = []
+    for row in rows:
+        item = dict(row)
+        for field in ("luas_dokumen_ha", "luas_gis_ha"):
+            item[field] = float(item[field]) if item[field] is not None else None
+        data.append(item)
+    return {"data": data}
+
+
 @router.get("/konsesi/summary/grouped")
 def list_grouped_konsesi_summaries(
     admin_level: str | None = Query(default=None, pattern="^(provinsi|kabupaten_kota|kecamatan|desa_kelurahan)$"),
@@ -810,7 +895,7 @@ def list_grouped_konsesi_summaries(
         SELECT ST_UnaryUnion(ST_Collect(geom)) AS geom
         FROM category_geom WHERE kind IN ('tanaman', 'hutan', 'opset', 'okupasi')
       ), konsesi_group AS (
-        SELECT md5(concat_ws('|', coalesce(fv.original_properties->>'Kebun', fv.original_properties->>'kebun', ''), coalesce(fv.original_properties->>'FID_Areal', fv.original_properties->>'fid_areal', fv.original_properties->>'Nama_Serti', fv.name))) AS id,
+        SELECT """ + KONSESI_KEY_SQL + """ AS id,
           cv.record_state, d.id AS dataset_id,
           coalesce(max(nullif(kd.nomor_alas_hak, '')), max(nullif(fv.original_properties->>'Nama_Serti', '')), min(fv.name)) AS kode_aset,
           coalesce(max(nullif(fv.original_properties->>'Nama_Serti', '')), regexp_replace(min(fv.name), '\\s+\\(bagian \\d+\\)$', '')) AS nama_aset,

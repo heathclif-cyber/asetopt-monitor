@@ -86,6 +86,7 @@ export default function GISMap() {
   const [assetFocusBbox, setAssetFocusBbox] = useState<string | null>(null)
   const [searchParams] = useSearchParams()
   const focusAsetId = searchParams.get('aset')
+  const focusBboxParam = searchParams.get('bbox')
   const [manageDatasets, setManageDatasets] = useState<GISDataset[]>([])
   const [manageShowArchived, setManageShowArchived] = useState(true)
   const [renameTarget, setRenameTarget] = useState<GISDataset | null>(null)
@@ -168,6 +169,12 @@ export default function GISMap() {
     }).catch(error => { if (!cancelled) setMessage(error instanceof Error ? error.message : 'Gagal mencari lokasi aset.') })
     return () => { cancelled = true }
   }, [focusAsetId])
+  useEffect(() => {
+    if (!focusBboxParam) return
+    setWorkspace('peta')
+    setZoomTarget(null)
+    setAssetFocusBbox(focusBboxParam)
+  }, [focusBboxParam])
   useEffect(() => { if (workspace === 'kelola') void loadManageDatasets() }, [workspace, loadManageDatasets])
   useEffect(() => { if (!selectedDataset) return; let cancelled = false; setActiveImport(null); setDraftFeatures([]); setSelectedFeatureId(''); setFeatureSearch(''); if (!canWrite) return; void gisApi.latestImport(selectedDataset.id).then(async result => { if (cancelled || !result.import) return; if (['mapping_required', 'ready'].includes(result.import.state)) await loadDraft(result.import.id); else if (result.import.state === 'failed') setMessage(`Impor terakhir gagal: ${result.import.validation_report.error ?? 'Berkas tidak dapat diproses.'}`); else if (['uploaded', 'processing'].includes(result.import.state)) setMessage('Impor terakhir masih diproses. Halaman ini dapat ditinjau saat selesai.') }).catch(error => { if (!cancelled) setMessage(error instanceof Error ? error.message : 'Gagal memuat status impor.') }); return () => { cancelled = true } }, [selectedDataset?.id, canWrite, loadDraft])
   useEffect(() => { let cancelled = false; const activeDatasets = datasets.filter(item => enabled.includes(item.id) && (item.id !== selectedDataset?.id || !canWrite)); void Promise.all(activeDatasets.map(async dataset => { try { const latest = await gisApi.latestImport(dataset.id); if (!latest.import || !['mapping_required', 'ready'].includes(latest.import.state)) return null; const result = await gisApi.importFeatures(latest.import.id); return { dataset, features: result.data } } catch { return null } })).then(items => { if (!cancelled) setActiveDraftLayers(items.filter((item): item is { dataset: GISDataset; features: GISDraftFeature[] } => item !== null)) }); return () => { cancelled = true } }, [datasets, enabled, selectedDataset?.id, activeImport?.id, canWrite])

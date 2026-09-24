@@ -19,6 +19,17 @@ export interface Aset {
   sertifikat: string | null
   created_at: string
   updated_at: string
+  aset_konsesi?: AsetKonsesi[]
+}
+
+// Link from an optimised asset to the GIS concession (master aset) it sits on.
+export interface AsetKonsesi {
+  id: string
+  aset_id: string
+  konsesi_key: string
+  konsesi_nama: string
+  catatan: string | null
+  created_at: string
 }
 
 export type GeoJsonGeometry = {

@@ -13,6 +13,15 @@ interface KerjaSamaStore {
   setSelected: (ks: KerjaSama | null) => void
 }
 
+// kerja_sama_aset is the single list of assets per agreement (luas per aset
+// lives there); the primary kerja_sama.aset_id must always appear in it.
+async function linkAset(ksId: string, asetId: string) {
+  const { error } = await supabase
+    .from('kerja_sama_aset')
+    .upsert({ ks_id: ksId, aset_id: asetId }, { onConflict: 'ks_id,aset_id', ignoreDuplicates: true })
+  if (error) console.error('[linkAset]', error)
+}
+
 export const useKerjaSamaStore = create<KerjaSamaStore>((set, get) => ({
   daftarKS: [],
   ksSelected: null,
@@ -35,13 +44,19 @@ export const useKerjaSamaStore = create<KerjaSamaStore>((set, get) => ({
       .insert(data)
       .select()
       .single()
+    if (inserted?.id && data.aset_id) await linkAset(inserted.id, data.aset_id)
     await get().fetchKS()
     return inserted?.id ?? null
   },
 
   updateKS: async (id, data) => {
     const { id: _id, created_at, aset, kerja_sama_aset, ...updateData } = data as any
+    const previousAsetId = get().daftarKS.find(ks => ks.id === id)?.aset_id
     await supabase.from('kerja_sama').update(updateData).eq('id', id)
+    if (updateData.aset_id && updateData.aset_id !== previousAsetId) {
+      if (previousAsetId) await supabase.from('kerja_sama_aset').delete().eq('ks_id', id).eq('aset_id', previousAsetId)
+      await linkAset(id, updateData.aset_id)
+    }
     await get().fetchKS()
   },
 
