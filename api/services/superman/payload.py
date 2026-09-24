@@ -14,7 +14,6 @@ from services.superman.komoditi_map import (
     GL_PPH,
     GL_PPN,
     KPP_RECIPIENT_NAME,
-    PROFIT_CENTER_PPN_SEARCH,
     PROFIT_CENTER_SEARCH,
     SAP_CUSTOMER,
     resolve_gl_pendapatan_aset,
@@ -156,22 +155,22 @@ def build_payload_from_kompensasi(kompensasi_id: str) -> DeklarasiPayload:
         jenis_form = "sppb_sppn" if pph > 0 else "sppn"
         gl_pendapatan = resolve_gl_pendapatan_aset()
 
-        aset_nama = ks.aset.nama_aset if ks.aset else "Aset"
+        aset_nama = (ks.aset.nama_aset or "").strip() if ks.aset else "Aset"
         periode = (kompensasi.periode_label or "").strip()
         mitra = (ks.nama_mitra or "").strip()
         no_kontrak = (ks.no_perjanjian or ks.no_kontrak_sap or "").strip()
         no_invoice = (kompensasi.no_invoice or str(kompensasi.id)).strip()
 
-        uraian_pokok = f"Penerimaan kompensasi sewa {aset_nama}"
+        uraian_pokok = f"Penerimaan Sewa {aset_nama}"
         if periode:
             uraian_pokok += f" periode {periode}"
         if mitra:
-            uraian_pokok += f" oleh {mitra}"
+            uraian_pokok += f" ({mitra})"
 
-        uraian_ppn = f"PPN atas kompensasi sewa {aset_nama}"
+        uraian_ppn = f"PPN atas Penerimaan Sewa {aset_nama}"
         if periode:
             uraian_ppn += f" {periode}"
-        uraian_pph = f"PPh atas kompensasi sewa {aset_nama}"
+        uraian_pph = f"PPh Final atas Penerimaan Sewa {aset_nama}"
         if no_kontrak:
             uraian_pph += f" kontrak {no_kontrak}"
 
@@ -202,7 +201,7 @@ def build_payload_from_kompensasi(kompensasi_id: str) -> DeklarasiPayload:
                 LineItem(
                     gl_code=GL_PPN,
                     sap_customer=SAP_CUSTOMER,
-                    profit_center_search=PROFIT_CENTER_PPN_SEARCH,
+                    profit_center_search=PROFIT_CENTER_SEARCH,
                     cash_flow=CF_PPN_ID,
                     uraian=uraian_ppn,
                     nominal=ppn,
@@ -216,7 +215,7 @@ def build_payload_from_kompensasi(kompensasi_id: str) -> DeklarasiPayload:
             raw_date = kompensasi.invoice_tgl.isoformat()
 
         no_pembayaran = (latest_pay.no_pembayaran if latest_pay else "") or ""
-        ba_au58 = no_pembayaran or no_invoice
+        ba_au58 = no_kontrak or "-"
 
         return DeklarasiPayload(
             kompensasi_id=str(kompensasi.id),
@@ -289,18 +288,18 @@ def build_sppn_payload(kompensasi_id: str) -> DeklarasiPayload:
         dpp = int(round(float(kompensasi.nominal or 0)))
         ppn = int(round(float(kompensasi.nominal_ppn or 0)))
 
-        aset_nama = ks.aset.nama_aset if ks.aset else "Aset"
+        aset_nama = (ks.aset.nama_aset or "").strip() if ks.aset else "Aset"
         periode = (kompensasi.periode_label or "").strip()
         mitra = (ks.nama_mitra or "").strip()
         no_kontrak = (ks.no_perjanjian or ks.no_kontrak_sap or "").strip()
         no_invoice = (kompensasi.no_invoice or str(kompensasi.id)).strip()
 
-        uraian_pokok = f"Penerimaan kompensasi sewa {aset_nama}"
+        uraian_pokok = f"Penerimaan Sewa {aset_nama}"
         if periode:
             uraian_pokok += f" periode {periode}"
         if mitra:
-            uraian_pokok += f" oleh {mitra}"
-        uraian_ppn = f"PPN atas kompensasi sewa {aset_nama}"
+            uraian_pokok += f" ({mitra})"
+        uraian_ppn = f"PPN atas Penerimaan Sewa {aset_nama}"
         if periode:
             uraian_ppn += f" {periode}"
 
@@ -321,7 +320,7 @@ def build_sppn_payload(kompensasi_id: str) -> DeklarasiPayload:
                 LineItem(
                     gl_code=GL_PPN,
                     sap_customer=SAP_CUSTOMER,
-                    profit_center_search=PROFIT_CENTER_PPN_SEARCH,
+                    profit_center_search=PROFIT_CENTER_SEARCH,
                     cash_flow=CF_PPN_ID,
                     uraian=uraian_ppn,
                     nominal=ppn,
@@ -335,7 +334,7 @@ def build_sppn_payload(kompensasi_id: str) -> DeklarasiPayload:
             raw_date = kompensasi.invoice_tgl.isoformat()
 
         no_pembayaran = (latest_pay.no_pembayaran if latest_pay else "") or ""
-        ba_au58 = no_pembayaran or no_invoice
+        ba_au58 = no_kontrak or "-"
 
         return DeklarasiPayload(
             kompensasi_id=str(kompensasi.id),
@@ -393,13 +392,13 @@ def build_sppb_pph_payload(kompensasi_id: str) -> DeklarasiPayload:
             raise ValueError("Nominal PPh nol — tidak ada yang perlu dideklarasikan.")
         pph_persen = float(kompensasi.pph_persen or 0)
 
-        aset_nama = ks.aset.nama_aset if ks.aset else "Aset"
+        aset_nama = (ks.aset.nama_aset or "").strip() if ks.aset else "Aset"
         periode = (kompensasi.periode_label or "").strip()
         mitra = (ks.nama_mitra or "").strip()
         no_kontrak = (ks.no_perjanjian or ks.no_kontrak_sap or "").strip()
         no_invoice = (kompensasi.no_invoice or str(kompensasi.id)).strip()
 
-        uraian_pph = f"PPh atas kompensasi sewa {aset_nama}"
+        uraian_pph = f"PPh Final atas Penerimaan Sewa {aset_nama}"
         if no_kontrak:
             uraian_pph += f" kontrak {no_kontrak}"
 
@@ -412,7 +411,7 @@ def build_sppb_pph_payload(kompensasi_id: str) -> DeklarasiPayload:
             raw_date = kompensasi.invoice_tgl.isoformat()
 
         no_pembayaran = (latest_pph_pay.no_pembayaran if latest_pph_pay else "") or ""
-        ba_au58 = no_pembayaran or no_invoice
+        ba_au58 = no_kontrak or "-"
 
         sppb_item = SppbLineItem(
             gl_code=GL_PPH,

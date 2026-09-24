@@ -54,6 +54,7 @@ export function InputPembayaran() {
   const [docRefresh, setDocRefresh] = useState(0)
   const [docsReady, setDocsReady] = useState(false)
   const [captchaOpen, setCaptchaOpen] = useState(false)
+  const [afterCaptcha, setAfterCaptcha] = useState<'start' | 'recover'>('start')
   const [progressOpen, setProgressOpen] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
   const [kuitansiTarget, setKuitansiTarget] = useState<Pembayaran | null>(null)
@@ -316,7 +317,19 @@ export function InputPembayaran() {
     return m.includes('session superman') || m.includes('isi captcha login')
   }
 
+  // Session kedaluwarsa tidak boleh mengunci tombol: captcha adalah jalan untuk login ulang.
+  const needsCaptchaFirst = async () => {
+    const status = await api.get<SupermanStatus>('/api/superman/status').catch(() => null)
+    if (status) setSupermanStatus(status)
+    return !!(status && !status.session_valid && !status.agent_online && !status.needs_local_agent)
+  }
+
   const startSuperman = async (kompensasiId: string) => {
+    if (await needsCaptchaFirst()) {
+      setAfterCaptcha('start')
+      setCaptchaOpen(true)
+      return
+    }
     try {
       const res = await api.post<{ job_id: string; executor?: string; message?: string }>(
         `/api/superman/deklarasi/start?kompensasi_id=${kompensasiId}`,
@@ -326,6 +339,7 @@ export function InputPembayaran() {
     } catch (e: any) {
       const msg = String(e.message ?? '')
       if (isCaptchaSessionError(msg)) {
+        setAfterCaptcha('start')
         setCaptchaOpen(true)
       } else {
         alert(msg || 'Gagal memulai Superman')
@@ -334,6 +348,11 @@ export function InputPembayaran() {
   }
 
   const recoverSuperman = async (kompensasiId: string) => {
+    if (await needsCaptchaFirst()) {
+      setAfterCaptcha('recover')
+      setCaptchaOpen(true)
+      return
+    }
     try {
       const res = await api.post<{
         ok?: boolean
@@ -349,6 +368,7 @@ export function InputPembayaran() {
     } catch (e: any) {
       const msg = String(e.message ?? '')
       if (isCaptchaSessionError(msg)) {
+        setAfterCaptcha('recover')
         setCaptchaOpen(true)
       } else {
         alert(msg || 'Gagal pulihkan nomor Superman')
@@ -517,7 +537,14 @@ export function InputPembayaran() {
   )
   /** Agent PC online (jaringan Superman lewat PC) */
   const agentReady = !!(supermanStatus?.configured && supermanStatus.agent_online)
-  const supermanReady = !!(serverReady || agentReady || supermanStatus?.can_start_deklarasi)
+  /** Server bisa jalan setelah login captcha */
+  const serverCanLogin = !!(
+    supermanStatus?.configured
+    && supermanStatus.playwright_ready
+    && supermanStatus.superman_reachable !== false
+    && !supermanStatus.needs_local_agent
+  )
+  const supermanReady = !!(serverReady || serverCanLogin || agentReady || supermanStatus?.can_start_deklarasi)
   const canAutoSuperman = !!(
     selected
     && !selected.superman
@@ -850,7 +877,7 @@ export function InputPembayaran() {
                       <p>Playwright belum siap: {supermanStatus.playwright_error ?? 'periksa deploy API'}</p>
                     )}
                     {supermanStatus.configured && !supermanStatus.needs_local_agent && supermanStatus.playwright_ready && !supermanStatus.session_valid && (
-                      <p>Session kedaluwarsa — verifikasi captcha saat diminta.</p>
+                      <p>Session kedaluwarsa — klik Kirim ke Superman, lalu isi captcha login.</p>
                     )}
                     {serverReady && !supermanStatus.needs_local_agent && <p>Session Superman valid (server).</p>}
                     {agentReady && (
@@ -1095,7 +1122,11 @@ export function InputPembayaran() {
       <SupermanCaptchaDialog
         open={captchaOpen}
         onClose={() => setCaptchaOpen(false)}
-        onVerified={() => selected && startSuperman(selected.id)}
+        onVerified={() => {
+          if (!selected) return
+          if (afterCaptcha === 'recover') recoverSuperman(selected.id)
+          else startSuperman(selected.id)
+        }}
       />
       <SupermanProgressDialog
         open={progressOpen}
