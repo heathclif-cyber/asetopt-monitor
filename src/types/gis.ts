@@ -115,6 +115,13 @@ export interface GISFeatureCollection {
   truncated?: boolean
 }
 
+// Published OPSET area of one optimised asset inside one concession.
+export interface GISOpsetLuasKonsesi {
+  aset_id: string
+  konsesi_key: string
+  luas_m2: number
+}
+
 // One concession land asset (grouped KMZ polygons) as the master aset.
 export interface GISKonsesiReference {
   key: string

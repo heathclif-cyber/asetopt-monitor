@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom'
 import { useAsetStore } from '@/store/asetStore'
 import { useNJOPStore } from '@/store/njopStore'
 import { useKJPPStore } from '@/store/kjppStore'
+import { useKonsesiStore } from '@/store/konsesiStore'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -21,13 +22,14 @@ export function PotensiPendapatan() {
   const { daftarAset, isLoading, fetchAset } = useAsetStore()
   const { dataNJOP, fetchAllNJOP } = useNJOPStore()
   const { dataPenilaian, fetchAllKJPP } = useKJPPStore()
+  const { luasOpset, fetchLuasOpset, getLuasOpset } = useKonsesiStore()
   const [search, setSearch] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('potensiNJOP')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const location = useLocation()
 
-  useEffect(() => { fetchAset(); fetchAllNJOP(); fetchAllKJPP() }, [])
+  useEffect(() => { fetchAset(); fetchAllNJOP(); fetchAllKJPP(); void fetchLuasOpset() }, [])
   useEffect(() => { fetchAllNJOP(); fetchAllKJPP() }, [location.key])
 
   const rows = useMemo(() => {
@@ -39,12 +41,16 @@ export function PotensiPendapatan() {
         const njopTerbaru = njopList[0] ?? null
         const kjppList = dataPenilaian[a.id] ?? []
         const kjppTerbaru = kjppList[0] ?? null
+        // The KS area drawn on the map wins over the manually typed asset area.
+        const luasPeta = getLuasOpset(a.id)
+        const luasTanah = luasPeta ?? a.luas_tanah_m2 ?? 0
+        const sumberLuas = luasPeta !== null ? 'peta' : a.luas_tanah_m2 ? 'manual' : null
 
         let potensiTanah = 0, potensiBangunan = 0, totalPotensiNJOP = 0
         if (njopTerbaru) {
           const r = hitungPotensiNJOP({
             njopTanahPerM2: njopTerbaru.nilai_tanah_per_m2,
-            luasTanahM2: a.luas_tanah_m2 ?? 0,
+            luasTanahM2: luasTanah,
             njopBangunanPerM2: njopTerbaru.nilai_bangunan_per_m2,
             luasBangunanM2: a.luas_bangunan_m2 ?? 0,
           })
@@ -65,17 +71,17 @@ export function PotensiPendapatan() {
 
         const selisih = kjppTerbaru ? kjppTerbaru.total_nilai - totalPotensiNJOP : null
 
-        return { a, njopTerbaru, kjppTerbaru, potensiTanah, potensiBangunan, totalPotensiNJOP, kjppStatus, kjppVariant, selisih }
+        return { a, njopTerbaru, kjppTerbaru, potensiTanah, potensiBangunan, totalPotensiNJOP, kjppStatus, kjppVariant, selisih, luasTanah, sumberLuas }
       })
       .sort((x, y) => {
         const dir = sortDir === 'asc' ? 1 : -1
         if (sortKey === 'nama') return dir * x.a.nama_aset.localeCompare(y.a.nama_aset)
         if (sortKey === 'potensiNJOP') return dir * (x.totalPotensiNJOP - y.totalPotensiNJOP)
         if (sortKey === 'kjpp') return dir * ((x.kjppTerbaru?.total_nilai ?? 0) - (y.kjppTerbaru?.total_nilai ?? 0))
-        if (sortKey === 'luas') return dir * ((x.a.luas_tanah_m2 ?? 0) - (y.a.luas_tanah_m2 ?? 0))
+        if (sortKey === 'luas') return dir * (x.luasTanah - y.luasTanah)
         return 0
       })
-  }, [daftarAset, dataNJOP, dataPenilaian, search, sortKey, sortDir])
+  }, [daftarAset, dataNJOP, dataPenilaian, luasOpset, search, sortKey, sortDir])
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -133,7 +139,7 @@ export function PotensiPendapatan() {
               </tr>
             </thead>
             <tbody className="divide-y">
-              {rows.map(({ a, njopTerbaru, kjppTerbaru, potensiTanah, potensiBangunan, totalPotensiNJOP, kjppStatus, kjppVariant, selisih }) => (
+              {rows.map(({ a, njopTerbaru, kjppTerbaru, potensiTanah, potensiBangunan, totalPotensiNJOP, kjppStatus, kjppVariant, selisih, luasTanah, sumberLuas }) => (
                 <>
                   <tr key={a.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => setExpandedId(expandedId === a.id ? null : a.id)}>
                     <td className="px-4 py-3 text-gray-400">
@@ -144,11 +150,11 @@ export function PotensiPendapatan() {
                       <div className="text-xs text-gray-500">{a.kode_aset}</div>
                     </td>
                     <td className="px-4 py-3 text-right hidden lg:table-cell text-gray-600">
-                      {a.luas_tanah_m2 ? `${formatAngka(a.luas_tanah_m2)} m²` : '-'}
+                      {luasTanah ? <>{formatAngka(luasTanah)} m²<div className="text-[10px] text-gray-400">{sumberLuas === 'peta' ? 'dari peta OPSET' : 'input manual'}</div></> : '-'}
                     </td>
                     <td className="px-4 py-3 text-right">
                       {njopTerbaru
-                        ? (a.luas_tanah_m2
+                        ? (luasTanah
                           ? <CurrencyDisplay value={totalPotensiNJOP} size="sm" className="font-semibold text-[#117A65]" />
                           : <span className="text-amber-600 text-xs font-medium">Luas belum diisi</span>)
                         : <span className="text-gray-400 text-xs">Belum ada NJOP</span>}
@@ -177,10 +183,10 @@ export function PotensiPendapatan() {
                     <tr className="bg-green-50">
                       <td colSpan={8} className="px-8 py-4">
                         {!njopTerbaru && (
-                          <p className="text-sm text-gray-500 italic mb-2">Belum ada data NJOP untuk aset ini. Tambahkan di Master Data → Data NJOP.</p>
+                          <p className="text-sm text-gray-500 italic mb-2">Belum ada data NJOP untuk aset ini. Isi SPPT/NJOP di Master Data → NJOP & SPPT untuk konsesi aset ini.</p>
                         )}
-                        {njopTerbaru && !a.luas_tanah_m2 && (
-                          <p className="text-sm text-amber-600 font-medium mb-2">⚠ Luas tanah belum diisi. Lengkapi di Master Data → Data Aset agar potensi dapat dihitung.</p>
+                        {njopTerbaru && !luasTanah && (
+                          <p className="text-sm text-amber-600 font-medium mb-2">⚠ Luas KS belum ada. Gambar area OPSET kerja samanya di Peta Aset agar potensi dapat dihitung.</p>
                         )}
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                           <div>
@@ -190,7 +196,7 @@ export function PotensiPendapatan() {
                           <div>
                             <p className="text-xs text-gray-500 mb-1">Potensi Tanah</p>
                             <CurrencyDisplay value={potensiTanah} size="sm" className="text-[#117A65] font-medium" />
-                            <p className="text-xs text-gray-400">× {formatAngka(a.luas_tanah_m2 ?? 0)} m² × 3,33%</p>
+                            <p className="text-xs text-gray-400">× {formatAngka(luasTanah)} m² × 3,33%</p>
                           </div>
                           <div>
                             <p className="text-xs text-gray-500 mb-1">NJOP Bangunan/m²</p>

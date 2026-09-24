@@ -3,6 +3,8 @@ import { useAsetStore } from '@/store/asetStore'
 import { useKerjaSamaStore } from '@/store/kerjaSamaStore'
 import { usePBBStore, PBBObjekInput } from '@/store/pbbStore'
 import { useNJOPStore } from '@/store/njopStore'
+import { useKonsesiStore } from '@/store/konsesiStore'
+import { useKonsesiMasterStore } from '@/store/konsesiMasterStore'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -15,7 +17,7 @@ import { EmptyState } from '@/components/common/EmptyState'
 import { ConfirmDialog } from '@/components/common/ConfirmDialog'
 import { hitungPBBProporsional } from '@/utils/pbbUtils'
 import { formatAngka, formatTanggal, formatRupiah } from '@/lib/utils'
-import { Plus, Pencil, Trash2, FileDown, ChevronDown, ChevronUp } from 'lucide-react'
+import { Plus, Pencil, Trash2, FileDown, ChevronDown, ChevronUp, RefreshCw } from 'lucide-react'
 import { useForm, Controller, useWatch, useFieldArray } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -549,6 +551,9 @@ export function PembayaranPBB() {
   const { dataPBB, fetchAllPBB, addPBB, updatePBB, deletePBB } = usePBBStore()
   const { dataNJOP, fetchAllNJOP } = useNJOPStore()
   const { rows: rkapRows, fetchRKAP } = useRKAPStore()
+  const { daftarKonsesi, fetchKonsesi, fetchLuasOpset, getLuasOpset } = useKonsesiStore()
+  const { semuaSPPT, fetchAllSPPT } = useKonsesiMasterStore()
+  const [autofillNote, setAutofillNote] = useState('')
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<PBB | null>(null)
@@ -564,16 +569,65 @@ export function PembayaranPBB() {
     defaultValues: { tahun: new Date().getFullYear(), objek: [defaultObjek(0)] },
   })
 
-  const { fields, append, remove } = useFieldArray({ control, name: 'objek' })
+  const { fields, append, remove, replace } = useFieldArray({ control, name: 'objek' })
 
   const watchedAsetId = watch('aset_id')
   const watchedTahun  = watch('tahun')
 
-  useEffect(() => { fetchAset(); fetchKS(); fetchAllPBB(); fetchAllNJOP(); fetchRKAP(new Date().getFullYear()) }, [])
+  useEffect(() => { fetchAset(); fetchKS(); fetchAllPBB(); fetchAllNJOP(); fetchRKAP(new Date().getFullYear()); void fetchKonsesi(); void fetchLuasOpset(); void fetchAllSPPT() }, [])
 
-  // Auto-fill NJOP untuk objek pertama saat aset/tahun berubah (hanya untuk mode tambah baru)
+  // SPPT objects come from the concession(s) the asset sits on: one object per
+  // concession SPPT, with the KS land area measured from the OPSET polygon
+  // inside that concession. Manual asset areas are only a fallback.
+  const buildObjekFromKonsesi = (asetId: string, tahun: number) => {
+    const aset = daftarAset.find(a => a.id === asetId)
+    const links = aset?.aset_konsesi ?? []
+    const objek: PBBObjekForm[] = []
+    let jatuhTempo: string | null = null
+    let fromMap = 0
+    for (const link of links) {
+      const rows = semuaSPPT.filter(row => row.konsesi_key === link.konsesi_key && row.tahun === tahun)
+      const billed = rows.filter(row => row.nilai_pbb !== null)
+      const luasPeta = getLuasOpset(asetId, link.konsesi_key)
+      if (luasPeta !== null) fromMap += 1
+      const single = links.length === 1
+      const nama = daftarKonsesi.find(item => item.key === link.konsesi_key)?.nama ?? link.konsesi_nama
+      for (const row of billed.length ? billed : rows.slice(0, 1)) {
+        jatuhTempo = jatuhTempo ?? row.tgl_jatuh_tempo
+        objek.push({
+          nama_objek: nama,
+          no_sppt: row.no_sppt ?? '',
+          nilai_pbb_objek: Number(row.nilai_pbb ?? 0),
+          luas_tanah_sppt: Number(row.luas_tanah_sppt_m2),
+          luas_tanah_ks: luasPeta ?? (single ? Number(aset?.luas_tanah_m2 ?? 0) : 0),
+          njop_tanah_per_m2: Number(row.njop_tanah_per_m2),
+          luas_bangunan_sppt: Number(row.luas_bangunan_sppt_m2),
+          luas_bangunan_ks: single ? Number(aset?.luas_bangunan_m2 ?? 0) : 0,
+          njop_bangunan_per_m2: Number(row.njop_bangunan_per_m2),
+        })
+      }
+    }
+    return { objek, jatuhTempo, fromMap, konsesi: links.length }
+  }
+
+  const applyKonsesiSPPT = () => {
+    if (!watchedAsetId || !watchedTahun) return false
+    const built = buildObjekFromKonsesi(watchedAsetId, Number(watchedTahun))
+    if (!built.objek.length) {
+      setAutofillNote(built.konsesi
+        ? `Belum ada SPPT ${watchedTahun} di konsesi aset ini. Isi SPPT di panel bidang (Master Aset) agar objek terisi otomatis.`
+        : 'Aset ini belum ditautkan ke konsesi GIS, jadi objek diisi manual.')
+      return false
+    }
+    replace(built.objek)
+    if (built.jatuhTempo) setValue('tgl_jatuh_tempo', built.jatuhTempo)
+    setAutofillNote(`Diisi dari ${built.objek.length} SPPT konsesi tahun ${watchedTahun}. Luas KS ${built.fromMap ? `dari poligon OPSET di peta (${built.fromMap} konsesi)` : 'dari data aset karena poligon OPSET belum ada'}; luas bangunan KS dari data aset. Periksa sebelum menyimpan.`)
+    return true
+  }
+
   useEffect(() => {
     if (editTarget || !watchedAsetId || !watchedTahun) return
+    if (applyKonsesiSPPT()) return
     const njopList = dataNJOP[watchedAsetId]
     if (!njopList || njopList.length === 0) return
     const found = njopList.find(n => n.tahun === Number(watchedTahun)) ?? njopList[0]
@@ -621,6 +675,7 @@ export function PembayaranPBB() {
   const openAdd = (asetId?: string) => {
     setEditTarget(null)
     setSubmitError(null)
+    setAutofillNote('')
     reset({
       aset_id: asetId ?? '',
       tahun: new Date().getFullYear(),
@@ -632,6 +687,7 @@ export function PembayaranPBB() {
   const openEdit = (p: PBB) => {
     setEditTarget(p)
     setSubmitError(null)
+    setAutofillNote('')
     const objekData = p.pbb_objek && p.pbb_objek.length > 0
       ? p.pbb_objek.map(o => ({
           nama_objek:          o.nama_objek,
@@ -826,7 +882,11 @@ export function PembayaranPBB() {
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
                   Objek PBB <span className="text-blue-600 normal-case font-normal">({fields.length} objek)</span>
                 </p>
+                <Button type="button" variant="outline" size="sm" disabled={!watchedAsetId} onClick={() => applyKonsesiSPPT()}>
+                  <RefreshCw size={13} /> Isi dari SPPT konsesi
+                </Button>
               </div>
+              {autofillNote && <p className="mb-3 rounded bg-blue-50 px-3 py-2 text-xs text-blue-900">{autofillNote}</p>}
 
               <div className="space-y-3">
                 {fields.map((field, index) => (

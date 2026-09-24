@@ -859,6 +859,40 @@ def list_konsesi_reference(
     return {"data": data}
 
 
+@router.get("/opset/luas-konsesi")
+def list_opset_area_per_konsesi(
+    db: Session = Depends(get_db),
+    _user: dict[str, Any] = Depends(require_app_read),
+):
+    """Area of each optimised asset's kerja sama polygons inside each concession.
+
+    Feeds the proportional PBB and potensi: an asset's share of a concession
+    is its published OPSET area within that concession, unioned so repeated
+    or renewed agreements over the same ground are not counted twice.
+    """
+    rows = db.execute(text("""
+      WITH """ + KONSESI_VERSION_CTE + """, konsesi AS (
+        SELECT """ + KONSESI_KEY_SQL + """ AS konsesi_key, ST_UnaryUnion(ST_Collect(fv.geom)) AS geom
+        FROM konsesi_version cv JOIN gis_feature_versions fv ON fv.dataset_version_id=cv.version_id
+        GROUP BY 1
+      ), opset_aset AS (
+        SELECT ks_aset.aset_id, ST_UnaryUnion(ST_Collect(fv.geom)) AS geom
+        FROM gis_opset_details od
+        JOIN gis_feature_versions fv ON fv.id=od.feature_version_id
+        JOIN gis_datasets d ON d.active_version_id=fv.dataset_version_id AND d.archived_at IS NULL
+        JOIN (
+          SELECT id AS ks_id, aset_id FROM kerja_sama WHERE aset_id IS NOT NULL
+          UNION SELECT ks_id, aset_id FROM kerja_sama_aset
+        ) ks_aset ON ks_aset.ks_id=od.kerja_sama_id
+        GROUP BY ks_aset.aset_id
+      )
+      SELECT o.aset_id::text AS aset_id, k.konsesi_key,
+        round(ST_Area(ST_Intersection(o.geom, k.geom)::geography)::numeric, 2) AS luas_m2
+      FROM opset_aset o JOIN konsesi k ON ST_Intersects(o.geom, k.geom)
+    """)).mappings().all()
+    return {"data": [{**dict(row), "luas_m2": float(row["luas_m2"])} for row in rows if row["luas_m2"] and row["luas_m2"] > 0]}
+
+
 @router.get("/konsesi/summary/grouped")
 def list_grouped_konsesi_summaries(
     admin_level: str | None = Query(default=None, pattern="^(provinsi|kabupaten_kota|kecamatan|desa_kelurahan)$"),
