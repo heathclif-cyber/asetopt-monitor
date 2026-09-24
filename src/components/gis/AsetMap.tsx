@@ -33,7 +33,15 @@ const ATTRIBUTE_LABEL: Record<string, string> = {
   fungsi_asli: 'Status asli sumber', sumber: 'Sumber', tahun: 'Tahun', nomor_sk: 'Nomor SK', tanggal_sk: 'Tanggal SK',
   pihak_pengokupasi: 'Pihak pengokupasi', catatan: 'Catatan', level: 'Tingkat batas', region_name: 'Wilayah', region_code: 'Kode wilayah',
   tanggal_mulai: 'Tanggal mulai', pemegang_hak: 'Pemegang hak', lokasi: 'Lokasi dokumen', sumber_dokumen: 'Sumber dokumen',
-  luas_dokumen_m2: 'Luas dokumen (m²)', nama_mitra: 'Mitra', no_perjanjian: 'Nomor perjanjian', skema_kerja_sama: 'Skema kerja sama',
+  luas_dokumen_m2: 'Luas dokumen', nama_mitra: 'Mitra', no_perjanjian: 'Nomor perjanjian', skema_kerja_sama: 'Skema kerja sama',
+}
+
+const AREA_ATTRIBUTES = new Set(['declared_area_m2', 'luas_dokumen_m2'])
+
+function formatArea(squareMeters: number) {
+  const m2 = squareMeters.toLocaleString('id-ID', { maximumFractionDigits: 2 })
+  const ha = (squareMeters / 10_000).toLocaleString('id-ID', { maximumFractionDigits: 4 })
+  return `${m2} m² atau ${ha} Ha`
 }
 
 function popupContent(title: string, entries: Array<[string, string]>) {
@@ -152,10 +160,10 @@ export function AsetMap({ data, className = '', onViewportChange, focusBbox, zoo
         const attributes = (properties.attributes ?? {}) as Record<string, string | number | null>
         const entries: Array<[string, string]> = []
         if (kind) entries.push(['Jenis layer', KIND_LABEL[kind]])
-        entries.push(['Luas geometris', `${Number(properties.computed_area_m2 ?? 0).toLocaleString('id-ID')} m²`])
+        entries.push(['Luas geometris', formatArea(Number(properties.computed_area_m2 ?? 0))])
         for (const [key, value] of Object.entries(attributes)) {
           if (value === null || value === '') continue
-          entries.push([ATTRIBUTE_LABEL[key] ?? key.replace(/_/g, ' '), String(value)])
+          entries.push([ATTRIBUTE_LABEL[key] ?? key.replace(/_/g, ' '), AREA_ATTRIBUTES.has(key) && Number.isFinite(Number(value)) ? formatArea(Number(value)) : String(value)])
         }
         const bindDetailPopup = (target: L.Layer) => {
           target.bindPopup(popupContent(name, entries), { maxWidth: 330 })
