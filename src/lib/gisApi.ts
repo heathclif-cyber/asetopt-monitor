@@ -88,7 +88,7 @@ export const gisApi = {
   kerjaSamaReference: () => request<{ data: GISKerjaSamaReference[] }>('/reference/kerja-sama'),
   asetReference: () => request<{ data: GISAsetReference[] }>('/reference/aset'),
   assetSummaries: () => request<{ data: GISAssetSummary[]; availability_note: string }>('/assets/summary'),
-  konsesiSummaries: () => request<{ data: GISAssetSummary[]; availability_note: string }>('/konsesi/summary/grouped'),
+  konsesiSummaries: (region?: { level: GISAdministrasiReference['level']; code: string }) => request<{ data: GISAssetSummary[]; availability_note: string }>(`/konsesi/summary/grouped${region ? `?${new URLSearchParams({ admin_level: region.level, admin_region_code: region.code })}` : ''}`),
   administrasiReference: (level?: GISAdministrasiReference['level']) => request<{ data: GISAdministrasiReference[] }>(`/reference/administrasi${level ? `?level=${level}` : ''}`),
   hutanFunctions: () => request<{ data: string[] }>('/reference/hutan-functions'),
   overlapWarnings: (datasetId: string) => request<{ state: 'none' | 'pending' | 'running' | 'complete' | 'failed'; totals: { overlap_count?: number; overlap_area_m2?: number }; data: GISOverlapWarning[] }>(`/datasets/${datasetId}/overlap-warnings`),

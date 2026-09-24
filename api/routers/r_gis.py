@@ -764,10 +764,30 @@ def list_konsesi_summaries(
 
 @router.get("/konsesi/summary/grouped")
 def list_grouped_konsesi_summaries(
+    admin_level: str | None = Query(default=None, pattern="^(provinsi|kabupaten_kota|kecamatan|desa_kelurahan)$"),
+    admin_region_code: str | None = Query(default=None, max_length=64),
     db: Session = Depends(get_db),
     _user: dict[str, Any] = Depends(require_app_read),
 ):
-    """Return one row per source land asset, merging multipart KMZ polygons."""
+    """Return one row per source land asset, merging multipart KMZ polygons.
+
+    With an administrative region, each concession is clipped to that region
+    so every hectare figure only counts the part lying inside it.
+    """
+    if bool(admin_level) != bool(admin_region_code):
+        raise HTTPException(status_code=422, detail="Tingkat dan kode wilayah harus diisi bersamaan")
+    region_geom = None
+    if admin_level:
+        region_geom = db.execute(text("""
+          SELECT ST_AsEWKB(ST_UnaryUnion(ST_Collect(fv.geom)))
+          FROM gis_administrasi_details ad
+          JOIN gis_feature_versions fv ON fv.id=ad.feature_version_id
+          JOIN gis_datasets d ON d.active_version_id=fv.dataset_version_id
+          WHERE ad.level=:level AND ad.region_code=:code AND d.archived_at IS NULL
+        """), {"level": admin_level, "code": admin_region_code}).scalar_one()
+        if region_geom is None:
+            raise HTTPException(status_code=404, detail="Wilayah administrasi tidak ditemukan")
+        region_geom = bytes(region_geom)
     rows = db.execute(text("""
       WITH konsesi_version AS (
         SELECT d.id AS dataset_id,
@@ -804,12 +824,26 @@ def list_grouped_konsesi_summaries(
           max(kd.tanggal_terbit) AS tanggal_terbit,
           max(kd.tanggal_berakhir) AS tanggal_berakhir,
           CASE WHEN bool_or(kd.expiry_mode='fixed') THEN 'fixed' WHEN bool_or(kd.expiry_mode='indefinite') THEN 'indefinite' ELSE 'unknown' END AS expiry_mode,
-          ST_UnaryUnion(ST_Collect(fv.geom)) AS geom
+          ST_UnaryUnion(ST_Collect(fv.geom)) AS full_geom
         FROM konsesi_version cv
         JOIN gis_feature_versions fv ON fv.dataset_version_id=cv.version_id
         JOIN gis_datasets d ON d.id=cv.dataset_id
         LEFT JOIN gis_konsesi_details kd ON kd.feature_version_id=fv.id
         GROUP BY cv.record_state, d.id, coalesce(fv.original_properties->>'Kebun', fv.original_properties->>'kebun', ''), coalesce(fv.original_properties->>'FID_Areal', fv.original_properties->>'fid_areal', fv.original_properties->>'Nama_Serti', fv.name)
+      ), region_piece AS (
+        -- Province outlines carry hundreds of thousands of coastline vertices;
+        -- clipping against small subdivided pieces keeps the intersection fast.
+        SELECT ST_Subdivide(ST_GeomFromEWKB(CAST(:region AS bytea)), 256) AS geom
+      ), konsesi_numbered AS (
+        SELECT row_number() OVER () AS row_key, * FROM konsesi_group
+      ), konsesi_clip AS (
+        SELECT n.row_key, ST_CollectionExtract(ST_UnaryUnion(ST_Collect(ST_Intersection(n.full_geom, p.geom))), 3) AS geom
+        FROM konsesi_numbered n JOIN region_piece p ON ST_Intersects(n.full_geom, p.geom)
+        GROUP BY n.row_key
+      ), konsesi_scoped AS (
+        SELECT n.*, CASE WHEN CAST(:region AS bytea) IS NULL THEN n.full_geom ELSE c.geom END AS geom
+        FROM konsesi_numbered n LEFT JOIN konsesi_clip c ON c.row_key=n.row_key
+        WHERE CAST(:region AS bytea) IS NULL OR c.geom IS NOT NULL
       )
       SELECT cg.id, cg.record_state, cg.kode_aset, cg.nama_aset, cg.lokasi,
         cg.nomor_alas_hak, cg.jenis_alas_hak, cg.pemegang_hak, cg.sumber_dokumen, cg.catatan,
@@ -831,9 +865,10 @@ def list_grouped_konsesi_summaries(
         CASE WHEN EXISTS (SELECT 1 FROM category_geom WHERE kind='hutan')
           THEN round((ST_Area(ST_Difference(cg.geom, coalesce((SELECT geom FROM available_mask), ST_GeomFromText('MULTIPOLYGON EMPTY', 4326)))::geography) / 10000)::numeric, 4)
           ELSE NULL END AS dapat_dimanfaatkan_area_ha
-      FROM konsesi_group cg
+      FROM konsesi_scoped cg
+      WHERE NOT ST_IsEmpty(cg.geom)
       ORDER BY cg.lokasi, cg.nama_aset
-    """)).mappings().all()
+    """), {"region": region_geom}).mappings().all()
     active_kinds = set(db.execute(text("""
       SELECT DISTINCT kind FROM gis_datasets
       WHERE active_version_id IS NOT NULL AND archived_at IS NULL

@@ -35,10 +35,13 @@ function formatHectareColumns(ws: ExcelJS.Worksheet, columns: ExcelColumn[]) {
   })
 }
 
-export async function exportKonsesiExcel(items: GISAssetSummary[], filterText: string) {
+export async function exportKonsesiExcel(items: GISAssetSummary[], filterText: string, regionLabel = '') {
   const wb = newWorkbook()
   const printed = new Date().toLocaleString('id-ID', { dateStyle: 'long', timeStyle: 'short' })
-  const scope = filterText ? `Filter pencarian: "${filterText}" · ${items.length} konsesi` : `Seluruh konsesi · ${items.length} konsesi`
+  const scope = [
+    regionLabel && `Wilayah: ${regionLabel} (luas dihitung hanya di dalam wilayah)`,
+    filterText ? `Filter pencarian: "${filterText}" · ${items.length} konsesi` : `${regionLabel ? 'Konsesi di wilayah ini' : 'Seluruh konsesi'} · ${items.length} konsesi`,
+  ].filter(Boolean).join(' · ')
   const sum = (select: (item: GISAssetSummary) => number | null) => items.reduce((total, item) => total + (select(item) ?? 0), 0)
   const drafts = items.filter(item => item.record_state === 'draf').length
 

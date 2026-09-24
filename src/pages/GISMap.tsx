@@ -139,7 +139,7 @@ export default function GISMap() {
     try {
       const [nextCapabilities, result] = await Promise.all([gisApi.capabilities(), gisApi.datasets()])
       setCapabilities(nextCapabilities); setDatasets(result.data)
-      setEnabled(previous => previous.length ? previous.filter(id => result.data.some(item => item.id === id)) : result.data.map(item => item.id))
+      setEnabled(previous => previous.length ? previous.filter(id => result.data.some(item => item.id === id)) : result.data.filter(item => item.kind !== 'administrasi').map(item => item.id))
       setSelectedDatasetId(previous => previous || (result.data.find(item => item.kind === 'konsesi') ?? result.data[0])?.id || '')
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Gagal memuat layer GIS.') }
   }, [])
