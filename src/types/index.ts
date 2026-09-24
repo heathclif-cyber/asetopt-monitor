@@ -22,6 +22,46 @@ export interface Aset {
   aset_konsesi?: AsetKonsesi[]
 }
 
+// Operational master data of one GIS concession, entered once in its panel.
+export interface KonsesiProfil {
+  konsesi_key: string
+  kode_sap: string | null
+  alamat_jalan: string | null
+  catatan: string | null
+  updated_at: string
+}
+
+export interface KonsesiSPPT {
+  id: string
+  konsesi_key: string
+  tahun: number
+  no_sppt: string | null
+  luas_tanah_sppt_m2: number
+  luas_bangunan_sppt_m2: number
+  njop_tanah_per_m2: number
+  njop_bangunan_per_m2: number
+  nilai_pbb: number | null
+  tgl_jatuh_tempo: string | null
+  status_bayar: 'belum' | 'lunas'
+  tgl_bayar: string | null
+  catatan: string | null
+  created_at: string
+}
+
+export type KondisiBangunan = 'baik' | 'sedang' | 'rusak_ringan' | 'rusak_berat'
+
+export interface KonsesiBangunan {
+  id: string
+  konsesi_key: string
+  nama: string
+  luas_m2: number
+  jumlah_lantai: number | null
+  tahun_bangun: number | null
+  kondisi: KondisiBangunan | null
+  keterangan: string | null
+  created_at: string
+}
+
 // Link from an optimised asset to the GIS concession (master aset) it sits on.
 export interface AsetKonsesi {
   id: string

@@ -604,6 +604,7 @@ def get_import_features(
         (coalesce(to_jsonb(d) - 'feature_version_id', '{{}}'::jsonb)
           || {"jsonb_strip_nulls(jsonb_build_object('nama_mitra', ks.nama_mitra, 'no_perjanjian', ks.no_perjanjian, 'skema_kerja_sama', ks.skema_kerja_sama, 'tanggal_mulai', ks.tgl_mulai, 'tanggal_berakhir', ks.tgl_selesai))" if imp['kind'] == 'opset' else "'{}'::jsonb"}
           || fv.extra_attributes) AS attributes,
+        {KONSESI_KEY_SQL if imp['kind'] == 'konsesi' else 'NULL'} AS konsesi_key,
         CASE WHEN :kind='konsesi' THEN coalesce((SELECT array_agg(ka.aset_id::text ORDER BY ka.aset_id::text) FROM gis_konsesi_aset ka WHERE ka.konsesi_feature_version_id=fv.id), ARRAY[]::text[]) ELSE ARRAY[]::text[] END AS linked_asset_ids
       FROM gis_feature_versions fv LEFT JOIN {table} d ON d.feature_version_id=fv.id
       {"LEFT JOIN kerja_sama ks ON ks.id=d.kerja_sama_id" if imp['kind'] == 'opset' else ""}
@@ -823,8 +824,19 @@ def list_konsesi_reference(
         round((g.luas_dokumen_m2 / 10000)::numeric, 4) AS luas_dokumen_ha,
         round((ST_Area(g.geom::geography) / 10000)::numeric, 4) AS luas_gis_ha,
         concat_ws(',', ST_XMin(Box2D(g.geom)::box3d), ST_YMin(Box2D(g.geom)::box3d), ST_XMax(Box2D(g.geom)::box3d), ST_YMax(Box2D(g.geom)::box3d)) AS bbox,
-        prov.region_name AS provinsi, kab.region_name AS kabupaten, kec.region_name AS kecamatan
+        prov.region_name AS provinsi, kab.region_name AS kabupaten, kec.region_name AS kecamatan,
+        kp.kode_sap, kp.alamat_jalan,
+        sppt.tahun AS sppt_tahun, sppt.njop_tanah_per_m2, sppt.njop_bangunan_per_m2,
+        coalesce(bg.jumlah, 0) AS bangunan_jumlah, coalesce(bg.luas_m2, 0) AS bangunan_luas_m2
       FROM konsesi_group g
+      LEFT JOIN konsesi_profil kp ON kp.konsesi_key=g.key
+      LEFT JOIN LATERAL (
+        SELECT s.tahun, s.njop_tanah_per_m2, s.njop_bangunan_per_m2 FROM konsesi_sppt s
+        WHERE s.konsesi_key=g.key ORDER BY s.tahun DESC, s.created_at DESC LIMIT 1
+      ) sppt ON true
+      LEFT JOIN (
+        SELECT konsesi_key, count(*) AS jumlah, sum(luas_m2) AS luas_m2 FROM konsesi_bangunan GROUP BY konsesi_key
+      ) bg ON bg.konsesi_key=g.key
       LEFT JOIN LATERAL (
         SELECT r.region_name, r.parent_code FROM admin_region r
         WHERE r.level='kecamatan' AND ST_Intersects(r.geom, ST_PointOnSurface(g.geom)) LIMIT 1
@@ -841,7 +853,7 @@ def list_konsesi_reference(
     data = []
     for row in rows:
         item = dict(row)
-        for field in ("luas_dokumen_ha", "luas_gis_ha"):
+        for field in ("luas_dokumen_ha", "luas_gis_ha", "njop_tanah_per_m2", "njop_bangunan_per_m2", "bangunan_luas_m2"):
             item[field] = float(item[field]) if item[field] is not None else None
         data.append(item)
     return {"data": data}
@@ -1251,6 +1263,7 @@ def list_features(
         raise HTTPException(status_code=422, detail="Filter wilayah membutuhkan tingkat batas yang valid")
     rows = db.execute(text("""
       SELECT fv.id, fv.feature_id, fv.name, d.id AS dataset_id, d.kind, fv.computed_area_m2,
+        CASE WHEN d.kind='konsesi' THEN """ + KONSESI_KEY_SQL + """ END AS konsesi_key,
         (coalesce(
           to_jsonb(kd) - 'feature_version_id', to_jsonb(td) - 'feature_version_id',
           to_jsonb(hd) - 'feature_version_id', to_jsonb(od) - 'feature_version_id',
@@ -1283,7 +1296,7 @@ def list_features(
     """), {"version_ids": ids, "min_lng": min_lng, "min_lat": min_lat, "max_lng": max_lng, "max_lat": max_lat, "limit": limit,
              "admin_level": admin_level, "admin_region_code": admin_region_code, "hutan_function": hutan_function}).mappings().all()
     return {"type": "FeatureCollection", "features": [
-      {"type": "Feature", "id": str(row["id"]), "properties": {"feature_id": str(row["feature_id"]), "dataset_id": str(row["dataset_id"]), "name": row["name"], "kind": row["kind"], "computed_area_m2": float(row["computed_area_m2"]), "attributes": row["attributes"] or {}}, "geometry": json.loads(row["geometry"])}
+      {"type": "Feature", "id": str(row["id"]), "properties": {"feature_id": str(row["feature_id"]), "dataset_id": str(row["dataset_id"]), "name": row["name"], "kind": row["kind"], "computed_area_m2": float(row["computed_area_m2"]), "konsesi_key": row["konsesi_key"], "attributes": row["attributes"] or {}}, "geometry": json.loads(row["geometry"])}
       for row in rows
     ], "truncated": len(rows) == limit}
 

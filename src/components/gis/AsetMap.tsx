@@ -44,7 +44,7 @@ function formatArea(squareMeters: number) {
   return `${m2} m² atau ${ha} Ha`
 }
 
-function popupContent(title: string, entries: Array<[string, string]>) {
+function popupContent(title: string, entries: Array<[string, string]>, action?: { label: string; onClick: () => void }) {
   const container = document.createElement('div')
   container.className = 'min-w-[210px] space-y-1 text-sm'
   const heading = document.createElement('strong')
@@ -60,6 +60,14 @@ function popupContent(title: string, entries: Array<[string, string]>) {
     row.append(key, content)
     container.append(row)
   }
+  if (action) {
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.className = 'mt-2 w-full rounded-md bg-[#1B4F72] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#1B4F72]/90'
+    button.textContent = action.label
+    button.addEventListener('click', action.onClick)
+    container.append(button)
+  }
   return container
 }
 
@@ -68,18 +76,22 @@ function currentBounds(map: L.Map) {
   return [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()].join(',')
 }
 
-export function AsetMap({ data, className = '', onViewportChange, focusBbox, zoomTarget }: {
+export function AsetMap({ data, className = '', onViewportChange, focusBbox, zoomTarget, onOpenKonsesi }: {
   data?: GISFeatureCollection | null
   className?: string
   onViewportChange?: (bbox: string) => void
   focusBbox?: string | null
   zoomTarget?: { bbox: string; request: number } | null
+  onOpenKonsesi?: (konsesiKey: string) => void
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<L.Map | null>(null)
   const layerRef = useRef<L.FeatureGroup | null>(null)
   const hasAutoFittedRef = useRef(false)
   const hasFittedKonsesiRef = useRef(false)
+  // Popups are built once per data load; read the latest handler at click time.
+  const openKonsesiRef = useRef(onOpenKonsesi)
+  openKonsesiRef.current = onOpenKonsesi
 
   useEffect(() => {
     if (!hostRef.current || mapRef.current) return
@@ -166,7 +178,9 @@ export function AsetMap({ data, className = '', onViewportChange, focusBbox, zoo
           entries.push([ATTRIBUTE_LABEL[key] ?? key.replace(/_/g, ' '), AREA_ATTRIBUTES.has(key) && Number.isFinite(Number(value)) ? formatArea(Number(value)) : String(value)])
         }
         const bindDetailPopup = (target: L.Layer) => {
-          target.bindPopup(popupContent(name, entries), { maxWidth: 330 })
+          const konsesiKey = kind === 'konsesi' && typeof properties.konsesi_key === 'string' ? properties.konsesi_key : null
+          const action = konsesiKey && openKonsesiRef.current ? { label: 'Kelola data bidang', onClick: () => { map.closePopup(); openKonsesiRef.current?.(konsesiKey) } } : undefined
+          target.bindPopup(popupContent(name, entries, action), { maxWidth: 330 })
           target.on('click', event => {
             if (event.originalEvent) L.DomEvent.stopPropagation(event.originalEvent)
             // A concession is the primary navigation object: clicking it
@@ -220,7 +234,9 @@ export function AsetMap({ data, className = '', onViewportChange, focusBbox, zoo
 
   const legendKinds = (Object.keys(COLOR_BY_KIND) as GISKind[]).filter(kind => data?.features.some(feature => feature.properties.kind === kind))
 
-  return <div className={`relative h-[640px] w-full overflow-hidden rounded-lg ${className}`}>
+  // isolate keeps Leaflet's pane z-indexes (400-1000) inside the map, so
+  // dialogs and slide-over panels opened from the map stay on top.
+  return <div className={`relative isolate h-[640px] w-full overflow-hidden rounded-lg ${className}`}>
     <div ref={hostRef} className="h-full w-full" aria-label="Peta lokasi aset" />
     {legendKinds.length > 0 && <div className="pointer-events-none absolute bottom-6 left-2 z-[1000] space-y-1 rounded-md bg-slate-900/75 px-2.5 py-2 text-xs text-white shadow">
       {legendKinds.map(kind => <div key={kind} className="flex items-center gap-2">

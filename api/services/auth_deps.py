@@ -16,7 +16,9 @@ _bearer = HTTPBearer(auto_error=False)
 
 # Role khusus pengelola Master Data. Daftar ini sengaja eksplisit agar akun
 # tersebut tidak dapat membaca atau mengubah tabel bisnis lain lewat REST API.
-ASSET_MASTER_TABLES = frozenset({"aset", "aset_konsesi", "njop", "penilaian_kjpp"})
+ASSET_MASTER_TABLES = frozenset({
+    "aset", "aset_konsesi", "njop", "penilaian_kjpp", "konsesi_profil", "konsesi_sppt", "konsesi_bangunan",
+})
 
 
 def _extract_token(

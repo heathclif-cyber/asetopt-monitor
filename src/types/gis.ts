@@ -40,6 +40,7 @@ export interface GISDraftFeature {
   geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon
   attributes: Record<string, string | number | null>
   linked_asset_ids: string[]
+  konsesi_key: string | null
 }
 
 export interface GISAsetReference { id: string; kode_aset: string; nama_aset: string }
@@ -108,7 +109,7 @@ export interface GISFeatureCollection {
   features: Array<{
     type: 'Feature'
     id: string
-    properties: { feature_id: string; name: string; kind: GISKind; computed_area_m2: number; dataset_id?: string; attributes?: Record<string, string | number | null> }
+    properties: { feature_id: string; name: string; kind: GISKind; computed_area_m2: number; dataset_id?: string; konsesi_key?: string | null; attributes?: Record<string, string | number | null> }
     geometry: GeoJSON.Polygon | GeoJSON.MultiPolygon
   }>
   truncated?: boolean
@@ -129,4 +130,11 @@ export interface GISKonsesiReference {
   provinsi: string | null
   kabupaten: string | null
   kecamatan: string | null
+  kode_sap: string | null
+  alamat_jalan: string | null
+  sppt_tahun: number | null
+  njop_tanah_per_m2: number | null
+  njop_bangunan_per_m2: number | null
+  bangunan_jumlah: number
+  bangunan_luas_m2: number
 }
