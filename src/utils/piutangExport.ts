@@ -32,9 +32,11 @@ export async function exportPiutangExcel(
     { header: 'No. Invoice', key: 'noInvoice', width: 14, type: 'text' },
     { header: 'No. Invoice SAP', key: 'noInvoiceSap', width: 14, type: 'text' },
     { header: 'Tgl Invoice', key: 'invoiceTgl', width: 12, type: 'date', align: 'center' },
+    { header: 'Nilai pokok (DPP)', key: 'nilaiPokok', width: 15, type: 'money' },
     { header: 'Tagihan efektif', key: 'efektifTagihan', width: 15, type: 'money' },
-    { header: 'Dibayar', key: 'totalDibayar', width: 14, type: 'money' },
-    { header: 'Sisa', key: 'sisa', width: 14, type: 'money' },
+    { header: 'Cash in', key: 'totalDibayar', width: 14, type: 'money' },
+    { header: 'Sisa tagihan', key: 'sisa', width: 14, type: 'money' },
+    { header: 'Sisa pokok', key: 'sisaPokok', width: 14, type: 'money' },
     { header: 'Est. Denda', key: 'nominalDenda', width: 14, type: 'money' },
     ...(includeSP
       ? [
@@ -56,7 +58,9 @@ export async function exportPiutangExcel(
     noInvoice: r.noInvoice ?? '',
     noInvoiceSap: r.noInvoiceSap ?? '',
     invoiceTgl: r.invoiceTgl ?? '',
+    nilaiPokok: Math.round(r.nilaiPokok),
     efektifTagihan: Math.round(r.efektifTagihan),
+    sisaPokok: Math.round(r.sisaPokok),
     totalDibayar: Math.round(r.totalDibayar),
     sisa: Math.round(r.sisa),
     nominalDenda: Math.round(r.nominalDenda),
@@ -81,7 +85,7 @@ export async function exportPiutangExcel(
     ],
     columns,
     rows: data,
-    totalKeys: ['efektifTagihan', 'totalDibayar', 'sisa', 'nominalDenda'],
+    totalKeys: ['nilaiPokok', 'efektifTagihan', 'totalDibayar', 'sisa', 'sisaPokok', 'nominalDenda'],
     totalLabelCol: 0,
   })
 

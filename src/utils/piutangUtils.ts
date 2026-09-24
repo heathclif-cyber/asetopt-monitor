@@ -31,9 +31,13 @@ export interface PiutangRow {
   noInvoiceSap: string | null
   invoiceTgl: string | null
   hasInvoice: boolean
+  /** Nilai pokok kompensasi (DPP), tanpa PPN/PPh — basis denda */
+  nilaiPokok: number
   efektifTagihan: number
   totalDibayar: number
   sisa: number
+  /** Bagian pokok dari sisa tagihan (proporsional pokok ÷ tagihan) */
+  sisaPokok: number
   /** Hari sejak JT (negatif = belum JT) */
   hariDariJT: number
   /** @deprecated selalu 0 — denda tanpa grace setelah JT */
@@ -172,9 +176,12 @@ export function buildPiutangRows(opts: {
       noInvoiceSap: k.no_invoice_sap,
       invoiceTgl: k.invoice_tgl ? dateKey(k.invoice_tgl) : null,
       hasInvoice: invoice,
+      nilaiPokok: k.nominal ?? 0,
       efektifTagihan: efektif,
       totalDibayar,
       sisa,
+      // Partial payments settle principal and tax pro rata.
+      sisaPokok: efektif > 0 ? sisa * Math.min(1, (k.nominal ?? 0) / efektif) : 0,
       hariDariJT,
       hariLewatGrace: Math.max(0, hariDariJT),
       dalamGrace: false,
@@ -205,6 +212,8 @@ export function summarizePiutang(rows: PiutangRow[]) {
   let totalTagihan = 0
   let totalDibayar = 0
   let totalDenda = 0
+  let totalPokok = 0
+  let totalSisaPokok = 0
   let nInvoice = 0
   let nTanpaInvoice = 0
   let nSP = 0
@@ -214,6 +223,8 @@ export function summarizePiutang(rows: PiutangRow[]) {
     totalTagihan += r.efektifTagihan
     totalDibayar += r.totalDibayar
     totalDenda += r.nominalDenda
+    totalPokok += r.nilaiPokok
+    totalSisaPokok += r.sisaPokok
     byAging[r.aging].count += 1
     byAging[r.aging].sisa += r.sisa
     if (r.hasInvoice) nInvoice += 1
@@ -227,6 +238,8 @@ export function summarizePiutang(rows: PiutangRow[]) {
     totalTagihan,
     totalDibayar,
     totalDenda,
+    totalPokok,
+    totalSisaPokok,
     nInvoice,
     nTanpaInvoice,
     nSP,

@@ -217,9 +217,9 @@ export default function Piutang() {
         <div className="rounded-xl border border-orange-200 bg-white p-4">
           <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-orange-700"><Wallet size={13} /> Piutang pokok</p>
           <div className="mt-3 grid grid-cols-3 gap-3">
-            <div><p className="text-[11px] text-gray-500">Tagihan jatuh tempo</p><p className="text-base font-bold tabular-nums text-gray-900">{formatRupiah(summary.totalTagihan)}</p><p className="text-[11px] text-gray-400">{summary.nTagihan} tagihan</p></div>
+            <div><p className="text-[11px] text-gray-500">Nilai pokok (DPP)</p><p className="text-base font-bold tabular-nums text-gray-900">{formatRupiah(summary.totalPokok)}</p><p className="text-[11px] text-gray-400">{summary.nTagihan} tagihan · tagihan inkl. PPN {formatRupiah(summary.totalTagihan)}</p></div>
             <div><p className="text-[11px] text-gray-500">Cash in diterima</p><p className="text-base font-bold tabular-nums text-green-700">{formatRupiah(summary.totalDibayar)}</p><p className="text-[11px] text-gray-400">pembayaran parsial</p></div>
-            <div><p className="text-[11px] text-gray-500">Sisa piutang pokok</p><p className="text-base font-bold tabular-nums text-orange-600">{formatRupiah(summary.totalSisa)}</p><p className="text-[11px] text-gray-400">{summary.nInvoice} ber-invoice · {summary.nTanpaInvoice} belum</p></div>
+            <div><p className="text-[11px] text-gray-500">Sisa pokok</p><p className="text-base font-bold tabular-nums text-orange-600">{formatRupiah(summary.totalSisaPokok)}</p><p className="text-[11px] text-gray-400">sisa tagihan inkl. PPN {formatRupiah(summary.totalSisa)}</p></div>
           </div>
         </div>
         <div className="rounded-xl border border-red-200 bg-white p-4">
@@ -357,16 +357,15 @@ export default function Piutang() {
                 <tr className="bg-gray-50 text-[10px] uppercase text-gray-500">
                   <th rowSpan={2} className="w-6 px-3 py-2 text-left align-bottom">#</th>
                   <th rowSpan={2} className="px-3 py-2 text-left align-bottom">Mitra / Aset</th>
-                  <th rowSpan={2} className="px-3 py-2 text-left align-bottom">Periode · JT</th>
-                  <th rowSpan={2} className="px-3 py-2 text-left align-bottom">Aging</th>
+                  <th rowSpan={2} className="px-3 py-2 text-left align-bottom">Periode · JT · aging</th>
                   <th colSpan={3} className="border-b border-l border-orange-100 bg-orange-50/60 px-3 py-1.5 text-center text-orange-700">Pokok</th>
                   <th className="border-b border-l border-red-100 bg-red-50/60 px-3 py-1.5 text-center text-red-700">Denda</th>
-                  <th rowSpan={2} className="px-3 py-2 text-right align-bottom">Aksi</th>
+                  <th rowSpan={2} className="sticky right-0 bg-gray-50 px-3 py-2 text-right align-bottom shadow-[-6px_0_8px_-6px_rgba(0,0,0,0.15)]">Aksi</th>
                 </tr>
                 <tr className="bg-gray-50 text-[10px] uppercase text-gray-500 shadow-[0_1px_0_#e5e7eb]">
-                  <th className="border-l border-orange-100 px-3 py-2 text-right">Tagihan</th>
+                  <th className="border-l border-orange-100 px-3 py-2 text-right">Nilai pokok</th>
                   <th className="px-3 py-2 text-right">Cash in</th>
-                  <th className="px-3 py-2 text-right">Sisa</th>
+                  <th className="px-3 py-2 text-right">Sisa pokok</th>
                   <th className="border-l border-red-100 px-3 py-2 text-right">Estimasi</th>
                 </tr>
               </thead>
@@ -383,6 +382,12 @@ export default function Piutang() {
                       {r.periodeLabel}
                       <div className="text-[10px] text-gray-400 mt-0.5">{ALASAN_LABEL[r.alasan]}</div>
                       <div className="mt-1 whitespace-nowrap">JT {formatTanggal(r.tglJatuhTempo)}</div>
+                      <span className={cn(
+                        'mt-1 inline-block whitespace-nowrap px-2 py-0.5 rounded-full text-[10px] font-semibold border',
+                        AGING_COLOR[r.aging],
+                      )}>
+                        {PIUTANG_AGING_LABEL[r.aging]}
+                      </span>
                       <div className={cn(
                         'text-[10px] font-medium mt-0.5',
                         r.hariDariJT < 0 ? 'text-blue-600' : 'text-red-600',
@@ -394,22 +399,16 @@ export default function Piutang() {
                             : `Terlambat ${r.hariDariJT} hari · denda berlaku`}
                       </div>
                     </td>
-                    <td className="px-3 py-2">
-                      <span className={cn(
-                        'inline-block whitespace-nowrap px-2 py-0.5 rounded-full text-[10px] font-semibold border',
-                        AGING_COLOR[r.aging],
-                      )}>
-                        {PIUTANG_AGING_LABEL[r.aging]}
-                      </span>
-                    </td>
                     <td className="border-l border-orange-50 px-3 py-2 text-right">
-                      <CurrencyDisplay value={r.efektifTagihan} size="sm" />
+                      <CurrencyDisplay value={r.nilaiPokok} size="sm" className="font-medium" />
+                      <div className="whitespace-nowrap text-[10px] text-gray-400">tagihan {formatRupiah(r.efektifTagihan)}</div>
                     </td>
                     <td className="px-3 py-2 text-right text-green-700">
                       <CurrencyDisplay value={r.totalDibayar} size="sm" />
                     </td>
                     <td className="px-3 py-2 text-right">
-                      <CurrencyDisplay value={r.sisa} size="sm" className="text-orange-600 font-semibold" />
+                      <CurrencyDisplay value={r.sisaPokok} size="sm" className="text-orange-600 font-semibold" />
+                      <div className="whitespace-nowrap text-[10px] text-gray-400">tagihan {formatRupiah(r.sisa)}</div>
                     </td>
                     <td className="border-l border-red-50 px-3 py-2 text-right">
                       {r.nominalDenda > 0.5 ? (
@@ -418,13 +417,15 @@ export default function Piutang() {
                         <span className="text-gray-300">—</span>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-right">
+                    <td className="sticky right-0 bg-white px-3 py-2 text-right shadow-[-6px_0_8px_-6px_rgba(0,0,0,0.15)]">
                       {isAdmin ? (
                         <Link
                           to={`/jalur-b/pembayaran?kompensasi_id=${r.id}`}
-                          className="text-[11px] font-medium text-green-700 hover:underline whitespace-nowrap"
+                          title="Catat cash in untuk tagihan ini"
+                          aria-label="Catat cash in"
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-green-700 hover:bg-green-50"
                         >
-                          Catat bayar
+                          <Banknote size={16} />
                         </Link>
                       ) : (
                         <span className="text-[11px] text-gray-300">—</span>
@@ -435,22 +436,24 @@ export default function Piutang() {
               </tbody>
               <tfoot>
                 <tr className="border-t-2 bg-gray-50 font-semibold text-xs">
-                  <td colSpan={4} className="px-3 py-2.5 text-gray-700">
+                  <td colSpan={3} className="px-3 py-2.5 text-gray-700">
                     Total ({rows.length} piutang)
                   </td>
                   <td className="px-3 py-2.5 text-right">
-                    <CurrencyDisplay value={summary.totalTagihan} size="sm" />
+                    <CurrencyDisplay value={summary.totalPokok} size="sm" />
+                    <div className="text-[10px] font-normal text-gray-400">tagihan {formatRupiah(summary.totalTagihan)}</div>
                   </td>
                   <td className="px-3 py-2.5 text-right text-green-700">
                     <CurrencyDisplay value={summary.totalDibayar} size="sm" />
                   </td>
                   <td className="px-3 py-2.5 text-right text-orange-600">
-                    <CurrencyDisplay value={summary.totalSisa} size="sm" />
+                    <CurrencyDisplay value={summary.totalSisaPokok} size="sm" />
+                    <div className="text-[10px] font-normal text-gray-400">tagihan {formatRupiah(summary.totalSisa)}</div>
                   </td>
                   <td className="px-3 py-2.5 text-right text-red-600">
                     <CurrencyDisplay value={summary.totalDenda} size="sm" />
                   </td>
-                  <td />
+                  <td className="sticky right-0 bg-gray-50" />
                 </tr>
               </tfoot>
             </table>
@@ -494,7 +497,7 @@ export default function Piutang() {
       )}
 
       <p className="text-[11px] text-gray-400">
-        Definisi: sisa pokok = (total tagihan − pengurang) − cash in pembayaran. Sisa denda = denda terhitung − cash in denda per kerja sama. Masuk daftar jika sisa &gt; 0 dan
+        Definisi: nilai pokok = nominal kompensasi (DPP) tanpa PPN/PPh. Sisa tagihan = (total tagihan − pengurang) − cash in pembayaran; sisa pokok = bagian pokok dari sisa tagihan (proporsional). Sisa denda = denda terhitung − cash in denda per kerja sama. Masuk daftar jika sisa &gt; 0 dan
         (ada nomor/tanggal invoice ATAU tgl jatuh tempo ≤ hari ini). Aging &amp; denda dihitung dari
         tgl JT — denda mulai H+1 setelah jatuh tempo (tanpa grace).
       </p>
