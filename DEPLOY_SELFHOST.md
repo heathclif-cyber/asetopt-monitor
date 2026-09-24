@@ -78,6 +78,7 @@ Isi minimal:
 | Variabel | Contoh |
 |----------|--------|
 | `POSTGRES_PASSWORD` | password kuat |
+| `AUTH_SECRET` | acak ≥32 karakter (`python -c "import secrets; print(secrets.token_urlsafe(48))"`); API tidak mau berjalan tanpa ini |
 | `SUPERMAN_USER` | user Superman |
 | `SUPERMAN_PASSWORD` | password Superman |
 

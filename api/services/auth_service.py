@@ -21,11 +21,14 @@ TOKEN_TTL_HOURS = int(os.getenv("AUTH_TOKEN_TTL_HOURS", "72"))
 
 def auth_secret() -> str:
     secret = (os.getenv("AUTH_SECRET") or "").strip()
-    if not secret:
-        # Dev fallback (≥32 bytes) — WAJIB set AUTH_SECRET di production
-        secret = "asetopt-dev-secret-change-me-in-prod!!"
-        logger.warning("AUTH_SECRET tidak diset — memakai secret development")
-    return secret
+    if len(secret) >= 32:
+        return secret
+    # The fallback is public in this repository, so tokens signed with it can
+    # be forged by anyone. It is only accepted when explicitly allowed locally.
+    if os.getenv("AUTH_ALLOW_DEV_SECRET", "").lower() == "true":
+        logger.warning("AUTH_SECRET tidak diset — memakai secret development (AUTH_ALLOW_DEV_SECRET=true)")
+        return "asetopt-dev-secret-change-me-in-prod!!"
+    raise RuntimeError("AUTH_SECRET wajib diisi (minimal 32 karakter). Untuk pengembangan lokal saja, set AUTH_ALLOW_DEV_SECRET=true.")
 
 
 def hash_password(password: str) -> str:

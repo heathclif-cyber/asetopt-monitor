@@ -13,7 +13,7 @@ from routers.r_superman import router as superman_router
 from routers.r_integrasi import router as integrasi_router
 from routers.r_users import router as users_router
 from routers.r_gis import router as gis_router
-from services.auth_service import ensure_app_users_table, seed_default_users
+from services.auth_service import auth_secret, ensure_app_users_table, seed_default_users
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -51,6 +51,9 @@ app.include_router(gis_router)
 
 @app.on_event("startup")
 def on_startup():
+    # Refuse to serve without a real signing secret rather than failing on
+    # the first login.
+    auth_secret()
     try:
         db = SessionLocal()
         try:
