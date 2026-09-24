@@ -10,6 +10,7 @@ import {
 import { useKompensasiStore } from '@/store/kompensasiStore'
 import { useKerjaSamaStore } from '@/store/kerjaSamaStore'
 import { useNotifikasiStore } from '@/store/notifikasiStore'
+import { useCashInStore } from '@/store/cashInStore'
 import { useAuthStore } from '@/store/authStore'
 import { SearchableSelect } from '@/components/common/SearchableSelect'
 import { CurrencyDisplay } from '@/components/common/CurrencyDisplay'
@@ -48,7 +49,8 @@ const ALASAN_LABEL: Record<PiutangRow['alasan'], string> = {
 
 export default function Piutang() {
   const location = useLocation()
-  const { allKompensasi, fetchAllKompensasi, isLoading } = useKompensasiStore()
+  const { allKompensasi, fetchAllKompensasi, isLoading, getKompensasiWithStatus } = useKompensasiStore()
+  const { allCashIn, fetchAllCashIn } = useCashInStore()
   const { daftarKS, fetchKS } = useKerjaSamaStore()
   const { spAktif, fetchSPAktif } = useNotifikasiStore()
   const user = useAuthStore(s => s.user)
@@ -65,6 +67,7 @@ export default function Piutang() {
   useEffect(() => {
     fetchAllKompensasi()
     fetchKS()
+    fetchAllCashIn()
     if (!isViewer) fetchSPAktif()
   }, [location.key, isViewer])
 
@@ -110,6 +113,34 @@ export default function Piutang() {
   }, [allRows, filterMitra, filterAging, filterInvoice, filterTahun, q])
 
   const summary = useMemo(() => summarizePiutang(rows), [rows])
+
+  // Denda cash in is recorded per KS, and may settle late fees of invoices
+  // already paid, so the fee balance is computed per KS over all its invoices.
+  const dendaPerKS = useMemo(() => {
+    const ksIds = new Set(rows.map(r => r.ksId))
+    const byKs = new Map<string, { ksId: string; namaMitra: string; namaAset: string; terhitung: number; cashIn: number }>()
+    for (const r of rows) {
+      if (!byKs.has(r.ksId)) byKs.set(r.ksId, { ksId: r.ksId, namaMitra: r.namaMitra, namaAset: r.namaAset, terhitung: 0, cashIn: 0 })
+    }
+    for (const k of allKompensasi) {
+      const entry = byKs.get(k.ks_id)
+      if (!entry) continue
+      entry.terhitung += getKompensasiWithStatus(k, k.pembayaran ?? []).dendaAkumulasi.nominalDenda
+    }
+    for (const c of allCashIn) {
+      if (c.jenis === 'denda' && ksIds.has(c.ks_id)) byKs.get(c.ks_id)!.cashIn += Number(c.nominal)
+    }
+    const list = [...byKs.values()]
+      .map(entry => ({ ...entry, sisa: Math.max(0, entry.terhitung - entry.cashIn) }))
+      .filter(entry => entry.terhitung > 0.5 || entry.cashIn > 0)
+      .sort((a, b) => b.sisa - a.sisa)
+    return {
+      list,
+      terhitung: list.reduce((sum, entry) => sum + entry.terhitung, 0),
+      cashIn: list.reduce((sum, entry) => sum + entry.cashIn, 0),
+      sisa: list.reduce((sum, entry) => sum + entry.sisa, 0),
+    }
+  }, [rows, allKompensasi, allCashIn, getKompensasiWithStatus])
   const summaryAll = useMemo(() => summarizePiutang(allRows), [allRows])
 
   const clearFilters = () => {
@@ -181,35 +212,23 @@ export default function Piutang() {
         loading={exporting}
       />
 
-      {/* Summary */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div className="bg-white rounded-xl border border-orange-200 px-4 py-3">
-          <p className="text-xs text-gray-500 flex items-center gap-1">
-            <Wallet size={12} className="text-orange-500" /> Total Piutang
-          </p>
-          <p className="text-lg font-bold text-orange-600 mt-0.5">{formatRupiah(summary.totalSisa)}</p>
-          <p className="text-[11px] text-gray-400">{summary.nTagihan} tagihan</p>
+      {/* Summary: pokok vs denda */}
+      <div className="grid gap-3 lg:grid-cols-2">
+        <div className="rounded-xl border border-orange-200 bg-white p-4">
+          <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-orange-700"><Wallet size={13} /> Piutang pokok</p>
+          <div className="mt-3 grid grid-cols-3 gap-3">
+            <div><p className="text-[11px] text-gray-500">Tagihan jatuh tempo</p><p className="text-base font-bold tabular-nums text-gray-900">{formatRupiah(summary.totalTagihan)}</p><p className="text-[11px] text-gray-400">{summary.nTagihan} tagihan</p></div>
+            <div><p className="text-[11px] text-gray-500">Cash in diterima</p><p className="text-base font-bold tabular-nums text-green-700">{formatRupiah(summary.totalDibayar)}</p><p className="text-[11px] text-gray-400">pembayaran parsial</p></div>
+            <div><p className="text-[11px] text-gray-500">Sisa piutang pokok</p><p className="text-base font-bold tabular-nums text-orange-600">{formatRupiah(summary.totalSisa)}</p><p className="text-[11px] text-gray-400">{summary.nInvoice} ber-invoice · {summary.nTanpaInvoice} belum</p></div>
+          </div>
         </div>
-        <div className="bg-white rounded-xl border px-4 py-3">
-          <p className="text-xs text-gray-500">Sudah ditagih (efektif)</p>
-          <p className="text-lg font-bold text-gray-800 mt-0.5">{formatRupiah(summary.totalTagihan)}</p>
-          <p className="text-[11px] text-gray-400">Cash in parsial: {formatRupiah(summary.totalDibayar)}</p>
-        </div>
-        <div className="bg-white rounded-xl border px-4 py-3">
-          <p className="text-xs text-gray-500">Invoice</p>
-          <p className="text-lg font-bold text-[#1B4F72] mt-0.5">{summary.nInvoice}</p>
-          <p className="text-[11px] text-gray-400">{summary.nTanpaInvoice} belum invoice (sudah JT)</p>
-        </div>
-        <div className="bg-white rounded-xl border px-4 py-3">
-          <p className="text-xs text-gray-500">
-            {isViewer ? 'Est. denda' : 'Est. denda + SP aktif'}
-          </p>
-          <p className="text-lg font-bold text-red-600 mt-0.5">{formatRupiah(summary.totalDenda)}</p>
-          <p className="text-[11px] text-gray-400">
-            {isViewer
-              ? 'Akumulasi denda estimasi'
-              : `${summary.nSP} baris dengan SP KS`}
-          </p>
+        <div className="rounded-xl border border-red-200 bg-white p-4">
+          <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-red-700"><MessageSquareWarning size={13} /> Piutang denda</p>
+          <div className="mt-3 grid grid-cols-3 gap-3">
+            <div><p className="text-[11px] text-gray-500">Denda terhitung</p><p className="text-base font-bold tabular-nums text-gray-900">{formatRupiah(dendaPerKS.terhitung)}</p><p className="text-[11px] text-gray-400">semua tagihan mitra yang tampil</p></div>
+            <div><p className="text-[11px] text-gray-500">Cash in denda</p><p className="text-base font-bold tabular-nums text-green-700">{formatRupiah(dendaPerKS.cashIn)}</p><p className="text-[11px] text-gray-400">dari Input Cash In</p></div>
+            <div><p className="text-[11px] text-gray-500">Sisa piutang denda</p><p className="text-base font-bold tabular-nums text-red-600">{formatRupiah(dendaPerKS.sisa)}</p><p className="text-[11px] text-gray-400">{isViewer ? 'estimasi' : `${summary.nSP} baris dengan SP aktif`}</p></div>
+          </div>
         </div>
       </div>
 
@@ -335,17 +354,20 @@ export default function Piutang() {
           <div className="overflow-auto max-h-[70vh]">
             <table className="w-full text-xs">
               <thead className="sticky top-0 z-10">
-                <tr className="bg-gray-50 text-gray-500 uppercase shadow-[0_1px_0_#e5e7eb]">
-                  <th className="text-left px-3 py-2.5 w-6">#</th>
-                  <th className="text-left px-3 py-2.5">Mitra / Aset</th>
-                  <th className="text-left px-3 py-2.5">Periode</th>
-                  <th className="text-left px-3 py-2.5">JT</th>
-                  <th className="text-left px-3 py-2.5">Aging</th>
-                  <th className="text-right px-3 py-2.5">Tagihan</th>
-                  <th className="text-right px-3 py-2.5">Dibayar</th>
-                  <th className="text-right px-3 py-2.5">Sisa</th>
-                  <th className="text-right px-3 py-2.5">Denda</th>
-                  <th className="text-right px-3 py-2.5">Aksi</th>
+                <tr className="bg-gray-50 text-[10px] uppercase text-gray-500">
+                  <th rowSpan={2} className="w-6 px-3 py-2 text-left align-bottom">#</th>
+                  <th rowSpan={2} className="px-3 py-2 text-left align-bottom">Mitra / Aset</th>
+                  <th rowSpan={2} className="px-3 py-2 text-left align-bottom">Periode · JT</th>
+                  <th rowSpan={2} className="px-3 py-2 text-left align-bottom">Aging</th>
+                  <th colSpan={3} className="border-b border-l border-orange-100 bg-orange-50/60 px-3 py-1.5 text-center text-orange-700">Pokok</th>
+                  <th className="border-b border-l border-red-100 bg-red-50/60 px-3 py-1.5 text-center text-red-700">Denda</th>
+                  <th rowSpan={2} className="px-3 py-2 text-right align-bottom">Aksi</th>
+                </tr>
+                <tr className="bg-gray-50 text-[10px] uppercase text-gray-500 shadow-[0_1px_0_#e5e7eb]">
+                  <th className="border-l border-orange-100 px-3 py-2 text-right">Tagihan</th>
+                  <th className="px-3 py-2 text-right">Cash in</th>
+                  <th className="px-3 py-2 text-right">Sisa</th>
+                  <th className="border-l border-red-100 px-3 py-2 text-right">Estimasi</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
@@ -360,9 +382,7 @@ export default function Piutang() {
                     <td className="px-3 py-2 text-gray-700">
                       {r.periodeLabel}
                       <div className="text-[10px] text-gray-400 mt-0.5">{ALASAN_LABEL[r.alasan]}</div>
-                    </td>
-                    <td className="px-3 py-2 whitespace-nowrap">
-                      <div>{formatTanggal(r.tglJatuhTempo)}</div>
+                      <div className="mt-1 whitespace-nowrap">JT {formatTanggal(r.tglJatuhTempo)}</div>
                       <div className={cn(
                         'text-[10px] font-medium mt-0.5',
                         r.hariDariJT < 0 ? 'text-blue-600' : 'text-red-600',
@@ -376,13 +396,13 @@ export default function Piutang() {
                     </td>
                     <td className="px-3 py-2">
                       <span className={cn(
-                        'inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold border',
+                        'inline-block whitespace-nowrap px-2 py-0.5 rounded-full text-[10px] font-semibold border',
                         AGING_COLOR[r.aging],
                       )}>
                         {PIUTANG_AGING_LABEL[r.aging]}
                       </span>
                     </td>
-                    <td className="px-3 py-2 text-right">
+                    <td className="border-l border-orange-50 px-3 py-2 text-right">
                       <CurrencyDisplay value={r.efektifTagihan} size="sm" />
                     </td>
                     <td className="px-3 py-2 text-right text-green-700">
@@ -391,7 +411,7 @@ export default function Piutang() {
                     <td className="px-3 py-2 text-right">
                       <CurrencyDisplay value={r.sisa} size="sm" className="text-orange-600 font-semibold" />
                     </td>
-                    <td className="px-3 py-2 text-right">
+                    <td className="border-l border-red-50 px-3 py-2 text-right">
                       {r.nominalDenda > 0.5 ? (
                         <CurrencyDisplay value={r.nominalDenda} size="sm" className="text-red-600" />
                       ) : (
@@ -415,7 +435,7 @@ export default function Piutang() {
               </tbody>
               <tfoot>
                 <tr className="border-t-2 bg-gray-50 font-semibold text-xs">
-                  <td colSpan={5} className="px-3 py-2.5 text-gray-700">
+                  <td colSpan={4} className="px-3 py-2.5 text-gray-700">
                     Total ({rows.length} piutang)
                   </td>
                   <td className="px-3 py-2.5 text-right">
@@ -438,8 +458,43 @@ export default function Piutang() {
         </div>
       )}
 
+      {dendaPerKS.list.length > 0 && (
+        <div className="overflow-hidden rounded-xl border bg-white">
+          <div className="border-b px-4 py-3">
+            <p className="text-sm font-semibold text-gray-800">Piutang denda per mitra</p>
+            <p className="text-xs text-gray-500">Cash in denda dicatat per kerja sama, jadi sisanya dihitung dari seluruh denda tagihan mitra, termasuk tagihan yang sudah lunas tetapi dibayar terlambat.</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[560px] text-xs">
+              <thead><tr className="bg-gray-50 text-[10px] uppercase text-gray-500">
+                <th className="px-3 py-2 text-left">Mitra / Aset</th>
+                <th className="px-3 py-2 text-right">Denda terhitung</th>
+                <th className="px-3 py-2 text-right">Cash in denda</th>
+                <th className="px-3 py-2 text-right">Sisa denda</th>
+              </tr></thead>
+              <tbody className="divide-y">
+                {dendaPerKS.list.map(entry => (
+                  <tr key={entry.ksId} className="hover:bg-gray-50">
+                    <td className="px-3 py-2"><div className="font-medium text-gray-900">{entry.namaMitra}</div><div className="text-[11px] text-gray-500">{entry.namaAset}</div></td>
+                    <td className="px-3 py-2 text-right"><CurrencyDisplay value={entry.terhitung} size="sm" /></td>
+                    <td className="px-3 py-2 text-right text-green-700"><CurrencyDisplay value={entry.cashIn} size="sm" /></td>
+                    <td className="px-3 py-2 text-right"><CurrencyDisplay value={entry.sisa} size="sm" className="font-semibold text-red-600" /></td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot><tr className="border-t-2 bg-gray-50 font-semibold">
+                <td className="px-3 py-2.5 text-gray-700">Total</td>
+                <td className="px-3 py-2.5 text-right"><CurrencyDisplay value={dendaPerKS.terhitung} size="sm" /></td>
+                <td className="px-3 py-2.5 text-right text-green-700"><CurrencyDisplay value={dendaPerKS.cashIn} size="sm" /></td>
+                <td className="px-3 py-2.5 text-right text-red-600"><CurrencyDisplay value={dendaPerKS.sisa} size="sm" /></td>
+              </tr></tfoot>
+            </table>
+          </div>
+        </div>
+      )}
+
       <p className="text-[11px] text-gray-400">
-        Definisi: sisa = (total tagihan − pengurang) − pembayaran. Masuk daftar jika sisa &gt; 0 dan
+        Definisi: sisa pokok = (total tagihan − pengurang) − cash in pembayaran. Sisa denda = denda terhitung − cash in denda per kerja sama. Masuk daftar jika sisa &gt; 0 dan
         (ada nomor/tanggal invoice ATAU tgl jatuh tempo ≤ hari ini). Aging &amp; denda dihitung dari
         tgl JT — denda mulai H+1 setelah jatuh tempo (tanpa grace).
       </p>
