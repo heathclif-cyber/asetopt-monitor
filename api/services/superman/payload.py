@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, fields
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy.orm import joinedload
@@ -15,19 +16,21 @@ from services.superman.komoditi_map import (
     GL_PPN,
     KPP_RECIPIENT_NAME,
     PROFIT_CENTER_SEARCH,
-    SAP_CUSTOMER,
-    resolve_gl_pendapatan_aset,
 )
 
 
-def _to_superman_date(raw: str) -> str:
-    if not raw:
-        return ""
-    parts = raw.split("-")
-    if len(parts) == 3 and len(parts[0]) == 4:
-        y, m, d = parts
-        return f"{d}/{m}/{y}"
-    return raw
+# Image API tanpa tzdata; WIB tetap UTC+7 tanpa DST.
+WIB = timezone(timedelta(hours=7))
+
+
+def _tanggal_dokumen() -> str:
+    """Tanggal surat SPPn/SPPb = hari dibuat (WIB), bukan tanggal bayar.
+
+    Superman menurunkan bulan nomor dari tanggal ini; tanggal mundur ke bulan lalu
+    membuat nomor bentrok (mis. SPPn/99/VIII/2026 sudah terpakai) dan simpan gagal.
+    """
+    # Superman mem-parse d-m-Y; format d/m/Y membuat simpan gagal ("Terdapat Error Saat Proses Penyimpanan").
+    return datetime.now(WIB).strftime("%d-%m-%Y")
 
 
 @dataclass
@@ -38,6 +41,7 @@ class LineItem:
     cash_flow: str
     uraian: str
     nominal: int
+    customer_nama: str = ""
 
 
 @dataclass
@@ -102,11 +106,55 @@ def _efektif_tagihan(kompensasi: models.Kompensasi) -> float:
     return max(0.0, total - pengurang)
 
 
-def _efektif_pokok_ppn(kompensasi: models.Kompensasi) -> float:
-    """Pokok+PPN saja — abaikan PPh sepenuhnya, dipakai gerbang SPPn independen."""
-    pokok_ppn = float(kompensasi.nominal or 0) + float(kompensasi.nominal_ppn or 0)
-    pengurang = float(kompensasi.pengurang or 0)
-    return max(0.0, pokok_ppn - pengurang)
+def _kas_diterima(kompensasi: models.Kompensasi, pay_rows: list) -> float:
+    pay_total = sum(float(p.nominal_bayar or 0) for p in pay_rows)
+    return min(pay_total, _efektif_tagihan(kompensasi))
+
+
+def _porsi_diterima(kompensasi: models.Kompensasi, pay_rows: list) -> tuple[int, int, int, int]:
+    """(dpp, ppn, pph, kas) sebanding uang masuk terhadap kewajiban kas efektif.
+
+    Tagihan belum lunas tetap boleh di-SPPn-kan: DPP/PPN/PPh diskalakan dengan
+    rasio kas/efektif. Selisih pembulatan diserap PPN agar SPPn − SPPb = kas persis.
+    """
+    efektif = _efektif_tagihan(kompensasi)
+    kas = _kas_diterima(kompensasi, pay_rows)
+    if efektif <= 0 or kas <= 0:
+        return 0, 0, 0, 0
+    rasio = kas / efektif
+    pph_full = 0.0
+    if str(kompensasi.pph_mode or "none") == "bukti_potong":
+        pph_full = float(kompensasi.nominal_pph or 0)
+    dpp = int(round(float(kompensasi.nominal or 0) * rasio))
+    pph = int(round(pph_full * rasio))
+    kas_i = int(round(kas))
+    if float(kompensasi.pengurang or 0) > 0:
+        ppn = int(round(float(kompensasi.nominal_ppn or 0) * rasio))
+    else:
+        ppn = kas_i + pph - dpp
+    return dpp, ppn, pph, kas_i
+
+
+def _is_sebagian(kompensasi: models.Kompensasi, pay_rows: list) -> bool:
+    return _kas_diterima(kompensasi, pay_rows) + 0.5 < _efektif_tagihan(kompensasi)
+
+
+def _belum_ada_pembayaran(kompensasi: models.Kompensasi) -> ValueError:
+    return ValueError(
+        f"Belum ada pembayaran yang diterima untuk tagihan ini "
+        f"(kewajiban efektif: Rp {_efektif_tagihan(kompensasi):,.0f})."
+    )
+
+
+def _kode_customer_mitra(ks: models.KerjaSama) -> str:
+    """Baris pendapatan memakai customer = mitra sendiri; kodenya No. Kontrak SAP KS."""
+    kode = (ks.no_kontrak_sap or "").strip()
+    if not kode:
+        raise ValueError(
+            f"No. Kontrak SAP untuk {ks.nama_mitra or 'mitra ini'} belum diisi di Kerja Sama — "
+            "nomor itu dipakai sebagai Kode Customer mitra di Superman."
+        )
+    return kode
 
 
 def _load_kompensasi(db, kompensasi_id: str) -> models.Kompensasi:
@@ -136,24 +184,15 @@ def build_payload_from_kompensasi(kompensasi_id: str) -> DeklarasiPayload:
             kompensasi.pembayaran or [],
             key=lambda p: (p.tgl_bayar or "", p.no_pembayaran or ""),
         )
-        efektif = _efektif_tagihan(kompensasi)
-        pay_total = sum(float(p.nominal_bayar or 0) for p in pay_rows)
-        if pay_total + 0.5 < efektif:
-            raise ValueError(
-                f"Kompensasi belum lunas. Total pembayaran: Rp {pay_total:,.0f}, "
-                f"kewajiban efektif: Rp {efektif:,.0f}"
-            )
+        dpp, ppn, pph, kas = _porsi_diterima(kompensasi, pay_rows)
+        if kas <= 0:
+            raise _belum_ada_pembayaran(kompensasi)
+        sebagian = _is_sebagian(kompensasi, pay_rows)
 
         latest_pay = pay_rows[-1] if pay_rows else None
-        dpp = int(round(float(kompensasi.nominal or 0)))
-        ppn = int(round(float(kompensasi.nominal_ppn or 0)))
-        pph = 0
-        if str(kompensasi.pph_mode or "none") == "bukti_potong":
-            pph = int(round(float(kompensasi.nominal_pph or 0)))
 
         pph_persen = float(kompensasi.pph_persen or 0) if pph > 0 else 0.0
         jenis_form = "sppb_sppn" if pph > 0 else "sppn"
-        gl_pendapatan = resolve_gl_pendapatan_aset()
 
         aset_nama = (ks.aset.nama_aset or "").strip() if ks.aset else "Aset"
         periode = (kompensasi.periode_label or "").strip()
@@ -166,6 +205,8 @@ def build_payload_from_kompensasi(kompensasi_id: str) -> DeklarasiPayload:
             uraian_pokok += f" periode {periode}"
         if mitra:
             uraian_pokok += f" ({mitra})"
+        if sebagian:
+            uraian_pokok += " - pembayaran sebagian"
 
         uraian_ppn = f"PPN atas Penerimaan Sewa {aset_nama}"
         if periode:
@@ -188,8 +229,9 @@ def build_payload_from_kompensasi(kompensasi_id: str) -> DeklarasiPayload:
         if dpp > 0:
             line_items.append(
                 LineItem(
-                    gl_code=gl_pendapatan,
-                    sap_customer=SAP_CUSTOMER,
+                    gl_code="",
+                    sap_customer=_kode_customer_mitra(ks),
+                    customer_nama=mitra,
                     profit_center_search=PROFIT_CENTER_SEARCH,
                     cash_flow=CF_PENDAPATAN_ID,
                     uraian=uraian_pokok,
@@ -200,19 +242,13 @@ def build_payload_from_kompensasi(kompensasi_id: str) -> DeklarasiPayload:
             line_items.append(
                 LineItem(
                     gl_code=GL_PPN,
-                    sap_customer=SAP_CUSTOMER,
+                    sap_customer="",
                     profit_center_search=PROFIT_CENTER_SEARCH,
                     cash_flow=CF_PPN_ID,
                     uraian=uraian_ppn,
                     nominal=ppn,
                 )
             )
-
-        raw_date = ""
-        if latest_pay and latest_pay.tgl_bayar:
-            raw_date = latest_pay.tgl_bayar.isoformat()
-        elif kompensasi.invoice_tgl:
-            raw_date = kompensasi.invoice_tgl.isoformat()
 
         no_pembayaran = (latest_pay.no_pembayaran if latest_pay else "") or ""
         ba_au58 = no_kontrak or "-"
@@ -225,19 +261,19 @@ def build_payload_from_kompensasi(kompensasi_id: str) -> DeklarasiPayload:
             no_kontrak=no_kontrak,
             ba_au58=ba_au58,
             mitra_pembeli=mitra,
-            tanggal_transfer=_to_superman_date(raw_date),
+            tanggal_transfer=_tanggal_dokumen(),
             dpp_pokok=dpp,
             pajak_ppn=ppn,
             pph_nominal=pph,
             pph_persen=pph_persen,
-            jumlah_transfer=int(round(efektif)),
+            jumlah_transfer=kas,
             periode_label=periode,
             uraian_pokok=uraian_pokok,
             uraian_ppn=uraian_ppn,
             uraian_pph=uraian_pph,
-            referensi=no_invoice,
+            referensi=(kompensasi.no_invoice or "").strip() or "-",
             kontrak_sap=(ks.no_kontrak_sap or "").strip(),
-            gl_pendapatan=gl_pendapatan,
+            gl_pendapatan="",
             gl_ppn=GL_PPN,
             gl_pph=GL_PPH,
             jenis_form=jenis_form,
@@ -250,10 +286,8 @@ def build_payload_from_kompensasi(kompensasi_id: str) -> DeklarasiPayload:
 
 
 def sppn_ready(kompensasi: models.Kompensasi, pay_rows: list) -> bool:
-    """Pokok+PPN sudah diterima — abaikan status PPh sepenuhnya."""
-    efektif = _efektif_pokok_ppn(kompensasi)
-    pay_total = sum(float(p.nominal_bayar or 0) for p in pay_rows)
-    return pay_total + 0.5 >= efektif
+    """Minimal ada uang masuk — nominal SPPn mengikuti porsi yang diterima."""
+    return _kas_diterima(kompensasi, pay_rows) > 0.5
 
 
 def sppb_pph_ready(kompensasi: models.Kompensasi, pay_rows: list) -> bool:
@@ -277,16 +311,11 @@ def build_sppn_payload(kompensasi_id: str) -> DeklarasiPayload:
             key=lambda p: (p.tgl_bayar or "", p.no_pembayaran or ""),
         )
         if not sppn_ready(kompensasi, pay_rows):
-            efektif = _efektif_pokok_ppn(kompensasi)
-            pay_total = sum(float(p.nominal_bayar or 0) for p in pay_rows)
-            raise ValueError(
-                f"Pokok+PPN belum lunas. Total pembayaran: Rp {pay_total:,.0f}, "
-                f"kewajiban pokok+PPN: Rp {efektif:,.0f}"
-            )
+            raise _belum_ada_pembayaran(kompensasi)
+        dpp, ppn, _pph, _kas = _porsi_diterima(kompensasi, pay_rows)
+        sebagian = _is_sebagian(kompensasi, pay_rows)
 
         latest_pay = pay_rows[-1] if pay_rows else None
-        dpp = int(round(float(kompensasi.nominal or 0)))
-        ppn = int(round(float(kompensasi.nominal_ppn or 0)))
 
         aset_nama = (ks.aset.nama_aset or "").strip() if ks.aset else "Aset"
         periode = (kompensasi.periode_label or "").strip()
@@ -299,6 +328,8 @@ def build_sppn_payload(kompensasi_id: str) -> DeklarasiPayload:
             uraian_pokok += f" periode {periode}"
         if mitra:
             uraian_pokok += f" ({mitra})"
+        if sebagian:
+            uraian_pokok += " - pembayaran sebagian"
         uraian_ppn = f"PPN atas Penerimaan Sewa {aset_nama}"
         if periode:
             uraian_ppn += f" {periode}"
@@ -307,8 +338,9 @@ def build_sppn_payload(kompensasi_id: str) -> DeklarasiPayload:
         if dpp > 0:
             line_items.append(
                 LineItem(
-                    gl_code=resolve_gl_pendapatan_aset(),
-                    sap_customer=SAP_CUSTOMER,
+                    gl_code="",
+                    sap_customer=_kode_customer_mitra(ks),
+                    customer_nama=mitra,
                     profit_center_search=PROFIT_CENTER_SEARCH,
                     cash_flow=CF_PENDAPATAN_ID,
                     uraian=uraian_pokok,
@@ -319,19 +351,13 @@ def build_sppn_payload(kompensasi_id: str) -> DeklarasiPayload:
             line_items.append(
                 LineItem(
                     gl_code=GL_PPN,
-                    sap_customer=SAP_CUSTOMER,
+                    sap_customer="",
                     profit_center_search=PROFIT_CENTER_SEARCH,
                     cash_flow=CF_PPN_ID,
                     uraian=uraian_ppn,
                     nominal=ppn,
                 )
             )
-
-        raw_date = ""
-        if latest_pay and latest_pay.tgl_bayar:
-            raw_date = latest_pay.tgl_bayar.isoformat()
-        elif kompensasi.invoice_tgl:
-            raw_date = kompensasi.invoice_tgl.isoformat()
 
         no_pembayaran = (latest_pay.no_pembayaran if latest_pay else "") or ""
         ba_au58 = no_kontrak or "-"
@@ -344,7 +370,7 @@ def build_sppn_payload(kompensasi_id: str) -> DeklarasiPayload:
             no_kontrak=no_kontrak,
             ba_au58=ba_au58,
             mitra_pembeli=mitra,
-            tanggal_transfer=_to_superman_date(raw_date),
+            tanggal_transfer=_tanggal_dokumen(),
             dpp_pokok=dpp,
             pajak_ppn=ppn,
             pph_nominal=0,
@@ -354,9 +380,9 @@ def build_sppn_payload(kompensasi_id: str) -> DeklarasiPayload:
             uraian_pokok=uraian_pokok,
             uraian_ppn=uraian_ppn,
             uraian_pph="",
-            referensi=no_invoice,
+            referensi=(kompensasi.no_invoice or "").strip() or "-",
             kontrak_sap=(ks.no_kontrak_sap or "").strip(),
-            gl_pendapatan=resolve_gl_pendapatan_aset(),
+            gl_pendapatan="",
             gl_ppn=GL_PPN,
             gl_pph=GL_PPH,
             jenis_form="sppn",
@@ -387,7 +413,7 @@ def build_sppb_pph_payload(kompensasi_id: str) -> DeklarasiPayload:
                 "minimal 1 pembayaran ditandai 'PPh sudah disetor'."
             )
 
-        pph = int(round(float(kompensasi.nominal_pph or 0)))
+        _dpp, _ppn, pph, _kas = _porsi_diterima(kompensasi, pay_rows)
         if pph <= 0:
             raise ValueError("Nominal PPh nol — tidak ada yang perlu dideklarasikan.")
         pph_persen = float(kompensasi.pph_persen or 0)
@@ -404,12 +430,6 @@ def build_sppb_pph_payload(kompensasi_id: str) -> DeklarasiPayload:
 
         pph_pay_rows = [p for p in pay_rows if p.is_pph_disetor]
         latest_pph_pay = pph_pay_rows[-1] if pph_pay_rows else (pay_rows[-1] if pay_rows else None)
-        raw_date = ""
-        if latest_pph_pay and latest_pph_pay.tgl_bayar:
-            raw_date = latest_pph_pay.tgl_bayar.isoformat()
-        elif kompensasi.invoice_tgl:
-            raw_date = kompensasi.invoice_tgl.isoformat()
-
         no_pembayaran = (latest_pph_pay.no_pembayaran if latest_pph_pay else "") or ""
         ba_au58 = no_kontrak or "-"
 
@@ -429,7 +449,7 @@ def build_sppb_pph_payload(kompensasi_id: str) -> DeklarasiPayload:
             no_kontrak=no_kontrak,
             ba_au58=ba_au58,
             mitra_pembeli=mitra,
-            tanggal_transfer=_to_superman_date(raw_date),
+            tanggal_transfer=_tanggal_dokumen(),
             dpp_pokok=0,
             pajak_ppn=0,
             pph_nominal=pph,
@@ -439,9 +459,9 @@ def build_sppb_pph_payload(kompensasi_id: str) -> DeklarasiPayload:
             uraian_pokok="",
             uraian_ppn="",
             uraian_pph=uraian_pph,
-            referensi=no_invoice,
+            referensi=(kompensasi.no_invoice or "").strip() or "-",
             kontrak_sap=(ks.no_kontrak_sap or "").strip(),
-            gl_pendapatan=resolve_gl_pendapatan_aset(),
+            gl_pendapatan="",
             gl_ppn=GL_PPN,
             gl_pph=GL_PPH,
             jenis_form="sppb",

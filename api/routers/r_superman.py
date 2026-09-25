@@ -9,6 +9,7 @@ from database import get_db
 from services.auth_deps import require_write
 from services.superman.agent_registry import heartbeat as agent_heartbeat
 from services.superman.auth import SupermanCaptchaError, SupermanCaptchaRequired
+from services.superman.sync_executor import run_playwright_sync
 from services.superman.documents import superman_doc_requirements_for_kompensasi
 from services.superman.runner import (
     AGENT_HELP_MESSAGE,
@@ -154,7 +155,9 @@ def superman_recover(
     force: bool = Query(False),
 ):
     try:
-        return recover_superman_from_todo(kompensasi_id=str(kompensasi_id), force=force)
+        return run_playwright_sync(
+            recover_superman_from_todo, kompensasi_id=str(kompensasi_id), force=force
+        )
     except Exception as exc:
         raise _map_deklarasi_error(exc) from exc
 
@@ -162,7 +165,7 @@ def superman_recover(
 @router.get("/todo-inspect")
 def superman_todo_inspect(kompensasi_id: UUID = Query(...)):
     try:
-        return inspect_superman_todo(kompensasi_id=str(kompensasi_id))
+        return run_playwright_sync(inspect_superman_todo, kompensasi_id=str(kompensasi_id))
     except Exception as exc:
         raise _map_deklarasi_error(exc) from exc
 
@@ -186,7 +189,7 @@ def superman_deklarasi_progress(job_id: str = Query(..., min_length=1)):
 @router.post("/deklarasi")
 def superman_deklarasi(kompensasi_id: UUID = Query(...)):
     try:
-        return submit_deklarasi_smart(str(kompensasi_id))
+        return run_playwright_sync(submit_deklarasi_smart, str(kompensasi_id))
     except Exception as exc:
         raise _map_deklarasi_error(exc) from exc
 

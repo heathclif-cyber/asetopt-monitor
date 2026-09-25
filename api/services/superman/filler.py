@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from pathlib import Path
 
@@ -20,6 +21,19 @@ from services.superman.select2_helpers import (
 )
 
 TAMBAH_URL = "/spp/tambah"
+# Superman memakai id "faktur_pajak_sppn_1" juga untuk <div> pembungkusnya, jadi
+# "#faktur_pajak_sppn_1" menunjuk ke div — input harus dicari lewat name.
+FAKTUR_PAJAK_SPPN_1 = 'input[name="faktur_pajak_sppn[1][fp]"]'
+logger = logging.getLogger(__name__)
+
+
+def _open_tab(page: Page, tab_href: str) -> None:
+    # Klik DOM, bukan klik koordinat: saat form memanjang, link tab bisa tertutup navbar
+    # fixed-top sehingga click(force=True) mengenai logo dan membuka /dashboard.
+    page.evaluate(
+        "(href) => { const a = document.querySelector(`a[href=\"${href}\"]`); if (a) a.click(); }",
+        tab_href,
+    )
 
 
 def _wait_loaded(page: Page) -> None:
@@ -52,31 +66,31 @@ def _set_readonly_input(page: Page, selector: str, value: str) -> None:
     )
 
 
-def _fill_nama_alamat_diterima(page: Page, payload: DeklarasiPayload) -> None:
-    nama = (payload.mitra_pembeli or "-").strip()
-    alamat = nama
-    if page.locator("#nama_diterima_sppn").count():
-        try:
-            page.select_option("#nama_diterima_sppn", "tertanggu", force=True)
-        except Exception:
-            pass
-        page.locator("#nama_diterima_sppn").dispatch_event("change")
-        page.wait_for_timeout(300)
-    page.fill("#nama_diterima_sppn_input", nama)
-    page.fill("#alamat_diterima_sppn_input", alamat)
-    for sel in ("#nama_diterima_sppn_input", "#alamat_diterima_sppn_input"):
-        page.locator(sel).dispatch_event("input")
-        page.locator(sel).dispatch_event("change")
+def _fill_input(page: Page, selector: str, value: str) -> None:
+    page.evaluate(
+        """([sel, val]) => {
+            const el = document.querySelector(sel);
+            if (!el) return;
+            el.removeAttribute('readonly');
+            el.value = val;
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+            if (window.jQuery) window.jQuery(el).trigger('input').trigger('change');
+        }""",
+        [selector, value],
+    )
 
 
 def _fill_shared_informasi(page: Page, payload: DeklarasiPayload, cfg: SupermanConfig) -> None:
     if payload.jenis_form == "sppb_sppn":
-        page.fill("#kwitansi_spp", payload.mitra_pembeli)
-        page.fill("#referensi_spp", payload.referensi or "-")
-        page.fill("#berita_acara_sppb", payload.ba_au58 or payload.no_pembayaran or payload.no_do or "-")
-        page.fill("#sp_opl_sppb", payload.no_kontrak or "-")
-        page.fill("#sp_opl_sppn", payload.no_kontrak or "-")
-        page.fill("#au58_sppn", payload.ba_au58 or payload.no_pembayaran or payload.no_do or "-")
+        ref = payload.referensi or payload.no_invoice or "-"
+        _fill_input(page, "#kwitansi_spp", payload.mitra_pembeli)
+        _fill_input(page, "#referensi_spp", ref)
+        _fill_input(page, "#referensi_sppn", ref)
+        _fill_input(page, "#berita_acara_sppb", payload.ba_au58 or payload.no_pembayaran or payload.no_do or "-")
+        _fill_input(page, "#sp_opl_sppb", payload.no_kontrak or "-")
+        _fill_input(page, "#sp_opl_sppn", payload.no_kontrak or "-")
+        _fill_input(page, "#au58_sppn", payload.ba_au58 or payload.no_pembayaran or payload.no_do or "-")
         page.select_option("#bagian_sppb", cfg.bagian)
         page.select_option("#bagian_sppn", cfg.bagian)
         if payload.tanggal_transfer:
@@ -99,18 +113,22 @@ def _fill_shared_informasi(page: Page, payload: DeklarasiPayload, cfg: SupermanC
             [payload.kpp_recipient],
         )
         page.wait_for_timeout(800)
-        _fill_nama_alamat_diterima(page, payload)
+        page.fill("#nama_diterima_sppn_input", "tertanggu")
+        page.fill("#alamat_diterima_sppn_input", "tertanggu")
+        _fill_input(page, "#kwitansi_sppn", payload.mitra_pembeli)
+        _fill_input(page, FAKTUR_PAJAK_SPPN_1, "-")
         return
 
-    page.fill("#kwitansi_sppn", payload.mitra_pembeli)
-    page.fill("#referensi_sppn", payload.referensi or "-")
-    page.fill("#au58_sppn", payload.ba_au58 or payload.no_pembayaran or payload.no_do or "-")
-    page.fill("#sp_opl_sppn", payload.no_kontrak or "-")
+    _fill_input(page, "#kwitansi_sppn", payload.mitra_pembeli)
+    _fill_input(page, "#referensi_sppn", payload.referensi or payload.no_invoice or "-")
+    _fill_input(page, "#au58_sppn", payload.ba_au58 or payload.no_pembayaran or payload.no_do or "-")
+    _fill_input(page, "#sp_opl_sppn", payload.no_kontrak or "-")
     page.select_option("#bagian_sppn", cfg.bagian)
     if payload.tanggal_transfer:
         _set_readonly_input(page, "#tanggal_sppn", payload.tanggal_transfer)
-        page.locator("#tanggal_sppn").dispatch_event("blur")
-    _fill_nama_alamat_diterima(page, payload)
+    _fill_input(page, "#nama_diterima_sppn_input", "tertanggu")
+    _fill_input(page, "#alamat_diterima_sppn_input", "tertanggu")
+    _fill_input(page, FAKTUR_PAJAK_SPPN_1, "-")
 
 
 def _set_ckeditor(page: Page, editor_id: str, text: str) -> None:
@@ -147,18 +165,16 @@ def _set_ckeditor(page: Page, editor_id: str, text: str) -> None:
 
 
 def _fill_isi_sppn_block(page: Page, isi_index: int, item: LineItem) -> None:
-    if item.gl_code.startswith("411"):
-        page.select_option(f"#jenis_sap_sppn_{isi_index}", "customer", force=True)
-        page.wait_for_timeout(500)
-        pick_customer(page, isi_index, item.sap_customer)
-    else:
+    if item.gl_code:
         pick_gl(page, isi_index, item.gl_code)
-        pick_customer(page, isi_index, item.sap_customer)
+    else:
+        pick_customer(page, isi_index, item.sap_customer, nama=item.customer_nama)
     pick_profit_center(page, isi_index, item.profit_center_search)
     pick_cash_flow(page, isi_index, item.cash_flow)
 
     editor_id = f"ckeditors_{isi_index}_1"
     _set_ckeditor(page, editor_id, item.uraian)
+    page.locator(f"#{editor_id}").fill(item.uraian)
     page.select_option(
         f"#pilih_pajak_sppn_{isi_index}_1",
         f"tanpa_pajak_sppn_{isi_index}_1",
@@ -176,6 +192,7 @@ def _fill_isi_sppb_block(page: Page, isi_index: int, item: SppbLineItem) -> None
 
     editor_id = f"ckeditor_{isi_index}_1"
     _set_ckeditor(page, editor_id, item.uraian)
+    page.locator(f"#{editor_id}").fill(item.uraian)
     page.select_option(
         f"#pilih_pajak_sppb_{isi_index}_1",
         f"tanpa_pajak_sppb_{isi_index}_1",
@@ -183,13 +200,6 @@ def _fill_isi_sppb_block(page: Page, isi_index: int, item: SppbLineItem) -> None
     )
     page.fill(f"#nominal_sppb_{isi_index}_1", str(item.nominal))
     page.locator(f"#nominal_sppb_{isi_index}_1").dispatch_event("keyup")
-
-
-def _is_upload_response(resp) -> bool:
-    url = resp.url.lower()
-    return resp.request.method in ("POST", "PUT") and any(
-        token in url for token in ("upload", "dokumen", "file", "lampiran", "attach")
-    )
 
 
 def _count_doc_markers(page: Page, *, tab_selector: str, input_selector: str) -> int:
@@ -235,8 +245,28 @@ def _wait_doc_markers(page: Page, *, tab_selector: str, input_selector: str, min
             const total = Math.max(inputCount, listMarkers, tableMarkers, hiddenMarkers);
             return total >= minimum;
         }""",
-        [tab_selector, input_selector, minimum],
+        arg=[tab_selector, input_selector, minimum],
         timeout=timeout,
+    )
+
+
+def _count_uploaded_docs(page: Page, input_selector: str) -> int:
+    """File terlampir di widget bootstrap-fileinput Superman (input asli atau preview)."""
+    return int(
+        page.evaluate(
+            """(sel) => {
+                const input = document.querySelector(sel);
+                if (!input) return 0;
+                const files = input.files ? input.files.length : 0;
+                const root = input.closest('.file-input');
+                const previews = root
+                    ? root.querySelectorAll('.file-preview-thumbnails .file-preview-frame').length
+                    : 0;
+                return Math.max(files, previews);
+            }""",
+            input_selector,
+        )
+        or 0
     )
 
 
@@ -247,33 +277,18 @@ def _upload_files_to_input(
     *,
     tab_selector: str,
 ) -> None:
+    # Dokumen ikut terkirim bersama POST /spp/store, jadi semua file harus ada di input
+    # sekaligus — set_input_files per file menimpa file sebelumnya.
     locator = page.locator(selector).first
     locator.wait_for(state="attached", timeout=15000)
-    for path in paths:
-        before = _count_doc_markers(
-            page,
-            tab_selector=tab_selector,
-            input_selector=selector,
-        )
-        try:
-            with page.expect_response(_is_upload_response, timeout=60000):
-                locator.set_input_files(path)
-                locator.dispatch_event("change")
-        except Exception:
-            locator.set_input_files(path)
-            locator.dispatch_event("change")
-            page.wait_for_timeout(3000)
-        try:
-            _wait_doc_markers(
-                page,
-                tab_selector=tab_selector,
-                input_selector=selector,
-                minimum=max(before + 1, 1),
-                timeout=60000,
-            )
-        except Exception:
-            page.wait_for_timeout(2500)
-        page.wait_for_timeout(800)
+    locator.set_input_files(paths)
+    page.wait_for_timeout(800)
+    for _ in range(15):
+        if _count_uploaded_docs(page, selector) >= len(paths):
+            return
+        page.wait_for_timeout(1000)
+    got = _count_uploaded_docs(page, selector)
+    raise RuntimeError(f"Dokumen pendukung belum terlampir di {selector} ({got}/{len(paths)} file)")
 
 
 def _upload_support_docs(page: Page, support_docs: list[Path], *, combined: bool) -> None:
@@ -285,7 +300,7 @@ def _upload_support_docs(page: Page, support_docs: list[Path], *, combined: bool
         )
 
     if combined:
-        page.locator('a[href="#tab-informasi-sppb"]').click(force=True)
+        _open_tab(page, "#tab-informasi-sppb")
         page.wait_for_timeout(500)
         _upload_files_to_input(
             page,
@@ -300,7 +315,7 @@ def _upload_support_docs(page: Page, support_docs: list[Path], *, combined: bool
             minimum=1,
         )
 
-    page.locator('a[href="#tab-informasi-sppn"]').click(force=True)
+    _open_tab(page, "#tab-informasi-sppn")
     page.wait_for_timeout(600)
     _upload_files_to_input(
         page,
@@ -335,7 +350,7 @@ def _upload_support_docs_sppb_only(page: Page, support_docs: list[Path]) -> None
             "Upload ulang dokumen pendukung PPh di Input Pembayaran."
         )
 
-    page.locator('a[href="#tab-informasi-sppb"]').click(force=True)
+    _open_tab(page, "#tab-informasi-sppb")
     page.wait_for_timeout(500)
     _upload_files_to_input(
         page,
@@ -406,7 +421,7 @@ def fill_sppb_only_draft(
     _fill_shared_informasi_sppb_only(page, payload, cfg)
 
     report(50, "Mengisi baris SPPb (PPh)")
-    page.locator('a[href="#tab-isi-sppb"]').click(force=True)
+    _open_tab(page, "#tab-isi-sppb")
     page.wait_for_timeout(1000)
     _fill_isi_sppb_block(page, 1, payload.sppb_item)
 
@@ -417,7 +432,7 @@ def fill_sppb_only_draft(
             _upload_support_docs_sppb_only(page, existing)
 
     report(82, "Memvalidasi isian form")
-    page.locator('a[href="#tab-informasi-sppb"]').click(force=True)
+    _open_tab(page, "#tab-informasi-sppb")
     page.wait_for_timeout(600)
     missing = _audit_empty_fields_sppb(page)
     if missing:
@@ -511,11 +526,11 @@ def fill_sppn_draft(
 
     if combined and payload.sppb_item:
         report(50, "Mengisi baris SPPb (PPh)")
-        page.locator('a[href="#tab-isi-sppb"]').click(force=True)
+        _open_tab(page, "#tab-isi-sppb")
         page.wait_for_timeout(1000)
         _fill_isi_sppb_block(page, 1, payload.sppb_item)
 
-    page.locator('a[href="#tab-isi-sppn"]').click(force=True)
+    _open_tab(page, "#tab-isi-sppn")
     page.wait_for_timeout(1000)
 
     total_lines = max(len(payload.line_items), 1)
@@ -534,7 +549,7 @@ def fill_sppn_draft(
             _upload_support_docs(page, existing, combined=combined)
 
     report(82, "Memvalidasi isian form")
-    page.locator('a[href="#tab-informasi-sppn"]').click(force=True)
+    _open_tab(page, "#tab-informasi-sppn")
     page.wait_for_timeout(600)
     page.evaluate("() => { if (typeof bandingkan_dpp_sisa === 'function') bandingkan_dpp_sisa(); }")
     page.wait_for_timeout(500)
@@ -598,21 +613,15 @@ def _audit_empty_fields(page: Page, *, combined: bool) -> list[str]:
             blocks.forEach((nominalEl, idx) => {
                 const i = idx + 1;
                 const glHidden = document.querySelector(`#sap_gl_sppn_id_${i}`);
-                if (glHidden && !String(glHidden.value || '').trim()) {
-                    missing.push(`GL baris SPPn ${i}`);
+                const custHidden = document.querySelector(`#sap_customer_sppn_id_${i}`);
+                const glVal = glHidden ? String(glHidden.value || '').trim() : '';
+                const custVal = custHidden ? String(custHidden.value || '').trim() : '';
+                if (!glVal && !custVal) {
+                    missing.push(`Kode SAP (GL/Customer) baris SPPn ${i}`);
                 }
                 const pcSelect = document.querySelector(`#select_profit_center_sppn_${i}`);
                 if (pcSelect && !String(pcSelect.value || '').trim()) {
                     missing.push(`Profit Center baris SPPn ${i}`);
-                }
-                const custIds = [
-                    `sap_customer_id_sppn_${i}`,
-                    `select_customer_id_sppn_${i}`,
-                    `customer_id_sppn_${i}`,
-                ];
-                const custEl = custIds.map(id => document.getElementById(id)).find(Boolean);
-                if (custEl && !String(custEl.value || '').trim()) {
-                    missing.push(`Customer SAP baris SPPn ${i}`);
                 }
                 const pcHiddenIds = [
                     `profit_center_sppn_id_${i}`,
@@ -689,6 +698,19 @@ def _swal_visible(page: Page):
     return page.locator(".swal2-popup.swal2-show, .swal2-popup:visible").first
 
 
+def _flash_error_detail(page: Page) -> str:
+    """Pesan flash Laravel yang dirender ulang setelah redirect gagal simpan."""
+    try:
+        html = page.content()
+    except Exception:
+        return ""
+    idx = html.find("Terdapat Error")
+    if idx < 0:
+        return ""
+    snippet = html[max(0, idx - 1500): idx + 1500]
+    return " ".join(snippet.split())[:3000]
+
+
 def _dismiss_swal_dialogs(page: Page, *, print_after: bool = False) -> None:
     for _ in range(12):
         popup = _swal_visible(page)
@@ -699,6 +721,11 @@ def _dismiss_swal_dialogs(page: Page, *, print_after: bool = False) -> None:
 
         text = popup.inner_text()
         lower = text.lower()
+        logger.warning("Superman popup: %s", " | ".join(text.split()))
+        if "error" in lower and "penyimpanan" in lower:
+            detail = _flash_error_detail(page)
+            logger.warning("Superman store error detail: %s", detail)
+            raise RuntimeError(f"Superman menolak simpan draft: {' '.join(text.split())} {detail}".strip())
         if "belum terisi" in lower:
             combined = page.locator("#dokumen_pendukung_sppb").count() > 0
             missing = _audit_empty_fields(page, combined=combined)
@@ -730,6 +757,25 @@ def _dismiss_swal_dialogs(page: Page, *, print_after: bool = False) -> None:
         page.wait_for_timeout(1000)
 
 
+def _raise_if_store_rejected(status: int, body: dict | list | str | None) -> None:
+    """Superman bisa membalas /spp/store dengan error tanpa membuat draft — jangan anggap sukses."""
+    snippet = body if isinstance(body, str) else str(body)
+    logger.warning("Superman /spp/store HTTP %s: %s", status, snippet[:2000])
+    reason = ""
+    if status >= 400:
+        reason = f"HTTP {status}"
+    elif isinstance(body, dict):
+        flag_fail = (
+            body.get("success") is False
+            or body.get("ok") is False
+            or str(body.get("status", "")).lower() in ("false", "error", "failed", "gagal")
+        )
+        if flag_fail or body.get("errors"):
+            reason = str(body.get("message") or body.get("msg") or body.get("errors") or "ditolak")
+    if reason:
+        raise RuntimeError(f"Superman menolak simpan draft: {reason}. Respons: {snippet[:300]}")
+
+
 def submit_sppn_draft(
     page: Page,
     *,
@@ -752,13 +798,15 @@ def submit_sppn_draft(
     ) as resp_info:
         simpan.click()
         _dismiss_swal_dialogs(page, print_after=print_after)
+        store_resp = resp_info.value
         try:
-            store_body = resp_info.value.json()
+            store_body = store_resp.json()
         except Exception:
             try:
-                store_body = resp_info.value.text()
+                store_body = store_resp.text()
             except Exception:
                 store_body = None
+    _raise_if_store_rejected(store_resp.status, store_body)
 
     # Jangan pakai networkidle — SPA Superman sering punya poll/websocket
     # yang membuat wait menggantung di Railway sampai timeout.

@@ -490,10 +490,7 @@ export function InputPembayaran() {
         setRiwayatTick(t => t + 1)
         clearDraft()
         if (issueSppn) {
-          const remainingAfter = Math.max(0, sisaAvail - data.nominal_bayar)
-          if (remainingAfter > 0.5) {
-            alert(`Pembayaran tersimpan. SPPN belum dapat diterbitkan karena masih ada sisa ${formatRupiah(remainingAfter)}.`)
-          } else if (!docsReady) {
+          if (!docsReady) {
             alert('Pembayaran tersimpan. Lengkapi dokumen Superman terlebih dahulu untuk menerbitkan SPPN.')
           } else {
             await startSuperman(data.kompensasi_id)
@@ -527,7 +524,6 @@ export function InputPembayaran() {
     }
   }
 
-  const isLunas = ws?.statusBayar === 'lunas'
   /** Server punya session valid + Playwright */
   const serverReady = !!(
     supermanStatus?.configured
@@ -549,7 +545,7 @@ export function InputPembayaran() {
     selected
     && !selected.superman
     && docsReady
-    && (isLunas || (ws && ws.sisaTagihan <= 0.5))
+    && (ws?.totalDibayar ?? 0) > 0.5
     && supermanReady
   )
 

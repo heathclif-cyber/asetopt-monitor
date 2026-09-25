@@ -49,11 +49,20 @@ sesuai arah dana, dan modul `komoditi_map.py`/`payload.py` saat ini **hanya mena
 "masuk" untuk kompensasi sewa** (`build_payload_from_kompensasi`) — belum ada jalur SPPb
 pengembalian jaminan pelaksanaan.
 
+## Baris pendapatan = Nomor Customer mitra (ditetapkan 2026-09-25)
+
+Baris pendapatan SPPn diisi *Jenis Kode SAP = Nomor Customer*, dan customer-nya **mitra
+yang bersangkutan** — **dilarang memakai customer generik `11015204` OTC Sewa**.
+Kode customer = **No. Kontrak SAP** di data Kerja Sama (`kerja_sama.no_kontrak_sap`),
+keterangan = nama mitra. Bila belum ada di master Superman (`/spp/get-customer`),
+otomasi membuatnya lewat `/customer/store`. GL pendapatan tidak dipakai di mode ini;
+baris PPN tetap GL `21060008`.
+
 ## Selisih dengan default yang ada di kode sekarang
 
 | Env var | Default di `komoditi_map.py` | Nilai nyata di dokumen Superman | Status |
 |---|---|---|---|
-| `SUPERMAN_GL_PENDAPATAN_ASET` | `41100030` | `11015204` | ⚠️ Beda — cek nilai aktual di Railway |
+| Customer pendapatan (menggantikan `SUPERMAN_GL_PENDAPATAN_ASET`) | No. Kontrak SAP KS | customer = mitra (bukan OTC Sewa) | ✅ Ditetapkan 2026-09-25 |
 | `SUPERMAN_GL_PPN` | `21060008` | `21060008` | ✅ Cocok |
 | `SUPERMAN_GL_PPH` | `11600000` | `51100881` | ⚠️ Beda — cek nilai aktual di Railway |
 | PBB (`51100633`) | tidak ada env var, tidak diimplementasi | `51100633` (diisi manual di Superman) | ℹ️ Belum diotomasi di modul ini |

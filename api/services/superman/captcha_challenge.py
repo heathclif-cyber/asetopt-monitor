@@ -165,7 +165,11 @@ def start_captcha_challenge(cfg: SupermanConfig) -> dict[str, Any]:
     if not cfg.username or not cfg.password:
         raise RuntimeError("Set SUPERMAN_USER dan SUPERMAN_PASSWORD di environment.")
 
-    _cleanup_expired()
+    # Satu thread captcha hanya bisa memegang satu Playwright hidup.
+    with _lock:
+        pending = list(_store)
+    for key in pending:
+        _dispose(key)
     pw = sync_playwright().start()
     browser = pw.chromium.launch(headless=True)
     page = browser.new_page()

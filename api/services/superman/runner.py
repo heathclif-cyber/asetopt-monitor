@@ -20,6 +20,7 @@ from services.superman.auth import (
     is_session_valid,
     open_authenticated_context,
 )
+from services.superman.sync_executor import run_captcha_sync, run_playwright_sync
 from services.superman.captcha_challenge import (
     refresh_captcha_challenge,
     start_captcha_challenge,
@@ -162,9 +163,9 @@ def get_status() -> dict[str, Any]:
     session_valid = False
     reachable, reach_error = probe_superman_reachable()
     if state.is_file() and reachable:
-        session_valid = is_session_valid(cfg, state)
+        session_valid = run_playwright_sync(is_session_valid, cfg, state, timeout=90)
     using_b64 = bool(os.getenv("SUPERMAN_PASSWORD_B64", "").strip())
-    playwright_ready, playwright_error = check_playwright_ready()
+    playwright_ready, playwright_error = run_playwright_sync(check_playwright_ready, timeout=90)
     agent = agent_status_summary()
     force_agent = os.getenv("SUPERMAN_FORCE_AGENT", "").lower() in ("1", "true", "yes")
     needs_agent = force_agent or not reachable
@@ -743,15 +744,15 @@ def recover_superman_from_todo(*, kompensasi_id: str, force: bool = False) -> di
 
 
 def request_captcha() -> dict[str, Any]:
-    return start_captcha_challenge(_api_config())
+    return run_captcha_sync(start_captcha_challenge, _api_config())
 
 
 def refresh_captcha(challenge_id: str) -> dict[str, Any]:
-    return refresh_captcha_challenge(challenge_id.strip())
+    return run_captcha_sync(refresh_captcha_challenge, challenge_id.strip())
 
 
 def verify_captcha(challenge_id: str, answer: str) -> dict[str, Any]:
-    return verify_captcha_challenge(challenge_id.strip(), answer.strip())
+    return run_captcha_sync(verify_captcha_challenge, challenge_id.strip(), answer.strip())
 
 
 def run_browser_deklarasi(
@@ -977,8 +978,10 @@ def submit_deklarasi_smart(
         fill_fn=fill_fn,
     )
 
-    sppn_no = result.get("sppn_no")
-    sppb_no = result.get("sppb_no")
+    # Simpan hanya jenis nomor yang memang dibuat form ini — nomor lain yang
+    # terbaca dari halaman/To Do milik dokumen lain (mis. SPPb mitra lain).
+    sppn_no = result.get("sppn_no") if payload.jenis_form in ("sppn", "sppb_sppn") else None
+    sppb_no = result.get("sppb_no") if payload.jenis_form in ("sppb", "sppb_sppn") else None
     saved_parts: list[str] = []
     if sppn_no:
         saved = save_sppn_ref(kompensasi_id, sppn_no)
@@ -1033,7 +1036,7 @@ def start_deklarasi_job(*, kompensasi_id: str) -> dict[str, Any]:
         }
 
     cfg = _api_config()
-    ensure_session(cfg)
+    run_playwright_sync(ensure_session, cfg, timeout=120)
     job_id = create_job(ref, executor="server")
     update_job(job_id, 0, "Memulai proses...")
     thread = threading.Thread(target=_run_deklarasi_job, args=(job_id, ref), daemon=True)
