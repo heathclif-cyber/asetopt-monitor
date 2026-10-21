@@ -21,15 +21,16 @@ async function authFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
     }
   }
   if (res.ok) return res
-  // API mengirim {"detail": "..."}; klien Supabase membaca error.message.
+  const galat = (message: string, extra: object = {}) => new Response(JSON.stringify({ ...extra, message }), {
+    status: res.status,
+    statusText: res.statusText,
+    headers: { 'Content-Type': 'application/json' },
+  })
   const body = await res.clone().json().catch(() => null)
-  if (body && typeof body.detail === 'string' && !body.message) {
-    return new Response(JSON.stringify({ ...body, message: body.detail }), {
-      status: res.status,
-      statusText: res.statusText,
-      headers: res.headers,
-    })
-  }
+  // API mengirim {"detail": "..."}; klien Supabase membaca error.message.
+  if (body && typeof body.detail === 'string' && !body.message) return galat(body.detail, body)
+  // Balasan bukan JSON (mis. halaman 502 dari proxy saat server sedang dimulai ulang): jangan tampilkan HTML mentah.
+  if (!body && res.status >= 500) return galat(`Server sedang tidak dapat dihubungi (kode ${res.status}). Coba lagi sebentar lagi.`)
   return res
 }
 

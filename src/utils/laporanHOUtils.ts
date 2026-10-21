@@ -89,6 +89,9 @@ export interface HOMasterRow {
   nonRkapNew: number
   targetTahun: number
   rkapBulan: number[]
+  /** Target Pendapatan (laba-rugi) per bulan; berbeda dari rkapBulan yang berbasis Cash In. */
+  rkapPendapatanBulan: number[]
+  targetPendapatanTahun: number
   cashByMonth: HOCashMonth[]
   pendapatanByMonth: HOPendapatanMonth[]
   piutangByMonth: HOPiutangMonth[]
@@ -310,7 +313,7 @@ function pushDok(existing: string, next: string | null | undefined): string {
 }
 
 /** Resolusi ID Monika lebih longgar: rkap_kode → aset KS → aset_id lookup */
-function resolveMonikaIdHO(
+export function resolveMonikaIdHO(
   k: Kompensasi,
   ks: KerjaSama | undefined,
   asetById: Map<string, Aset>,
@@ -382,7 +385,10 @@ export function buildLaporanHO(opts: {
       const merged = { ...prev, total: (prev.total ?? 0) + (r.total ?? 0) }
       BULAN_COLS.forEach(col => {
         merged[col] = (prev[col] ?? 0) + (r[col] ?? 0)
+        const pcol = `pendapatan_${col}` as const
+        merged[pcol] = (prev[pcol] ?? prev[col] ?? 0) + (r[pcol] ?? r[col] ?? 0)
       })
+      merged.pendapatan_total = (prev.pendapatan_total ?? prev.total ?? 0) + (r.pendapatan_total ?? r.total ?? 0)
       rkapByMonika.set(kode, merged)
     }
   })
@@ -402,9 +408,10 @@ export function buildLaporanHO(opts: {
     if (!a) {
       const rkap = rkapByMonika.get(kode)
       const rkapBulan = BULAN_COLS.map(c => rkap?.[c] ?? 0)
+      const pendBulan = BULAN_COLS.map(c => rkap?.[`pendapatan_${c}` as const] ?? rkap?.[c] ?? 0)
       a = {
         cash: Array.from({ length: 12 }, (_, i) => emptyCashMonth(rkapBulan[i] ?? 0)),
-        pendapatan: Array.from({ length: 12 }, (_, i) => emptyPendapatanMonth(rkapBulan[i] ?? 0)),
+        pendapatan: Array.from({ length: 12 }, (_, i) => emptyPendapatanMonth(pendBulan[i] ?? 0)),
         piutang: Array.from({ length: 12 }, () => emptyPiutangMonth()),
         totalKompensasiFix: 0,
         namaHint,
@@ -665,7 +672,9 @@ export function buildLaporanHO(opts: {
     const ks = pickActiveKS(ksList)
 
     const rkapBulan = BULAN_COLS.map(c => rkap?.[c] ?? 0)
+    const rkapPendapatanBulan = BULAN_COLS.map(c => rkap?.[`pendapatan_${c}` as const] ?? rkap?.[c] ?? 0)
     const rkapTotal = rkap?.total ?? rkapBulan.reduce((s, v) => s + v, 0)
+    const pendapatanTotal = rkap?.pendapatan_total ?? rkap?.total ?? rkapPendapatanBulan.reduce((s, v) => s + v, 0)
     const isOrphan = !rkap
 
     // Non-RKAP: orphan dengan realisasi — taruh di nonRkapEksisting
@@ -687,7 +696,7 @@ export function buildLaporanHO(opts: {
       return finalizeCash({ ...m })
     })
     const pendapatanByMonth = a.pendapatan.map((m, i) => {
-      m.target = rkapBulan[i] ?? 0
+      m.target = rkapPendapatanBulan[i] ?? 0
       return finalizePendapatan({ ...m })
     })
     const piutangByMonth = a.piutang.map(m => finalizePiutang({ ...m }))
@@ -715,6 +724,8 @@ export function buildLaporanHO(opts: {
       nonRkapNew: 0,
       targetTahun: rkapEksisting + nonRkapEksisting,
       rkapBulan,
+      rkapPendapatanBulan,
+      targetPendapatanTahun: (isOrphan ? 0 : pendapatanTotal) + nonRkapEksisting,
       cashByMonth,
       pendapatanByMonth,
       piutangByMonth,

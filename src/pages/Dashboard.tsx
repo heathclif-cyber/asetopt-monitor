@@ -17,6 +17,8 @@ import { hitungPBBProporsional } from '@/utils/pbbUtils'
 import { hitungRKAP, getCashInPerBulanByYear } from '@/utils/rkapUtils'
 import { BULAN_LABELS } from '@/data/rkap2026'
 import { useRKAPStore, rowToRKAPItem } from '@/store/rkapStore'
+import { usePrognosaRKAP } from '@/hooks/usePrognosaRKAP'
+import { PROGNOSA_BASIS_LABEL } from '@/utils/prognosaUtils'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts'
@@ -227,6 +229,24 @@ export function Dashboard() {
     return rows.sort((a, b) => b.tahun - a.tahun || b.pbbProporsional - a.pbbProporsional)
   }, [daftarKS, allPBB])
 
+  // Prognosa memakai hook yang sama dengan RKAP Monitor (satu sumber data).
+  const prognosa = usePrognosaRKAP(new Date().getFullYear())
+  const prognosaKartu = useMemo(() => {
+    const kartu = (label: string, data: typeof prognosa.rkapDataCashIn, items: typeof prognosa.rkapItems, kind: 'cash_in' | 'pendapatan') => {
+      const target = items.reduce((sum, item) => sum + item.total, 0)
+      const total = data.reduce((sum, m) => sum + m.prognosa, 0)
+      return {
+        label, target, total,
+        persen: target > 0 ? (total / target) * 100 : 0,
+        nonaktif: Object.keys(prognosa.nonaktifEfektif[kind]).length,
+      }
+    }
+    return [
+      kartu('Cash In', prognosa.rkapDataCashIn, prognosa.rkapItems, 'cash_in'),
+      kartu('Pendapatan (PSAK 73)', prognosa.rkapDataPendapatan, prognosa.rkapItemsPendapatan, 'pendapatan'),
+    ]
+  }, [prognosa.rkapDataCashIn, prognosa.rkapDataPendapatan, prognosa.rkapItems, prognosa.rkapItemsPendapatan, prognosa.nonaktifEfektif])
+
   const rkapSummary = useMemo(() => {
     const tahun = new Date().getFullYear()
     const items = rkapRows.map(row => rowToRKAPItem(row))
@@ -322,6 +342,29 @@ export function Dashboard() {
                 style={{ width: `${Math.min(100, rkapSummary.achievement)}%` }}
               />
             </div>
+          </div>
+        </div>
+
+        {/* Prognosa akhir tahun — sumber sama dengan RKAP Monitor */}
+        <div className="px-5 pb-4 pt-3 border-t border-gray-100">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+            <p className="text-[11px] text-gray-500 font-semibold uppercase tracking-wide">Prognosa {new Date().getFullYear()}</p>
+            <p className="text-[11px] text-gray-400">Dasar: {PROGNOSA_BASIS_LABEL[prognosa.basis]} · realisasi bulan lalu + prognosa bulan mendatang</p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {prognosaKartu.map(k => (
+              <div key={k.label} className="rounded-lg border border-gray-200 p-3">
+                <p className="text-[11px] text-gray-500 font-medium">{k.label}</p>
+                <CurrencyDisplay value={k.total} size="lg" className="text-[#5B2C6F] mt-1 block" />
+                <p className="text-[11px] text-gray-400 mt-1">
+                  {k.target > 0 ? `${k.persen.toFixed(1)}% dari target ` : 'Target '}
+                  <span className="text-gray-600 font-medium"><CurrencyDisplay value={k.target} /></span>
+                </p>
+                {k.nonaktif > 0 && (
+                  <p className="text-[11px] text-amber-700 mt-1">{k.nonaktif} proker ada prognosa dinonaktifkan</p>
+                )}
+              </div>
+            ))}
           </div>
         </div>
 

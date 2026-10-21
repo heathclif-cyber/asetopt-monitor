@@ -10,7 +10,12 @@ import { useAsetStore } from '@/store/asetStore'
 import { BULAN_LABELS } from '@/data/rkap2026'
 import { SearchableSelect } from '@/components/common/SearchableSelect'
 import { ExportEvaluasiKinerjaButton } from '@/components/rkap/ExportEvaluasiKinerjaButton'
-import { aggregateManualPrognosa, hitungRKAP, getCashInPerBulanByYear, getPendapatanPerBulanByYear, getPendapatanPerKode, MonthSummary } from '@/utils/rkapUtils'
+import { PROGNOSA_BASIS_LABEL, getJadwalPerKode, prognosaBulan, type JadwalPerKode, type NonaktifBulanPerKind, type PrognosaBasis } from '@/utils/prognosaUtils'
+import { PrognosaNonaktifDialog } from '@/components/rkap/PrognosaNonaktifDialog'
+import { useAuthStore } from '@/store/authStore'
+import { usePrognosaRKAP } from '@/hooks/usePrognosaRKAP'
+import { usePrognosaStore } from '@/store/prognosaStore'
+import { getPendapatanPerKode, getRealisasiPerKode, MonthSummary } from '@/utils/rkapUtils'
 import { RKAPItem } from '@/data/rkap2026'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -23,20 +28,12 @@ import { CurrencyDisplay } from '@/components/common/CurrencyDisplay'
 import { formatRupiah } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
-import { Target, TrendingUp, AlertTriangle, CheckCircle, Plus, Pencil, Trash2, Upload, Download, ChevronLeft, ChevronRight, FileDown, X, Search, ChevronsUpDown, Check, Ban, CirclePlay } from 'lucide-react'
+import { Target, TrendingUp, AlertTriangle, CheckCircle, Plus, Pencil, Trash2, Upload, Download, ChevronLeft, ChevronRight, FileDown, X, Search, ChevronsUpDown, Check, Ban, CirclePlay, SlidersHorizontal } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 
-type PrognosaRow = {
-  tahun: number
-  kode: string
-  nama: string
-  cash_jul: number; cash_agu: number; cash_sep: number; cash_okt: number; cash_nov: number; cash_des: number
-  pendapatan_jul: number; pendapatan_agu: number; pendapatan_sep: number; pendapatan_okt: number; pendapatan_nov: number; pendapatan_des: number
-}
-const PROGNOSA_COLS = ['jul', 'agu', 'sep', 'okt', 'nov', 'des'] as const
 
 // ── Excel export ──────────────────────────────────────────────────────────────
 async function exportRKAPExcel(
@@ -53,6 +50,9 @@ async function exportRKAPExcel(
   prognosaManualCash?: Record<string, Array<number | null>>,
   prognosaManualPendapatan?: Record<string, Array<number | null>>,
   pendapatanItems: RKAPItem[] = rkapItems,
+  basis: PrognosaBasis = 'rkap',
+  jadwal: { cash_in: JadwalPerKode; pendapatan: JadwalPerKode } = { cash_in: {}, pendapatan: {} },
+  nonaktifBulanKind: NonaktifBulanPerKind = { cash_in: {}, pendapatan: {} },
 ) {
   const nonaktifCI = nonaktifCashIn ?? new Set<string>()
   const nonaktifPD = nonaktifPsak ?? new Set<string>()
@@ -122,6 +122,7 @@ async function exportRKAPExcel(
     nonaktif: Set<string> = new Set(),
     prognosaManual: Record<string, Array<number | null>> = {},
     items: RKAPItem[] = rkapItems,
+    kind: 'cash_in' | 'pendapatan' = 'cash_in',
   ) {
     const sh: any[][] = [
       [`${titleLabel} ${tahun} (Rp)`],
@@ -137,15 +138,18 @@ async function exportRKAPExcel(
       const realPerBulan = perNama[item.kode ?? ''] ?? perNama[item.nama] ?? Array(12).fill(0)
       const isNonaktif = !!(item.kode && nonaktif.has(item.kode))
       const progBulan = item.bulan.map((target, i) => {
-        const isFuture = i > efektifBulan
-        const isCurrent = i === efektifBulan
         // Nonaktif: prognosa masa depan = 0, bulan lewat tetap realisasi
-        const manual = prognosaManual[item.kode ?? '']?.[i]
-        const prog = isNonaktif && (isFuture || isCurrent) ? 0
-          : manual != null ? manual
-          : isFuture ? target
-          : isCurrent ? Math.max(realPerBulan[i], target)
-          : realPerBulan[i]
+        const prog = isNonaktif && i >= efektifBulan ? 0 : prognosaBulan({
+          month: i,
+          currentMonth: efektifBulan,
+          target,
+          realized: realPerBulan[i],
+          basis,
+          kind,
+          jadwal: jadwal[kind][item.kode ?? '']?.[i] ?? 0,
+          manual: prognosaManual[item.kode ?? '']?.[i],
+          nonaktif: nonaktifBulanKind[kind][item.kode ?? '']?.includes(i),
+        })
         prognosaPerBulanAll[i] += prog
         return prog
       })
@@ -186,7 +190,7 @@ async function exportRKAPExcel(
   addReportMatrixSheet(wb, `Target Per Obyek ${tahun}`, sh2, [5, 10, 42, ...BL.map(() => 16), 18])
 
   // ── Sheet 3: Prognosa Per Obyek Cash In ────────────────────────────────────
-  buildPerObyekSheet(cashInPerNama, 'Prognosa Per Obyek Cash In', `Prog Cash In Per Obyek ${tahun}`, nonaktifCI, prognosaManualCash)
+  buildPerObyekSheet(cashInPerNama, 'Prognosa Per Obyek Cash In', `Prog Cash In Per Obyek ${tahun}`, nonaktifCI, prognosaManualCash, rkapItems, 'cash_in')
 
   // ── Sheet 4: Ringkasan Prognosa Pendapatan (PSAK 73) ───────────────────────
   if (rkapDataPendapatan) {
@@ -195,7 +199,7 @@ async function exportRKAPExcel(
 
   // ── Sheet 5: Prognosa Per Obyek Pendapatan (PSAK 73) ───────────────────────
   if (pendapatanPerNama) {
-    buildPerObyekSheet(pendapatanPerNama, 'Prognosa Per Obyek Pendapatan (PSAK 73)', `Prog Pendapatan Per Obyek ${tahun}`, nonaktifPD, prognosaManualPendapatan, pendapatanItems)
+    buildPerObyekSheet(pendapatanPerNama, 'Prognosa Per Obyek Pendapatan (PSAK 73)', `Prog Pendapatan Per Obyek ${tahun}`, nonaktifPD, prognosaManualPendapatan, pendapatanItems, 'pendapatan')
   }
 
   await downloadWorkbook(wb, `RKAP_Prognosa_${tahun}_${todayKey()}.xlsx`)
@@ -235,32 +239,6 @@ async function fetchPreviousRKAPObjects(currentTahun: number): Promise<{ kode: s
 }
 
 // ── Helper: realisasi per kode for arbitrary year (cash-in) ──────────────────
-function getRealisasiPerKode(
-  allKompensasi: Kompensasi[],
-  allCashIn: CashIn[],
-  tahun: number
-): Record<string, number[]> {
-  const byKey: Record<string, number[]> = {}
-  allKompensasi.forEach(k => {
-    const key = resolveMonikaId(k, k.kerja_sama)
-    if (!key) return
-    if (!byKey[key]) byKey[key] = Array(12).fill(0)
-    ;(k.pembayaran ?? []).forEach(p => {
-      const d = new Date(p.tgl_bayar)
-      if (d.getFullYear() === tahun) byKey[key][d.getMonth()] += p.nominal_bayar
-    })
-  })
-  allCashIn.forEach(ci => {
-    const invoice = ci.kompensasi_id ? allKompensasi.find(k => k.id === ci.kompensasi_id) : undefined
-    const key = ci.rkap_kode?.trim() || (invoice ? resolveMonikaId(invoice, invoice.kerja_sama) : null) || ci.kerja_sama?.aset?.kode_aset
-    if (!key) return
-    if (!byKey[key]) byKey[key] = Array(12).fill(0)
-    const d = new Date(ci.tgl_terima)
-    if (d.getFullYear() === tahun) byKey[key][d.getMonth()] += ci.nominal
-  })
-  return byKey
-}
-
 // ── Export Perbandingan Multi-Tahun ───────────────────────────────────────────
 
 interface PerbandinganRow {
@@ -285,6 +263,9 @@ async function fetchPerbandinganData(
   daftarPDDM: any[],
   efektifBulan: number,
   nonaktifKodes: Set<string>,
+  prognosaBasis: PrognosaBasis = 'rkap',
+  jadwal: JadwalPerKode = {},
+  nonaktifBulanKode: Record<string, number[]> = {},
 ): Promise<{ rows: PerbandinganRow[]; total: PerbandinganRow; tahunPrev: number; tahunNext: number; basisLabel: string }> {
   const tahunPrev = tahun - 1
   const tahunNext = tahun + 1
@@ -315,12 +296,12 @@ async function fetchPerbandinganData(
     const real = activePerNama[key] ?? Array(12).fill(0)
     const isNonaktif = nonaktifKodes.has(key)
     prognosaPerKode[key] = item.bulan.map((target, i) => {
-      const isFuture = i > efektifBulan
-      const isCurrent = i === efektifBulan
-      if (isNonaktif && (isFuture || isCurrent)) return 0
-      if (isFuture) return target
-      if (isCurrent) return Math.max(real[i], target)
-      return real[i]
+      if (isNonaktif && i >= efektifBulan) return 0
+      return prognosaBulan({
+        month: i, currentMonth: efektifBulan, target, realized: real[i],
+        basis: prognosaBasis, kind: basis, jadwal: jadwal[key]?.[i] ?? 0,
+        nonaktif: nonaktifBulanKode[key]?.includes(i),
+      })
     })
   })
 
@@ -462,20 +443,44 @@ export function RKAPMonitor() {
   const [perbandinganLoading, setPerbandinganLoading] = useState(false)
 
   // Nonaktif proker — terpisah per mode (Cash In vs PSAK 73)
-  const [nonaktifCashIn, setNonaktifCashIn] = useState<Set<string>>(new Set())
-  const [nonaktifPsak, setNonaktifPsak] = useState<Set<string>>(new Set())
-  const [prognosaRows, setPrognosaRows] = useState<PrognosaRow[]>([])
+  // Semua perhitungan prognosa berasal dari satu hook yang juga dipakai Dashboard (one data).
+  const authUser = useAuthStore(s => s.user)
+  const [bulanPilihan, setBulanPilihan] = useState<number | null>(null)
+  useEffect(() => { setBulanPilihan(null) }, [tahunAktif])
+  const {
+    basis: basisPrognosa, nonaktifRows, rkapItems, rkapItemsPendapatan, cashIn, pendapatanPerBulan,
+    cashInPerNama, pendapatanPerNama, efektifBulanOtomatis, efektifBulan, jadwalPerKode,
+    prognosaManualCash, prognosaManualPendapatan, nonaktifCashIn, nonaktifPsak, nonaktifBulan, nonaktifEfektif,
+    rkapDataCashIn, rkapDataPendapatan,
+  } = usePrognosaRKAP(tahunAktif, bulanPilihan)
+  const { setBasis, simpanNonaktif: simpanNonaktifStore, resetNonaktif: resetNonaktifStore } = usePrognosaStore()
+  const [dialogNonaktif, setDialogNonaktif] = useState<{ kode: string; nama: string } | null>(null)
 
   const nonaktifAktif = prognosaType === 'cash_in' ? nonaktifCashIn : nonaktifPsak
-  const setNonaktifAktif = prognosaType === 'cash_in' ? setNonaktifCashIn : setNonaktifPsak
 
-  const toggleNonaktif = (kode: string) => {
-    setNonaktifAktif(prev => {
-      const next = new Set(prev)
-      if (next.has(kode)) next.delete(kode)
-      else next.add(kode)
-      return next
-    })
+  const simpanNonaktif = (kode: string, bulan: number[], alasan: string, hapusDulu: number[]) =>
+    simpanNonaktifStore({ tahun: tahunAktif, kode, basis: prognosaType, dasar: basisPrognosa, tambah: bulan, hapus: hapusDulu, alasan, username: authUser?.username })
+  const toggleNonaktif = async (kode: string) => {
+    try {
+      await simpanNonaktif(kode, nonaktifAktif.has(kode) ? [] : [-1], '', [-1])
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : 'Gagal menyimpan penonaktifan')
+    }
+  }
+  const resetNonaktif = async () => {
+    if (!window.confirm(`Aktifkan kembali semua prognosa yang dinonaktifkan pada mode ini (dasar ${PROGNOSA_BASIS_LABEL[basisPrognosa]})?`)) return
+    try {
+      await resetNonaktifStore(tahunAktif, prognosaType, basisPrognosa)
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : 'Gagal mereset')
+    }
+  }
+  const ubahBasis = async (basis: PrognosaBasis) => {
+    try {
+      await setBasis(tahunAktif, basis, authUser?.username)
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : 'Gagal menyimpan dasar prognosa')
+    }
   }
 
   const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm<RowForm>({
@@ -488,14 +493,6 @@ export function RKAPMonitor() {
   useEffect(() => { fetchPendapatan() }, [])
   useEffect(() => { fetchAset() }, [])
   useEffect(() => { fetchRKAP(tahunAktif) }, [tahunAktif])
-  useEffect(() => {
-    supabase.from('rkap_prognosa').select('*').eq('tahun', tahunAktif)
-      .then(({ data, error }) => {
-        if (error) console.error('[fetch prognosa]', error)
-        setPrognosaRows((data ?? []) as PrognosaRow[])
-      })
-  }, [tahunAktif])
-
   const monikaOptions = useMemo(() => {
     const map = new Map<string, { value: string; label: string; searchText: string; description?: string }>()
     daftarAset.forEach(a => {
@@ -539,82 +536,14 @@ export function RKAPMonitor() {
   // ── Computed data ──────────────────────────────────────────────────────────
   // Target resmi tetap dari Distribusi RKAP Sales. Obyek prognosis tanpa target
   // resmi (mis. Cafe) tetap tampil dengan target 0 agar total worksheet utuh.
-  const rkapItems = useMemo(() => {
-    const targetItems = rows.map(row => rowToRKAPItem(row, 'cash_in'))
-    const known = new Set(targetItems.map(item => item.kode))
-    return [...targetItems, ...prognosaRows.filter(row => !known.has(row.kode)).map((row, index) => ({
-      no: targetItems.length + index + 1, kode: row.kode, nama: row.nama, total: 0, bulan: Array(12).fill(0),
-    }))]
-  }, [rows, prognosaRows])
-  const rkapItemsPendapatan = useMemo(() => {
-    const targetItems = rows.map(row => rowToRKAPItem(row, 'pendapatan'))
-    const known = new Set(targetItems.map(item => item.kode))
-    return [...targetItems, ...prognosaRows.filter(row => !known.has(row.kode)).map((row, index) => ({
-      no: targetItems.length + index + 1, kode: row.kode, nama: row.nama, total: 0, bulan: Array(12).fill(0),
-    }))]
-  }, [rows, prognosaRows])
-
-  const cashIn = useMemo(() =>
-    getCashInPerBulanByYear(allKompensasi, tahunAktif, allCashIn),
-    [allKompensasi, tahunAktif, allCashIn]
-  )
-
-  const pendapatanPerBulan = useMemo(() =>
-    getPendapatanPerBulanByYear(allPengakuan, tahunAktif),
-    [allPengakuan, tahunAktif]
-  )
-
-  // Bulan terakhir yang sudah "berjalan" — tergantung tahun yang sedang dilihat
-  const efektifBulan = tahunAktif < CURRENT_YEAR ? 11
-    : tahunAktif === CURRENT_YEAR ? CURRENT_MONTH
-      : -1
-
-  // Items aktif per mode — nonaktif Cash In ≠ nonaktif PSAK 73
-  const activeItemsCashIn = useMemo(
-    () => rkapItems.filter(item => !nonaktifCashIn.has(item.kode)),
-    [rkapItems, nonaktifCashIn]
-  )
-  const activeItemsPsak = useMemo(
-    () => rkapItemsPendapatan.filter(item => !nonaktifPsak.has(item.kode)),
-    [rkapItemsPendapatan, nonaktifPsak]
-  )
-
-  const prognosaManualCash = useMemo(() => {
-    const result: Record<string, Array<number | null>> = {}
-    prognosaRows.forEach(row => { result[row.kode] = [null, null, null, null, null, null, ...PROGNOSA_COLS.map(col => row[`cash_${col}` as keyof PrognosaRow] as number)] })
-    return result
-  }, [prognosaRows])
-  const prognosaManualPendapatan = useMemo(() => {
-    const result: Record<string, Array<number | null>> = {}
-    prognosaRows.forEach(row => { result[row.kode] = [null, null, null, null, null, null, ...PROGNOSA_COLS.map(col => row[`pendapatan_${col}` as keyof PrognosaRow] as number)] })
-    return result
-  }, [prognosaRows])
-  // Agregasi realisasi per kode RKAP per bulan (untuk tabel per obyek)
-  // Prioritas: rkap_kode pada kompensasi → fallback nama_aset (untuk data lama)
-  const cashInPerNama = useMemo(
-    () => getRealisasiPerKode(allKompensasi, allCashIn, tahunAktif),
-    [allKompensasi, allCashIn, tahunAktif],
-  )
-
-  // Agregasi pendapatan diakui per rkap_kode per bulan (untuk tabel & Excel)
-  const pendapatanPerNama = useMemo(
-    () => getPendapatanPerKode(allPengakuan, daftarPDDM, allKompensasi, tahunAktif),
-    [allPengakuan, daftarPDDM, allKompensasi, tahunAktif],
-  )
-
-  const rkapDataCashIn = useMemo(
-    () => hitungRKAP(activeItemsCashIn, cashIn, efektifBulan, aggregateManualPrognosa(activeItemsCashIn, prognosaManualCash, cashInPerNama, efektifBulan)),
-    [activeItemsCashIn, cashIn, efektifBulan, prognosaManualCash, cashInPerNama]
-  )
-
-  const rkapDataPendapatan = useMemo(
-    () => hitungRKAP(activeItemsPsak, pendapatanPerBulan, efektifBulan, aggregateManualPrognosa(activeItemsPsak, prognosaManualPendapatan, pendapatanPerNama, efektifBulan)),
-    [activeItemsPsak, pendapatanPerBulan, efektifBulan, prognosaManualPendapatan, pendapatanPerNama]
-  )
-
   const rkapData = prognosaType === 'cash_in' ? rkapDataCashIn : rkapDataPendapatan
   const activeRealisasiPerBulan = prognosaType === 'cash_in' ? cashIn : pendapatanPerBulan
 
+  const targetPerBulanMode = useMemo(
+    () => BULAN_COLS.map((_, i) => rows.reduce((s, r) => s + (rowToRKAPItem(r, prognosaType).bulan[i] ?? 0), 0)),
+    [rows, prognosaType],
+  )
+  const totalTargetPendapatan = useMemo(() => rkapItemsPendapatan.reduce((s, i) => s + i.total, 0), [rkapItemsPendapatan])
   const totalTarget = useMemo(() => (prognosaType === 'cash_in' ? rkapItems : rkapItemsPendapatan).reduce((s, i) => s + i.total, 0), [prognosaType, rkapItems, rkapItemsPendapatan])
 
   const ytdTargetOri = rkapData.slice(0, efektifBulan + 1).reduce((s, m) => s + m.targetOriginal, 0)
@@ -786,7 +715,7 @@ export function RKAPMonitor() {
             size="sm"
             variant="outline"
             className="border-white/30 bg-white/10 text-white hover:bg-white/20 hover:text-white"
-            onClick={() => exportRKAPExcel(tahunAktif, rkapDataCashIn, rkapItems, totalTarget, efektifBulan, cashInPerNama, rkapDataPendapatan, pendapatanPerNama, nonaktifCashIn, nonaktifPsak, prognosaManualCash, prognosaManualPendapatan, rkapItemsPendapatan)}
+            onClick={() => exportRKAPExcel(tahunAktif, rkapDataCashIn, rkapItems, totalTarget, efektifBulan, cashInPerNama, rkapDataPendapatan, pendapatanPerNama, nonaktifCashIn, nonaktifPsak, prognosaManualCash, prognosaManualPendapatan, rkapItemsPendapatan, basisPrognosa, jadwalPerKode, nonaktifEfektif)}
           >
             <FileDown size={14} /> Export Excel
           </Button>
@@ -802,7 +731,7 @@ export function RKAPMonitor() {
                 tahunAktif, rkapItems, prognosaType,
                 cashInPerNama, pendapatanPerNama,
                 allKompensasi, allCashIn, allPengakuan, daftarPDDM,
-                efektifBulan, nonaktifAktif,
+                efektifBulan, nonaktifAktif, basisPrognosa, jadwalPerKode[prognosaType], nonaktifEfektif[prognosaType],
               )
               setPerbandinganData(data)
               setPerbandinganLoading(false)
@@ -810,15 +739,90 @@ export function RKAPMonitor() {
           >
             <FileDown size={14} /> Perbandingan
           </Button>
-          <ExportEvaluasiKinerjaButton tahun={tahunAktif} />
+          <select
+            aria-label="Hitung s.d. bulan"
+            value={efektifBulan}
+            onChange={e => setBulanPilihan(Number(e.target.value))}
+            disabled={efektifBulanOtomatis < 0}
+            className="h-8 rounded-md border border-white/30 bg-white/10 px-2 text-xs text-white focus:outline-none"
+            title="Batas bulan untuk YTD, carry-over, prognosa, dan ekspor Evaluasi Kinerja"
+          >
+            {efektifBulanOtomatis < 0 && <option value={-1} className="text-gray-800">—</option>}
+            {BULAN_LABELS.map((label, month) => (
+              <option key={label} value={month} className="text-gray-800">s.d. {label}</option>
+            ))}
+          </select>
+          <ExportEvaluasiKinerjaButton
+            tahun={tahunAktif}
+            endMonth={efektifBulan}
+            basis={basisPrognosa}
+            jadwal={jadwalPerKode}
+            manualCash={prognosaManualCash}
+            manualPendapatan={prognosaManualPendapatan}
+            nonaktifCashIn={nonaktifCashIn}
+            nonaktifPsak={nonaktifPsak}
+            nonaktifBulan={nonaktifEfektif}
+          />
           {rows.length === 0 && tahunAktif === 2026 && (
             <Button size="sm" variant="outline" className="border-white/30 bg-white/10 text-white hover:bg-white/20 hover:text-white" onClick={seedFromHardcode}>
               <Download size={14} /> Import Data 2026
             </Button>
           )}
           <input ref={fileRef} type="file" accept=".csv,.txt" className="hidden" onChange={onFileChange} />
+          {dialogNonaktif && (() => {
+            const baris = rows.find(r => r.kode === dialogNonaktif.kode)
+            const item = baris ? rowToRKAPItem(baris, prognosaType) : null
+            const real = activePerNama[dialogNonaktif.kode] ?? Array(12).fill(0)
+            const manual = (prognosaType === 'cash_in' ? prognosaManualCash : prognosaManualPendapatan)[dialogNonaktif.kode]
+            const bulanAda = nonaktifBulan[prognosaType][dialogNonaktif.kode] ?? []
+            return (
+              <PrognosaNonaktifDialog
+                open
+                onClose={() => setDialogNonaktif(null)}
+                kode={dialogNonaktif.kode}
+                nama={dialogNonaktif.nama}
+                basisLabel={prognosaType === 'cash_in' ? 'Cash In' : 'Pendapatan (PSAK 73)'}
+                dasarLabel={PROGNOSA_BASIS_LABEL[basisPrognosa]}
+                currentMonth={efektifBulan}
+                prognosaAsli={Array.from({ length: 12 }, (_, month) => prognosaBulan({
+                  month,
+                  currentMonth: efektifBulan,
+                  target: item?.bulan[month] ?? 0,
+                  realized: real[month] ?? 0,
+                  basis: basisPrognosa,
+                  kind: prognosaType,
+                  jadwal: jadwalPerKode[prognosaType][dialogNonaktif.kode]?.[month] ?? 0,
+                  manual: manual?.[month],
+                }))}
+                nonaktifBulan={bulanAda}
+                alasan={nonaktifRows.find(r => r.kode === dialogNonaktif.kode && r.basis === prognosaType && r.bulan >= 0)?.alasan ?? ''}
+                onSave={(bulan, alasan) => simpanNonaktif(dialogNonaktif.kode, bulan, alasan, bulanAda)}
+              />
+            )
+          })()}
 
-          <div className="ml-auto inline-flex rounded-lg border border-white/20 bg-black/10 p-0.5">
+          <div
+            className="ml-auto inline-flex items-center gap-1.5"
+            title="Dasar prognosa bulan berjalan dan mendatang. Isian manual (rkap_prognosa) tetap diutamakan."
+          >
+            <span className="text-[11px] text-blue-100/80">Prognosa:</span>
+            <div className="inline-flex rounded-lg border border-white/20 bg-black/10 p-0.5">
+              {(Object.keys(PROGNOSA_BASIS_LABEL) as PrognosaBasis[]).map(key => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => ubahBasis(key)}
+                  className={cn(
+                    'px-3 py-1.5 text-xs font-medium rounded-md transition-all',
+                    basisPrognosa === key ? 'bg-white text-[#1B4F72] shadow-sm' : 'text-blue-100 hover:text-white',
+                  )}
+                >
+                  {PROGNOSA_BASIS_LABEL[key]}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="inline-flex rounded-lg border border-white/20 bg-black/10 p-0.5">
             <button
               type="button"
               onClick={() => setPrognosaType('cash_in')}
@@ -948,8 +952,8 @@ export function RKAPMonitor() {
               />
               <p className="text-[10px] text-gray-400 mt-1">
                 {prognosaPct.toFixed(1)}% target
-                {prognosaType === 'cash_in' && totalTarget > 0 && (
-                  <span className="text-[#5B2C6F]"> · PSAK {(totalPrognosaPendapatan / totalTarget * 100).toFixed(1)}%</span>
+                {prognosaType === 'cash_in' && totalTargetPendapatan > 0 && (
+                  <span className="text-[#5B2C6F]"> · PSAK {(totalPrognosaPendapatan / totalTargetPendapatan * 100).toFixed(1)}%</span>
                 )}
               </p>
             </div>
@@ -1074,7 +1078,7 @@ export function RKAPMonitor() {
                         m.isFuture ? 'text-blue-600 italic' : m.prognosa > 0 ? 'text-green-700' : 'text-gray-400'
                       )}>
                         {m.prognosa > 0
-                          ? <span title={m.isFuture ? 'Proyeksi berdasarkan target RKAP + carry-over' : 'Realisasi aktual'}>
+                          ? <span title={m.isFuture ? `Proyeksi berdasarkan ${basisPrognosa === 'jadwal' ? 'jadwal jatuh tempo kerja sama eksisting' : 'target RKAP'}` : 'Realisasi aktual'}>
                             {formatRupiah(m.prognosa)}{m.isFuture ? ' *' : ''}
                           </span>
                           : '—'
@@ -1133,12 +1137,12 @@ export function RKAPMonitor() {
               </p>
             </div>
             <div className="flex items-center gap-2">
-              {nonaktifAktif.size > 0 && (
+              {(nonaktifAktif.size > 0 || Object.keys(nonaktifBulan[prognosaType]).length > 0) && (
                 <span className="text-xs text-red-600 font-medium bg-red-50 border border-red-100 rounded-full px-2.5 py-1">
-                  {nonaktifAktif.size} nonaktif {prognosaType === 'cash_in' ? 'Cash In' : 'PSAK 73'}
+                  {nonaktifAktif.size} proker nonaktif · {Object.keys(nonaktifBulan[prognosaType]).length} proker ada bulan nonaktif {prognosaType === 'cash_in' ? 'Cash In' : 'PSAK 73'}
                   <button
                     type="button"
-                    onClick={() => setNonaktifAktif(new Set())}
+                    onClick={resetNonaktif}
                     className="ml-1.5 text-blue-600 hover:underline"
                   >
                     Reset
@@ -1184,7 +1188,9 @@ export function RKAPMonitor() {
                 {displayRows.map((row, rowIdx) => {
                   const realPerBulan: number[] = activePerNama[row.kode ?? ''] ?? activePerNama[row.nama] ?? Array(12).fill(0)
                   const totalReal = realPerBulan.reduce((s, v) => s + v, 0)
-                  const totalTgt = row.total ?? 0
+                  // Target mengikuti mode: Cash In memakai kolom cash, PSAK 73 memakai kolom pendapatan.
+                  const targetRow = rowToRKAPItem(row, prognosaType)
+                  const totalTgt = targetRow.total ?? 0
                   const pctTotal = totalTgt > 0 ? (totalReal / totalTgt) * 100 : null
                   const rowKode = row.kode || row.nama
                   const inactive = !!(row.kode && nonaktifAktif.has(row.kode))
@@ -1237,7 +1243,7 @@ export function RKAPMonitor() {
                         </button>
                       </td>
                       {BULAN_COLS.map((col, i) => {
-                        const tgt = row[col] ?? 0
+                        const tgt = targetRow.bulan[i] ?? 0
                         const real = realPerBulan[i] ?? 0
                         const hit = tgt > 0 && real >= tgt
                         const isNow = tahunAktif === CURRENT_YEAR && i === CURRENT_MONTH
@@ -1276,6 +1282,28 @@ export function RKAPMonitor() {
                           {row.kode && (
                             <button
                               type="button"
+                              onClick={() => setDialogNonaktif({ kode: row.kode!, nama: row.nama })}
+                              className={cn(
+                                'relative h-7 w-7 inline-flex items-center justify-center rounded-md border transition-colors',
+                                (nonaktifBulan[prognosaType][row.kode]?.length ?? 0) > 0
+                                  ? 'border-amber-300 bg-amber-100 text-amber-800 hover:bg-amber-200'
+                                  : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100',
+                              )}
+                              title={(nonaktifBulan[prognosaType][row.kode]?.length ?? 0) > 0
+                                ? `${nonaktifBulan[prognosaType][row.kode].length} bulan prognosa dinonaktifkan — klik untuk mengatur`
+                                : 'Atur prognosa: nonaktifkan bulan yang diperkirakan tidak tercapai'}
+                            >
+                              <SlidersHorizontal size={13} strokeWidth={2} />
+                              {(nonaktifBulan[prognosaType][row.kode]?.length ?? 0) > 0 && (
+                                <span className="absolute -right-1 -top-1 min-w-[14px] rounded-full bg-amber-600 px-1 text-[9px] font-bold leading-[14px] text-white">
+                                  {nonaktifBulan[prognosaType][row.kode].length}
+                                </span>
+                              )}
+                            </button>
+                          )}
+                          {row.kode && (
+                            <button
+                              type="button"
                               onClick={() => toggleNonaktif(row.kode!)}
                               className={cn(
                                 'h-7 w-7 inline-flex items-center justify-center rounded-md border transition-colors',
@@ -1285,8 +1313,8 @@ export function RKAPMonitor() {
                               )}
                               title={
                                 nonaktifAktif.has(row.kode)
-                                  ? `Aktifkan kembali di ${prognosaType === 'cash_in' ? 'Cash In' : 'PSAK 73'} (ikut carry-over)`
-                                  : `Nonaktifkan di ${prognosaType === 'cash_in' ? 'Cash In' : 'PSAK 73'} saja (prognosa 0, tidak carry-over)`
+                                  ? `Aktifkan kembali prognosa ${prognosaType === 'cash_in' ? 'Cash In' : 'PSAK 73'} proker ini`
+                                  : `Nonaktifkan seluruh prognosa ${prognosaType === 'cash_in' ? 'Cash In' : 'PSAK 73'} proker ini (target RKAP tidak berubah)`
                               }
                             >
                               {nonaktifAktif.has(row.kode)
@@ -1326,7 +1354,7 @@ export function RKAPMonitor() {
                     Total Target / Realisasi
                   </td>
                   {BULAN_COLS.map((col, i) => {
-                    const tgt = displayRows.reduce((s, r) => s + (r[col] ?? 0), 0)
+                    const tgt = targetPerBulanMode[i] ?? 0
                     const real = activeRealisasiPerBulan[i] ?? 0
                     return (
                       <Fragment key={`${col}-ft`}>
@@ -1354,7 +1382,7 @@ export function RKAPMonitor() {
                     Achievement
                   </td>
                   {BULAN_COLS.map((col, i) => {
-                    const tgt = displayRows.reduce((s, r) => s + (r[col] ?? 0), 0)
+                    const tgt = targetPerBulanMode[i] ?? 0
                     const real = activeRealisasiPerBulan[i] ?? 0
                     const pct = tgt > 0 ? (real / tgt) * 100 : null
                     return (

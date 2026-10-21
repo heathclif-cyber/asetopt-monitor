@@ -1,5 +1,7 @@
 import { RKAPItem, BULAN_LABELS } from '@/data/rkap2026'
-import { PengakuanPendapatan, PendapatanDiterimaDimuka, KerjaSama } from '@/types'
+import { PengakuanPendapatan, PendapatanDiterimaDimuka, KerjaSama, Kompensasi, CashIn } from '@/types'
+import { resolveMonikaId } from '@/utils/laporanProgramUtils'
+import { prognosaBulan, type JadwalPerKode, type NonaktifBulan, type PrognosaBasis, type PrognosaKind } from '@/utils/prognosaUtils'
 
 export interface MonthSummary {
   bulanIdx: number
@@ -66,15 +68,27 @@ export function aggregateManualPrognosa(
   manual: Record<string, Array<number | null>>,
   actual: Record<string, number[]>,
   currentMonth: number,
+  basis: PrognosaBasis = 'rkap',
+  kind: PrognosaKind = 'cash_in',
+  jadwal: JadwalPerKode = {},
+  nonaktifBulan: NonaktifBulan = {},
 ): Array<number | null> {
   return Array.from({ length: 12 }, (_, month) => {
-    if (!items.some(item => manual[item.kode]?.[month] != null)) return null
-    return items.reduce((sum, item) => {
-      const override = manual[item.kode]?.[month]
-      const realized = actual[item.kode]?.[month] ?? 0
-      const target = item.bulan[month] ?? 0
-      return sum + (override ?? (month > currentMonth ? target : month === currentMonth ? Math.max(realized, target) : realized))
-    }, 0)
+    const hasManual = items.some(item => manual[item.kode]?.[month] != null)
+    // Basis jadwal menggantikan target RKAP untuk bulan berjalan dan mendatang.
+    const hasNonaktif = month >= currentMonth && items.some(item => nonaktifBulan[item.kode]?.includes(month))
+    if (!hasManual && !hasNonaktif && !(basis === 'jadwal' && month >= currentMonth)) return null
+    return items.reduce((sum, item) => sum + prognosaBulan({
+      month,
+      currentMonth,
+      target: item.bulan[month] ?? 0,
+      realized: actual[item.kode]?.[month] ?? 0,
+      basis,
+      kind,
+      jadwal: jadwal[item.kode]?.[month] ?? 0,
+      manual: manual[item.kode]?.[month],
+      nonaktif: nonaktifBulan[item.kode]?.includes(month),
+    }), 0)
   })
 }
 
@@ -139,5 +153,31 @@ export function getPendapatanPerKode(
       }
     })
 
+  return byKey
+}
+
+export function getRealisasiPerKode(
+  allKompensasi: Kompensasi[],
+  allCashIn: CashIn[],
+  tahun: number
+): Record<string, number[]> {
+  const byKey: Record<string, number[]> = {}
+  allKompensasi.forEach(k => {
+    const key = resolveMonikaId(k, k.kerja_sama)
+    if (!key) return
+    if (!byKey[key]) byKey[key] = Array(12).fill(0)
+    ;(k.pembayaran ?? []).forEach(p => {
+      const d = new Date(p.tgl_bayar)
+      if (d.getFullYear() === tahun) byKey[key][d.getMonth()] += p.nominal_bayar
+    })
+  })
+  allCashIn.forEach(ci => {
+    const invoice = ci.kompensasi_id ? allKompensasi.find(k => k.id === ci.kompensasi_id) : undefined
+    const key = ci.rkap_kode?.trim() || (invoice ? resolveMonikaId(invoice, invoice.kerja_sama) : null) || ci.kerja_sama?.aset?.kode_aset
+    if (!key) return
+    if (!byKey[key]) byKey[key] = Array(12).fill(0)
+    const d = new Date(ci.tgl_terima)
+    if (d.getFullYear() === tahun) byKey[key][d.getMonth()] += ci.nominal
+  })
   return byKey
 }

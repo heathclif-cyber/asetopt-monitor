@@ -15,6 +15,9 @@ const BIDANG_USAHA = [
 ] as const
 
 const rpJuta = (value: number) => Math.round((value || 0) / 1_000_000 * 100) / 100
+// Template Cash memakai target Cash In; template Pendapatan memakai target Pendapatan (laba-rugi).
+const rkapBulanFor = (row: HOMasterRow, kind: 'cash' | 'pendapatan') => kind === 'cash' ? row.rkapBulan : row.rkapPendapatanBulan
+const targetTahunFor = (row: HOMasterRow, kind: 'cash' | 'pendapatan') => kind === 'cash' ? row.targetTahun : row.targetPendapatanTahun
 const total = (values: number[]) => values.reduce((sum, value) => sum + (value || 0), 0)
 export type PrognosaEvaluasi = { kode: string; cash: number[]; pendapatan: number[] }
 
@@ -83,14 +86,14 @@ function fillOpsetSheet(
     const actual = sumRows(rows, bidang, row => total(
       Array.from({ length: endMonth + 1 }, (_, month) => actualFor(row, month)),
     ))
-    const rkapSdBulan = sumRows(rows, bidang, row => total(row.rkapBulan.slice(0, endMonth + 1)))
+    const rkapSdBulan = sumRows(rows, bidang, row => total(rkapBulanFor(row, kind).slice(0, endMonth + 1)))
     const forecast = Array.from({ length: 6 }, (_, offset) => {
       const month = endMonth + 1 + offset
       return month < 12
         ? sumRows(rows, bidang, row => prognosa.get(row.kodeMonika)?.[kind]?.[month] ?? 0)
         : 0
     })
-    const rkapTahun = sumRows(rows, bidang, row => row.targetTahun)
+    const rkapTahun = sumRows(rows, bidang, row => targetTahunFor(row, kind))
 
     setNumber(ws.getCell(`D${rowNo}`), rpJuta(actual))
     setNumber(ws.getCell(`E${rowNo}`), rpJuta(rkapSdBulan))
@@ -141,7 +144,7 @@ function fillOpsetPerProkerSheet(
       ? row.cashByMonth[month]?.totalDiluarJaminan ?? 0
       : row.pendapatanByMonth[month]?.total ?? 0
     const actual = total(Array.from({ length: endMonth + 1 }, (_, month) => actualFor(month)))
-    const rkapSd = total(row.rkapBulan.slice(0, endMonth + 1))
+    const rkapSd = total(rkapBulanFor(row, kind).slice(0, endMonth + 1))
     const forecast = Array.from({ length: 6 }, (_, offset) => {
       const month = endMonth + 1 + offset
       return month < 12 ? prognosa.get(row.kodeMonika)?.[kind]?.[month] ?? 0 : 0
@@ -157,7 +160,7 @@ function fillOpsetPerProkerSheet(
     ws.getCell(`I${excelRow}`).value = { formula: `IFERROR(G${excelRow}/H${excelRow},0)` }
     forecast.forEach((value, offset) => setNumber(ws.getCell(excelRow, 10 + offset), rpJuta(value)))
     setNumber(ws.getCell(`P${excelRow}`), rpJuta(annualPrognosa))
-    setNumber(ws.getCell(`Q${excelRow}`), rpJuta(row.targetTahun))
+    setNumber(ws.getCell(`Q${excelRow}`), rpJuta(targetTahunFor(row, kind)))
     ws.getCell(`R${excelRow}`).value = { formula: `IFERROR(P${excelRow}/Q${excelRow},0)` }
   }
   const totalRow = 5 + slots
@@ -233,13 +236,13 @@ export async function exportEvaluasiKinerjaExcel(
   const unclassified = rows.filter(row => !canonicalBidang(row.bidangUsaha))
   if (unclassified.length) {
     const detail = workbook.addWorksheet('Kategori Belum Dipetakan')
-    detail.addRow(['ID Monika', 'Proker', 'Bidang Usaha', 'Target Tahun (juta Rp)'])
-    unclassified.forEach(row => detail.addRow([row.kodeMonika, row.obyek, row.bidangUsaha, rpJuta(row.targetTahun)]))
+    detail.addRow(['ID Monika', 'Proker', 'Bidang Usaha', 'Target Cash In Tahun (juta Rp)', 'Target Pendapatan Tahun (juta Rp)'])
+    unclassified.forEach(row => detail.addRow([row.kodeMonika, row.obyek, row.bidangUsaha, rpJuta(row.targetTahun), rpJuta(row.targetPendapatanTahun)]))
     detail.columns.forEach(column => { column.width = 25 })
     for (const kind of ['cash', 'pendapatan'] as const) {
       const sheet = workbook.getWorksheet(kind === 'cash' ? 'Opset Cash' : 'Opset Pendapatan')!
       const actual = total(unclassified.map(row => total(Array.from({ length: opts.endMonth + 1 }, (_, month) => kind === 'cash' ? row.cashByMonth[month]?.totalDiluarJaminan ?? 0 : row.pendapatanByMonth[month]?.total ?? 0))))
-      const additions: Record<string, number> = { D: actual, E: total(unclassified.map(row => total(row.rkapBulan.slice(0, opts.endMonth + 1)))), O: total(unclassified.map(row => row.targetTahun)) }
+      const additions: Record<string, number> = { D: actual, E: total(unclassified.map(row => total(rkapBulanFor(row, kind).slice(0, opts.endMonth + 1)))), O: total(unclassified.map(row => targetTahunFor(row, kind))) }
       for (let offset = 0; offset < 6; offset++) additions[String.fromCharCode(71 + offset)] = total(unclassified.map(row => prognosa.get(row.kodeMonika)?.[kind]?.[opts.endMonth + 1 + offset] ?? 0))
       additions.M = total(unclassified.map(row => total((prognosa.get(row.kodeMonika)?.[kind] ?? []).slice(opts.endMonth + 1))))
       additions.N = actual + additions.M

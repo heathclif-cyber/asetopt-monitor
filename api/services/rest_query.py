@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 ALLOWED_TABLES = {
     "aset", "njop", "penilaian_kjpp", "timeline_program", "prospek_mitra",
     "kerja_sama", "kerja_sama_aset", "kompensasi", "pembayaran", "pbb", "pbb_objek",
-    "cash_in", "surat_peringatan", "log_notifikasi", "rkap_target", "rkap_prognosa",
+    "cash_in", "surat_peringatan", "log_notifikasi", "rkap_target", "rkap_prognosa", "rkap_prognosa_nonaktif", "rkap_prognosa_setting",
     "katalog_aset", "katalog_aksesibilitas", "katalog_lingkungan", "katalog_skema", "katalog_foto",
     "pendapatan_diterima_dimuka", "pengakuan_pendapatan", "document_upload", "aset_gis", "aset_konsesi",
     "konsesi_profil", "konsesi_sppt", "konsesi_bangunan",
