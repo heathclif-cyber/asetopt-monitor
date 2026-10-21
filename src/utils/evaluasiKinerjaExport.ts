@@ -96,7 +96,9 @@ function fillOpsetSheet(
     setNumber(ws.getCell(`E${rowNo}`), rpJuta(rkapSdBulan))
     ws.getCell(`F${rowNo}`).value = { formula: `IFERROR(D${rowNo}/E${rowNo},0)` }
     forecast.forEach((value, offset) => setNumber(ws.getCell(rowNo, 7 + offset), rpJuta(value)))
-    ws.getCell(`M${rowNo}`).value = { formula: `SUM(G${rowNo}:L${rowNo})` }
+    const remainingForecast = sumRows(rows, bidang, row => total((prognosa.get(row.kodeMonika)?.[kind] ?? []).slice(endMonth + 1)))
+    const omittedForecast = remainingForecast - total(forecast)
+    ws.getCell(`M${rowNo}`).value = { formula: `SUM(G${rowNo}:L${rowNo})+${rpJuta(omittedForecast)}` }
     ws.getCell(`N${rowNo}`).value = { formula: `D${rowNo}+M${rowNo}` }
     setNumber(ws.getCell(`O${rowNo}`), rpJuta(rkapTahun))
     ws.getCell(`P${rowNo}`).value = { formula: `IFERROR(N${rowNo}/O${rowNo},0)` }
@@ -122,8 +124,13 @@ function fillOpsetPerProkerSheet(
   Array.from({ length: 6 }, (_, offset) => endMonth + 1 + offset).forEach((month, offset) => {
     ws.getCell(4, 10 + offset).value = month < 12 ? BULAN_LABELS_HO[month].slice(0, 3) : ''
   })
-  const sorted = [...rows].sort((a, b) => a.no - b.no).slice(0, 25)
-  for (let index = 0; index < 25; index++) {
+  const sorted = [...rows].sort((a, b) => a.no - b.no)
+  let templateTotalRow = 5
+  while (templateTotalRow < 200 && String(ws.getCell(`B${templateTotalRow}`).value ?? '').trim().toUpperCase() !== 'TOTAL') templateTotalRow++
+  const templateSlots = templateTotalRow - 5
+  const slots = Math.max(templateSlots, sorted.length)
+  if (slots > templateSlots) ws.insertRows(templateTotalRow, Array.from({ length: slots - templateSlots }, () => []), 'i')
+  for (let index = 0; index < slots; index++) {
     const excelRow = index + 5
     const row = sorted[index]
     if (!row) {
@@ -139,7 +146,7 @@ function fillOpsetPerProkerSheet(
       const month = endMonth + 1 + offset
       return month < 12 ? prognosa.get(row.kodeMonika)?.[kind]?.[month] ?? 0 : 0
     })
-    const annualPrognosa = actual + total(forecast)
+    const annualPrognosa = actual + total((prognosa.get(row.kodeMonika)?.[kind] ?? []).slice(endMonth + 1))
     ws.getCell(`B${excelRow}`).value = index + 1
     ws.getCell(`C${excelRow}`).value = row.bidangUsaha || ''
     ws.getCell(`D${excelRow}`).value = row.obyek || ''
@@ -153,9 +160,10 @@ function fillOpsetPerProkerSheet(
     setNumber(ws.getCell(`Q${excelRow}`), rpJuta(row.targetTahun))
     ws.getCell(`R${excelRow}`).value = { formula: `IFERROR(P${excelRow}/Q${excelRow},0)` }
   }
-  for (let col = 7; col <= 17; col++) ws.getCell(30, col).value = { formula: `SUM(${ws.getColumn(col).letter}5:${ws.getColumn(col).letter}29)` }
-  ws.getCell('I30').value = { formula: 'IFERROR(G30/H30,0)' }
-  ws.getCell('R30').value = { formula: 'IFERROR(P30/Q30,0)' }
+  const totalRow = 5 + slots
+  for (let col = 7; col <= 17; col++) ws.getCell(totalRow, col).value = { formula: `SUM(${ws.getColumn(col).letter}5:${ws.getColumn(col).letter}${totalRow - 1})` }
+  ws.getCell(`I${totalRow}`).value = { formula: `IFERROR(G${totalRow}/H${totalRow},0)` }
+  ws.getCell(`R${totalRow}`).value = { formula: `IFERROR(P${totalRow}/Q${totalRow},0)` }
 }
 
 function fillPiutangSheet(ws: ExcelJS.Worksheet, rows: HOMasterRow[], endMonth: number, tahun: number) {
@@ -165,9 +173,9 @@ function fillPiutangSheet(ws: ExcelJS.Worksheet, rows: HOMasterRow[], endMonth: 
     .filter(item => Math.abs(item.value) > 0.5)
     .sort((a, b) => b.value - a.value)
 
-  // Template menyediakan 11 baris data. Lebih dari 11 mitra tetap tersedia di
-  // Laporan Format HO; file evaluasi menjaga layout tanpa menambah/menggeser baris.
-  for (let index = 0; index < 11; index++) {
+  const slots = Math.max(11, outstanding.length)
+  if (slots > 11) ws.insertRows(17, Array.from({ length: slots - 11 }, () => []), 'i')
+  for (let index = 0; index < slots; index++) {
     const excelRow = index + 6
     const item = outstanding[index]
     ws.getCell(`B${excelRow}`).value = item ? index + 1 : ''
@@ -180,7 +188,7 @@ function fillPiutangSheet(ws: ExcelJS.Worksheet, rows: HOMasterRow[], endMonth: 
     ws.getCell(`G${excelRow}`).value = ''
   }
   ;['D', 'E', 'F'].forEach(col => {
-    ws.getCell(`${col}17`).value = { formula: `SUM(${col}6:${col}16)` }
+    ws.getCell(`${col}${6 + slots}`).value = { formula: `SUM(${col}6:${col}${5 + slots})` }
   })
 }
 
@@ -194,12 +202,51 @@ export async function exportEvaluasiKinerjaExcel(
   const workbook = new ExcelJS.Workbook()
   await workbook.xlsx.load(await response.arrayBuffer())
   normalizeSharedFormulas(workbook)
+  const divest = workbook.getWorksheet('Divest')
+  if (divest) {
+    divest.getCell('B1').value = 'Belum tersedia data divestasi aplikasi; isi manual'
+    divest.getCell('B1').font = { name: 'Calibri', size: 10, bold: true }
+    for (let row = 6; row <= 16; row++) {
+      for (const column of ['C', 'D', 'E', 'F', 'H', 'I', 'J', 'M']) divest.getCell(`${column}${row}`).value = ''
+    }
+    divest.eachRow(row => row.eachCell(cell => {
+      const formula = cell.formula
+      if (formula && formula.includes('/')) cell.value = { formula: `IFERROR(${formula},"")` }
+    }))
+  }
   const prognosa = new Map((opts.prognosa ?? []).map(row => [row.kode, row]))
   fillOpsetSheet(workbook.getWorksheet('Opset Cash')!, rows, opts.endMonth, opts.tahun, 'cash', prognosa)
   fillOpsetPerProkerSheet(workbook.getWorksheet('Opset Cash per Proker')!, rows, opts.endMonth, opts.tahun, 'cash', prognosa)
   fillOpsetSheet(workbook.getWorksheet('Opset Pendapatan')!, rows, opts.endMonth, opts.tahun, 'pendapatan', prognosa)
   fillOpsetPerProkerSheet(workbook.getWorksheet('Opset Pendapatan per Proker')!, rows, opts.endMonth, opts.tahun, 'pendapatan', prognosa)
   fillPiutangSheet(workbook.getWorksheet('Piutang')!, rows, opts.endMonth, opts.tahun)
+
+  const remaining = Array.from({ length: 11 - opts.endMonth }, (_, index) => opts.endMonth + 1 + index)
+  if (remaining.length > 6) {
+    const detail = workbook.addWorksheet('Prognosa Sisa Tahun')
+    detail.addRow(['ID Monika', 'Proker', ...remaining.map(month => BULAN_LABELS_HO[month] + ' Cash'), ...remaining.map(month => BULAN_LABELS_HO[month] + ' Pendapatan')])
+    rows.forEach(row => detail.addRow([row.kodeMonika, row.obyek, ...remaining.map(month => rpJuta(prognosa.get(row.kodeMonika)?.cash[month] ?? 0)), ...remaining.map(month => rpJuta(prognosa.get(row.kodeMonika)?.pendapatan[month] ?? 0))]))
+    detail.getRow(1).font = { bold: true }
+    detail.columns.forEach(column => { column.width = 22 })
+    detail.addRow(['Satuan: juta Rupiah. Total prognosa di template mencakup seluruh sisa tahun.'])
+  }
+  const unclassified = rows.filter(row => !canonicalBidang(row.bidangUsaha))
+  if (unclassified.length) {
+    const detail = workbook.addWorksheet('Kategori Belum Dipetakan')
+    detail.addRow(['ID Monika', 'Proker', 'Bidang Usaha', 'Target Tahun (juta Rp)'])
+    unclassified.forEach(row => detail.addRow([row.kodeMonika, row.obyek, row.bidangUsaha, rpJuta(row.targetTahun)]))
+    detail.columns.forEach(column => { column.width = 25 })
+    for (const kind of ['cash', 'pendapatan'] as const) {
+      const sheet = workbook.getWorksheet(kind === 'cash' ? 'Opset Cash' : 'Opset Pendapatan')!
+      const actual = total(unclassified.map(row => total(Array.from({ length: opts.endMonth + 1 }, (_, month) => kind === 'cash' ? row.cashByMonth[month]?.totalDiluarJaminan ?? 0 : row.pendapatanByMonth[month]?.total ?? 0))))
+      const additions: Record<string, number> = { D: actual, E: total(unclassified.map(row => total(row.rkapBulan.slice(0, opts.endMonth + 1)))), O: total(unclassified.map(row => row.targetTahun)) }
+      for (let offset = 0; offset < 6; offset++) additions[String.fromCharCode(71 + offset)] = total(unclassified.map(row => prognosa.get(row.kodeMonika)?.[kind]?.[opts.endMonth + 1 + offset] ?? 0))
+      additions.M = total(unclassified.map(row => total((prognosa.get(row.kodeMonika)?.[kind] ?? []).slice(opts.endMonth + 1))))
+      additions.N = actual + additions.M
+      Object.entries(additions).forEach(([column, value]) => { sheet.getCell(`${column}17`).value = { formula: `SUM(${column}6:${column}16)+${rpJuta(value)}` } })
+      sheet.getCell('D3').value = `s.d. ${BULAN_LABELS_HO[opts.endMonth]} ${opts.tahun} · Total termasuk kategori belum dipetakan (lihat sheet rincian)`
+    }
+  }
 
   const bytes = await workbook.xlsx.writeBuffer()
   const url = URL.createObjectURL(new Blob([bytes], {
