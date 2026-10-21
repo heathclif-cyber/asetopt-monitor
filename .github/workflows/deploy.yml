@@ -1,0 +1,57 @@
+name: Deploy ke PC self-host
+
+on:
+  workflow_dispatch:
+    inputs:
+      service:
+        description: Service yang di-deploy
+        type: choice
+        options: [web, api, web-dan-api]
+        default: web
+
+concurrency:
+  group: deploy-selfhost
+  cancel-in-progress: false
+
+env:
+  ENV_FILE: /home/apps-server/asetopt-monitor/.env.selfhost
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, linux, asetopt]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Siapkan env (tidak ada di repo)
+        run: |
+          test -f "$ENV_FILE"
+          ln -sf "$ENV_FILE" .env.selfhost
+
+      - name: Build dan ganti container
+        run: |
+          case "${{ inputs.service }}" in
+            web) SERVICES="web" ;;
+            api) SERVICES="api" ;;
+            web-dan-api) SERVICES="api web" ;;
+          esac
+          # --no-deps: db, gis-worker dan service lain tidak disentuh.
+          docker compose --env-file "$ENV_FILE" build $SERVICES
+          docker compose --env-file "$ENV_FILE" up -d --no-deps $SERVICES
+
+      - name: Tunggu aplikasi siap
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS -o /dev/null http://127.0.0.1:3001/; then echo "web OK"; break; fi
+            sleep 3
+          done
+          curl -fsS -o /dev/null http://127.0.0.1:3001/
+          for i in $(seq 1 30); do
+            if curl -fsS -o /dev/null http://127.0.0.1:8001/health; then echo "api OK"; exit 0; fi
+            sleep 3
+          done
+          echo "api belum sehat"; exit 1
+
+      - name: Bersihkan image lama
+        if: always()
+        run: docker image prune -f
