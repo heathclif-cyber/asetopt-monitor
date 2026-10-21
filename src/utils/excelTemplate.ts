@@ -48,7 +48,7 @@ export interface BuildSheetOpts {
 }
 
 const MONEY_FMT = '#,##0'
-const PCT_FMT = '0.0"%"'
+const PCT_FMT = '0.0%'
 
 function thinBorder(): Partial<ExcelJS.Borders> {
   const edge: Partial<ExcelJS.Border> = { style: 'thin', color: { argb: EXCEL_BRAND.border } }
@@ -119,10 +119,14 @@ function formatCell(
     cell.value = ''
   } else if (type === 'money' || type === 'number' || type === 'int' || type === 'percent') {
     const n = typeof value === 'number' ? value : Number(value)
-    cell.value = Number.isFinite(n) ? n : String(value)
+    cell.value = Number.isFinite(n) ? (type === 'percent' ? n / 100 : n) : String(value)
     if (type === 'money') cell.numFmt = MONEY_FMT
     if (type === 'percent') cell.numFmt = PCT_FMT
     if (type === 'int') cell.numFmt = '0'
+  } else if (type === 'date') {
+    const date = value instanceof Date ? value : new Date(String(value).slice(0, 10) + 'T00:00:00Z')
+    cell.value = Number.isNaN(date.getTime()) ? String(value) : date
+    cell.numFmt = 'dd mmm yyyy'
   } else {
     cell.value = value as ExcelJS.CellValue
   }
@@ -255,6 +259,41 @@ export function addTemplatedSheet(wb: ExcelJS.Workbook, opts: BuildSheetOpts): E
   return ws
 }
 
+export function addReportMatrixSheet(wb: ExcelJS.Workbook, name: string, rows: unknown[][], widths: number[]) {
+  const ws = wb.addWorksheet(name, { views: [{ state: 'frozen', ySplit: 4, showGridLines: false }] })
+  widths.forEach((width, index) => { ws.getColumn(index + 1).width = width })
+  const headers = rows[3] ?? []
+  rows.forEach((values, index) => {
+    const row = ws.addRow(values)
+    if (index < 2 && values.length === 1) {
+      ws.mergeCells(row.number, 1, row.number, widths.length)
+      row.font = { name: 'Calibri', size: index === 0 ? 16 : 10, bold: index === 0, color: { argb: EXCEL_BRAND.navy } }
+      row.height = index === 0 ? 30 : 22
+      return
+    }
+    const isTotal = values.some(value => value === 'TOTAL')
+    row.eachCell(cell => {
+      cell.font = { name: 'Calibri', size: 10, bold: index === 3 || isTotal }
+      cell.border = thinBorder()
+      cell.alignment = { vertical: 'middle', wrapText: typeof cell.value === 'string' }
+      if (index === 3) {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: EXCEL_BRAND.navy } }
+        cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: EXCEL_BRAND.headerFg } }
+        row.height = 34
+      } else if (isTotal) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: EXCEL_BRAND.totalBg } }
+      else if (index > 3 && index % 2 === 0) cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: EXCEL_BRAND.altRow } }
+      if (typeof cell.value === 'number') {
+        if (String(headers[Number(cell.col) - 1]).includes('%')) {
+          cell.value /= 100
+          cell.numFmt = PCT_FMT
+        } else cell.numFmt = MONEY_FMT
+      }
+    })
+  })
+  ws.pageSetup = { orientation: 'landscape', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0 }
+  return ws
+}
+
 export async function downloadWorkbook(wb: ExcelJS.Workbook, fileName: string): Promise<void> {
   const buffer = await wb.xlsx.writeBuffer()
   const blob = new Blob([buffer], {
@@ -267,7 +306,7 @@ export async function downloadWorkbook(wb: ExcelJS.Workbook, fileName: string): 
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)
-  URL.revokeObjectURL(url)
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
 export function newWorkbook(): ExcelJS.Workbook {

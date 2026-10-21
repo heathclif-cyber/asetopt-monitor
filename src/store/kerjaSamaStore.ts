@@ -39,11 +39,12 @@ export const useKerjaSamaStore = create<KerjaSamaStore>((set, get) => ({
   },
 
   addKS: async (data) => {
-    const { data: inserted } = await supabase
+    const { data: inserted, error } = await supabase
       .from('kerja_sama')
       .insert(data)
       .select()
       .single()
+    if (error) throw new Error(`Gagal menambah kerja sama: ${error.message}`)
     if (inserted?.id && data.aset_id) await linkAset(inserted.id, data.aset_id)
     await get().fetchKS()
     return inserted?.id ?? null
@@ -52,7 +53,8 @@ export const useKerjaSamaStore = create<KerjaSamaStore>((set, get) => ({
   updateKS: async (id, data) => {
     const { id: _id, created_at, aset, kerja_sama_aset, ...updateData } = data as any
     const previousAsetId = get().daftarKS.find(ks => ks.id === id)?.aset_id
-    await supabase.from('kerja_sama').update(updateData).eq('id', id)
+    const { error } = await supabase.from('kerja_sama').update(updateData).eq('id', id)
+    if (error) throw new Error(`Gagal memperbarui kerja sama: ${error.message}`)
     if (updateData.aset_id && updateData.aset_id !== previousAsetId) {
       if (previousAsetId) await supabase.from('kerja_sama_aset').delete().eq('ks_id', id).eq('aset_id', previousAsetId)
       await linkAset(id, updateData.aset_id)

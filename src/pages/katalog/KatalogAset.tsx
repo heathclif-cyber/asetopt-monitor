@@ -53,13 +53,6 @@ export function KatalogAset() {
     fetchAllTimeline()
     fetchKS()
     fetchAllPBB()
-  }, [])
-
-  useEffect(() => {
-    fetchAllNJOP()
-    fetchAllKJPP()
-    fetchAllTimeline()
-    fetchAllPBB()
   }, [location.key])
 
   const entries: CatalogEntry[] = useMemo(() => {
@@ -123,7 +116,7 @@ export function KatalogAset() {
     <div className="space-y-5">
       {/* Page header */}
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Katalog Aset</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Portfolio Aset</h1>
         <p className="text-sm text-gray-500">Portofolio lengkap seluruh aset — NJOP, KJPP, timeline, prospek, kerja sama, dan PBB dalam satu tampilan</p>
       </div>
 

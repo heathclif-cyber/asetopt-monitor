@@ -1,10 +1,12 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useKompensasiStore } from '@/store/kompensasiStore'
 import { useKerjaSamaStore } from '@/store/kerjaSamaStore'
 import { usePendapatanStore } from '@/store/pendapatanStore'
 import { RKAPTargetRow } from '@/store/rkapStore'
 import { useAsetStore } from '@/store/asetStore'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { CurrencyDisplay } from '@/components/common/CurrencyDisplay'
 import { SearchableSelect } from '@/components/common/SearchableSelect'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -29,6 +31,13 @@ type ViewMode = 'detail' | 'program'
 type SortKey = 'namaMitra' | 'namaAset' | 'periodeLabel' | 'tglJatuhTempo' | 'totalTagihan' | 'cashIn' | 'sisa' | 'status' | 'pendapatanAkrual'
 type SortDir = 'asc' | 'desc'
 type StatusFilter = 'all' | 'outstanding' | 'lunas' | 'terlambat'
+type SapFilter = 'all' | 'belum' | 'sebagian' | 'lengkap'
+
+const sapTerisi = (v: string) => v.trim() !== '' && v.trim() !== '-'
+const statusSapOf = (noInvoice: string, noBilling: string): Exclude<SapFilter, 'all'> => {
+  const n = Number(sapTerisi(noInvoice)) + Number(sapTerisi(noBilling))
+  return n === 2 ? 'lengkap' : n === 1 ? 'sebagian' : 'belum'
+}
 /** Filter tampilan periode (bukan sort) */
 type PeriodeMode = 'semua' | 'terbaru' | 'terdekat'
 /** Basis filter tahun/bulan: JT tagihan vs tanggal pembayaran diterima */
@@ -57,7 +66,7 @@ const SORT_PRESETS: { value: SortPreset; label: string; key: SortKey; dir: SortD
   { value: 'cashin_terbesar', label: 'Cash In terbesar', key: 'cashIn', dir: 'desc' },
   { value: 'cashin_terkecil', label: 'Cash In terkecil', key: 'cashIn', dir: 'asc' },
   { value: 'sisa_terbesar', label: 'Outstanding terbesar', key: 'sisa', dir: 'desc' },
-  { value: 'akrual_terbesar', label: 'Pendapatan terbesar', key: 'pendapatanAkrual', dir: 'desc' },
+  { value: 'akrual_terbesar', label: 'DPP terbesar', key: 'pendapatanAkrual', dir: 'desc' },
   { value: 'mitra_az', label: 'Mitra A → Z', key: 'namaMitra', dir: 'asc' },
   { value: 'mitra_za', label: 'Mitra Z → A', key: 'namaMitra', dir: 'desc' },
   { value: 'status', label: 'Status', key: 'status', dir: 'asc' },
@@ -123,6 +132,10 @@ export default function LaporanPendapatan() {
   const [filterKategori, setFilterKategori] = useState('all')
   const [editing, setEditing] = useState<{ id: string; field: string; value: string } | null>(null)
   const [saving, setSaving] = useState(false)
+  const [sapError, setSapError] = useState('')
+  const [sapFeedback, setSapFeedback] = useState('')
+  const sapSaveLock = useRef(false)
+  const sapCancelled = useRef(false)
   const [exportingExcel, setExportingExcel] = useState(false)
 
   // ── Filters ───────────────────────────────────────────────────────────────
@@ -157,6 +170,7 @@ export default function LaporanPendapatan() {
   const yearInScope = (y: number) => tahunFilter === 'all' || tahunFilter.includes(y)
   const [filterMitra, setFilterMitra] = useState('all')
   const [filterStatus, setFilterStatus] = useState<StatusFilter>('all')
+  const [filterSap, setFilterSap] = useState<SapFilter>('all')
   const [periodeMode, setPeriodeMode] = useState<PeriodeMode>('semua')
   // Default full year (12 bulan) — sama basis Detail & Per Proker
   const [selectedMonths, setSelectedMonths] = useState<number[]>(() => ALL_MONTHS)
@@ -262,6 +276,7 @@ export default function LaporanPendapatan() {
           noInvoice: k.no_invoice_sap ?? '-',
           // No Billing = field billing saja; kosong biarkan kosong (bukan invoice/kontrak)
           noBilling: (k.no_billing_sap ?? '').trim() || '',
+          statusSap: statusSapOf(k.no_invoice_sap ?? '', k.no_billing_sap ?? ''),
           totalTagihan: efektifTagihan,
           cashIn,
           paymentsInYear,
@@ -280,6 +295,12 @@ export default function LaporanPendapatan() {
     return Array.from(seen.entries()).sort((a, b) => a[1].localeCompare(b[1]))
   }, [allRows])
 
+  const sapCount = useMemo(() => {
+    const c = { belum: 0, sebagian: 0, lengkap: 0 }
+    allRows.forEach(r => { if (filterMitra === 'all' || r.ksId === filterMitra) c[r.statusSap]++ })
+    return c
+  }, [allRows, filterMitra])
+
   // ── Apply filters + sort ──────────────────────────────────────────────────
   const rows = useMemo(() => {
     let data = allRows
@@ -288,6 +309,7 @@ export default function LaporanPendapatan() {
     if (filterStatus === 'outstanding') data = data.filter(r => r.sisa > 0)
     else if (filterStatus === 'lunas') data = data.filter(r => r.status === 'lunas')
     else if (filterStatus === 'terlambat') data = data.filter(r => r.status === 'terlambat')
+    if (filterSap !== 'all') data = data.filter(r => r.statusSap === filterSap)
 
     // Filter bulan: JT tagihan ATAU bulan tgl_bayar (diterima)
     if (selectedMonths.length < 12) {
@@ -373,7 +395,7 @@ export default function LaporanPendapatan() {
     })
 
     return data
-  }, [allRows, filterMitra, filterStatus, selectedMonths, periodeMode, sortKey, sortDir, bulanBasis])
+  }, [allRows, filterMitra, filterStatus, filterSap, selectedMonths, periodeMode, sortKey, sortDir, bulanBasis])
 
   // ── Summary ───────────────────────────────────────────────────────────────
   const totalTagihan = rows.reduce((s, r) => s + r.totalTagihan, 0)
@@ -479,29 +501,46 @@ export default function LaporanPendapatan() {
   }
 
   // ── Inline edit ───────────────────────────────────────────────────────────
-  const startEdit = (id: string, field: string, current: string) =>
+  const startEdit = (id: string, field: string, current: string) => {
+    if (sapSaveLock.current) return
+    sapCancelled.current = false
+    setSapError('')
+    setSapFeedback('')
     setEditing({ id, field, value: current === '-' ? '' : current })
-  const cancelEdit = () => setEditing(null)
+  }
+  const cancelEdit = () => {
+    sapCancelled.current = true
+    setEditing(null)
+    setSapError('')
+  }
 
   const saveEdit = async () => {
-    if (!editing) return
+    if (!editing || sapSaveLock.current || sapCancelled.current) return
+    sapSaveLock.current = true
     setSaving(true)
+    setSapError('')
+    setSapFeedback('Menyimpan nomor SAP...')
     try {
       if (editing.field === 'no_invoice_sap' || editing.field === 'no_billing_sap') {
-        await supabase.from('kompensasi').update({ [editing.field]: editing.value || null }).eq('id', editing.id)
+        const { error } = await supabase.from('kompensasi').update({ [editing.field]: editing.value || null }).eq('id', editing.id)
+        if (error) throw new Error(error.message)
         await fetchAllKompensasi()
       } else if (editing.field === 'no_kontrak_sap') {
         const row = rows.find(r => r.id === editing.id)
-        if (row) {
-          await supabase.from('kerja_sama').update({ no_kontrak_sap: editing.value || null }).eq('id', row.ksId)
-          await fetchKS()
-        }
+        if (!row) throw new Error('Baris kerja sama tidak ditemukan.')
+        const { error } = await supabase.from('kerja_sama').update({ no_kontrak_sap: editing.value || null }).eq('id', row.ksId)
+        if (error) throw new Error(error.message)
+        await fetchKS()
       }
-    } catch (e: any) {
-      console.error('[LaporanPendapatan2] Gagal simpan:', e)
+      setEditing(null)
+      setSapFeedback('Nomor SAP tersimpan.')
+    } catch (error) {
+      setSapFeedback('')
+      setSapError(`Gagal menyimpan nomor SAP. ${error instanceof Error ? error.message : 'Silakan coba kembali.'} Isian tetap tersedia; tekan Enter untuk mencoba lagi.`)
+    } finally {
+      sapSaveLock.current = false
+      setSaving(false)
     }
-    setEditing(null)
-    setSaving(false)
   }
 
   const monthLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des']
@@ -540,6 +579,7 @@ export default function LaporanPendapatan() {
         await exportLaporanProgramExcel(programRows, {
           tahunLabel: tahunFileLabel,
           horizon: selectedMonths.length < 12 ? 'bulan_filter' : 'full_year',
+          monthLabels: selectedMonths.map(month => ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'][month]),
         })
       }
     } finally {
@@ -551,7 +591,7 @@ export default function LaporanPendapatan() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-lg font-bold text-gray-800">Laporan Pendapatan — {tahunLabel}</h1>
+          <h1 className="text-lg font-bold text-gray-800">Laporan Tagihan & Cash In — {tahunLabel}</h1>
           <p className="text-xs text-gray-500 mt-1">
             {viewMode === 'detail'
               ? bulanBasis === 'diterima'
@@ -593,7 +633,7 @@ export default function LaporanPendapatan() {
         description={
           viewMode === 'detail'
             ? 'Excel berisi mitra, periode, JT, tgl pembayaran, tagihan, cash in, akrual, dan sisa — sesuai filter tahun/bulan/status.'
-            : 'Excel rekap Optimalisasi Aset per ID Monika: RKAP, pendapatan, cash in, dan capaian.'
+            : 'Excel rekap Optimalisasi Aset per ID Monika: RKAP, DPP ditagihkan, cash in, dan capaian.'
         }
         meta={
           viewMode === 'detail'
@@ -618,13 +658,15 @@ export default function LaporanPendapatan() {
           <label className="text-xs text-gray-500 whitespace-nowrap">Tahun</label>
           <Popover>
             <PopoverTrigger asChild>
-              <button
+              <Button
                 type="button"
-                className="inline-flex items-center gap-1 text-xs border rounded-md px-2 py-1 bg-white hover:bg-gray-50 focus:outline-none focus:ring-1 focus:ring-[#1B4F72] min-w-[90px] justify-between"
+                variant="outline"
+                aria-label="Pilih tahun laporan"
+                className={cn('h-10 min-w-[90px] justify-between text-xs')}
               >
                 <span>{tahunLabel}</span>
-                <ChevronDown size={12} className="text-gray-400" />
-              </button>
+                <ChevronDown size={12} className="text-muted-foreground" />
+              </Button>
             </PopoverTrigger>
             <PopoverContent align="start" className="w-48 p-2">
               <label className="flex items-center gap-2 cursor-pointer select-none px-1.5 py-1 rounded hover:bg-gray-50">
@@ -670,9 +712,10 @@ export default function LaporanPendapatan() {
             <div className="flex items-center gap-1.5">
               <label className="text-xs text-gray-500 whitespace-nowrap">Kategori</label>
               <select
+                aria-label="Kategori program"
                 value={filterKategori}
                 onChange={e => setFilterKategori(e.target.value)}
-                className="text-xs border rounded-md px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-[#1B4F72]"
+                className="h-10 text-xs border border-input rounded-md px-3 bg-background focus:outline-none focus:ring-2 focus:ring-ring"
               >
                 <option value="all">Semua kategori</option>
                 {kategoriList.map(k => (
@@ -689,12 +732,12 @@ export default function LaporanPendapatan() {
                   setProgramSort(k)
                   setProgramSortDir(d)
                 }}
-                className="text-xs border rounded-md px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-[#1B4F72] min-w-[150px]"
+                className="h-10 text-xs border border-input rounded-md px-3 bg-background focus:outline-none focus:ring-2 focus:ring-ring min-w-[150px]"
               >
                 <option value="no_asc">No. program (LM)</option>
                 <option value="kategori_asc">Kategori A→Z</option>
                 <option value="rkap_desc">RKAP terbesar</option>
-                <option value="pendapatan_desc">Pendapatan terbesar</option>
+                <option value="pendapatan_desc">DPP terbesar</option>
                 <option value="cashIn_desc">Cash In terbesar</option>
                 <option value="capaian_desc">Capaian tertinggi</option>
                 <option value="capaian_asc">Capaian terendah</option>
@@ -708,7 +751,7 @@ export default function LaporanPendapatan() {
             <div className="flex items-center gap-1.5">
               <label className="text-xs text-gray-500 whitespace-nowrap">Mitra</label>
               <SearchableSelect
-                className="h-8 text-xs min-w-[180px] max-w-[240px]"
+                className={cn("h-10 text-xs min-w-[180px] max-w-[240px]")}
                 value={filterMitra === 'all' ? '' : filterMitra}
                 onValueChange={v => setFilterMitra(v || 'all')}
                 options={mitraList.map(([id, nama]) => ({
@@ -726,6 +769,7 @@ export default function LaporanPendapatan() {
             <div className="flex items-center gap-1.5">
               <label className="text-xs text-gray-500 whitespace-nowrap">Status</label>
               <select
+                aria-label="Status laporan"
                 value={filterStatus}
                 onChange={e => {
                   const v = e.target.value as StatusFilter
@@ -735,7 +779,7 @@ export default function LaporanPendapatan() {
                     setSortDir('desc')
                   }
                 }}
-                className="text-xs border rounded-md px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-[#1B4F72]"
+                className="h-10 text-xs border border-input rounded-md px-3 bg-background focus:outline-none focus:ring-2 focus:ring-ring"
                 title="Outstanding = tagihan dengan sisa > 0"
               >
                 <option value="all">Semua</option>
@@ -746,8 +790,25 @@ export default function LaporanPendapatan() {
             </div>
 
             <div className="flex items-center gap-1.5">
+              <label className="text-xs text-gray-500 whitespace-nowrap">Status SAP</label>
+              <select
+                aria-label="Status input SAP"
+                value={filterSap}
+                onChange={e => setFilterSap(e.target.value as SapFilter)}
+                className="h-10 text-xs border border-input rounded-md px-3 bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                title="Berdasarkan No Invoice SAP dan No Billing SAP pada tiap tagihan"
+              >
+                <option value="all">Semua</option>
+                <option value="belum">Belum diinput</option>
+                <option value="sebagian">Sebagian</option>
+                <option value="lengkap">Lengkap</option>
+              </select>
+            </div>
+
+            <div className="flex items-center gap-1.5">
               <label className="text-xs text-gray-500 whitespace-nowrap">Tampilkan</label>
               <select
+                aria-label="Periode yang ditampilkan"
                 value={periodeMode}
                 onChange={e => {
                   const mode = e.target.value as PeriodeMode
@@ -761,7 +822,7 @@ export default function LaporanPendapatan() {
                     setSortDir('asc')
                   }
                 }}
-                className="text-xs border rounded-md px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-[#1B4F72]"
+                className="h-10 text-xs border border-input rounded-md px-3 bg-background focus:outline-none focus:ring-2 focus:ring-ring"
                 title="Filter baris per mitra"
               >
                 <option value="semua">Semua periode</option>
@@ -773,13 +834,14 @@ export default function LaporanPendapatan() {
             <div className="flex items-center gap-1.5">
               <label className="text-xs text-gray-500 whitespace-nowrap">Urutkan</label>
               <select
+                aria-label="Urutan laporan"
                 value={sortPreset}
                 onChange={e => {
                   const v = e.target.value
                   if (v === 'custom') return
                   applySortPreset(v as SortPreset)
                 }}
-                className="text-xs border rounded-md px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-[#1B4F72] min-w-[160px]"
+                className="h-10 text-xs border border-input rounded-md px-3 bg-background focus:outline-none focus:ring-2 focus:ring-ring min-w-[160px]"
                 title="Urutan baris laporan (atau klik header kolom)"
               >
                 {sortPreset === 'custom' && (
@@ -802,9 +864,10 @@ export default function LaporanPendapatan() {
       <div className="bg-white border rounded-xl px-4 py-2.5 flex flex-wrap items-center gap-1.5">
         <span className="text-xs text-gray-500 font-medium mr-1">Bulan:</span>
         <select
+          aria-label="Dasar periode laporan"
           value={bulanBasis}
           onChange={e => setBulanBasis(e.target.value as BulanBasis)}
-          className="text-xs border rounded-md px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-[#1B4F72] mr-1"
+          className="h-10 text-xs border border-input rounded-md px-3 bg-background focus:outline-none focus:ring-2 focus:ring-ring mr-1"
               title="Dasar filter tahun & bulan"
             >
               <option value="jatuh_tempo">Jatuh tempo</option>
@@ -813,9 +876,11 @@ export default function LaporanPendapatan() {
             {['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'].map((label, idx) => {
               const active = selectedMonths.includes(idx)
               return (
-                <button
+                <Button
                   key={idx}
                   type="button"
+                  variant={active ? 'default' : 'outline'}
+                  aria-pressed={active}
                   onClick={() => {
                     setSelectedMonths(prev => {
                       if (prev.length === 12) return [idx]
@@ -826,33 +891,30 @@ export default function LaporanPendapatan() {
                       return [...prev, idx].sort((a, b) => a - b)
                     })
                   }}
-                  className={cn(
-                    'px-2 py-0.5 text-xs rounded-md border transition-colors select-none',
-                    active
-                      ? 'bg-[#1B4F72] text-white border-[#1B4F72] font-medium'
-                      : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
-                  )}
+                  className={cn('h-10 min-w-10 px-2 text-xs')}
                 >
                   {label}
-                </button>
+                </Button>
               )
             })}
-        <button
+        <Button
           type="button"
+          variant="ghost"
           onClick={() => setSelectedMonths(monthsYtd())}
-          className="ml-1 text-[10px] text-blue-600 hover:underline"
+          className={cn('h-10 px-3 text-xs')}
           title="Aktifkan Januari s.d. bulan berjalan"
         >
           YTD
-        </button>
+        </Button>
         {selectedMonths.length < 12 && (
-          <button
+          <Button
             type="button"
+            variant="ghost"
             onClick={() => setSelectedMonths(ALL_MONTHS)}
-            className="text-[10px] text-blue-600 hover:underline"
+            className={cn('h-10 px-3 text-xs')}
           >
             Semua
-          </button>
+          </Button>
         )}
       </div>
 
@@ -880,7 +942,7 @@ export default function LaporanPendapatan() {
           {/* ── Summary cards ────────────────────────────────────────────── */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <SummaryCard label="Tagihan" value={totalTagihan} color="text-gray-800" />
-            <SummaryCard label="Pendapatan" value={totalAkrual} color="text-[#5B2C6F]" />
+            <SummaryCard label="DPP Ditagihkan" value={totalAkrual} color="text-[#5B2C6F]" />
             <SummaryCard label="Cash In" value={totalCashIn} color="text-green-700" />
             <SummaryCard
               label="Sisa"
@@ -899,9 +961,28 @@ export default function LaporanPendapatan() {
               hint={filterStatus === 'outstanding' ? 'Klik untuk tampilkan semua' : 'Klik untuk filter sisa > 0'}
             />
           </div>
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="text-gray-500">Input SAP:</span>
+            {([
+              ['belum', 'Belum diinput', 'border-amber-300 bg-amber-50 text-amber-800'],
+              ['sebagian', 'Sebagian', 'border-sky-300 bg-sky-50 text-sky-800'],
+              ['lengkap', 'Lengkap', 'border-green-300 bg-green-50 text-green-800'],
+            ] as const).map(([key, label, cls]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setFilterSap(filterSap === key ? 'all' : key)}
+                className={`rounded-full border px-3 py-1 font-medium ${cls} ${filterSap === key ? 'ring-2 ring-offset-1 ring-gray-400' : ''}`}
+                title={filterSap === key ? 'Klik untuk tampilkan semua' : `Tampilkan tagihan: ${label}`}
+              >
+                {label}: {sapCount[key]}
+              </button>
+            ))}
+            <span className="text-gray-400">Invoice SAP + Billing SAP per tagihan; angka mengikuti filter tahun dan mitra.</span>
+          </div>
           <p className="text-[11px] text-gray-500 -mt-1">
             <strong>Tagihan</strong> = invoice (DPP+PPN−PPH−pengurang).
-            <strong> Pendapatan</strong> = DPP (akrual).
+            <strong> DPP Ditagihkan</strong> = nominal sewa pada tagihan. Pendapatan yang diakui tersedia di RKAP PSAK 73.
             <strong> Cash In</strong> = uang masuk.
             <strong> Sisa</strong> = tagihan − bayar.
             {bulanBasis === 'diterima'
@@ -912,6 +993,15 @@ export default function LaporanPendapatan() {
             )}
             {' '}Capaian: {pctTertagih.toFixed(1)}% (Cash In ÷ Tagihan).
           </p>
+
+          {(sapError || sapFeedback) && (
+            <p
+              role={sapError ? 'alert' : 'status'}
+              className={cn('rounded-md border px-3 py-2 text-sm', sapError ? 'border-destructive/30 bg-destructive/5 text-destructive' : 'bg-muted text-muted-foreground')}
+            >
+              {sapError || sapFeedback}
+            </p>
+          )}
 
           {/* ── Detail table ─────────────────────────────────────────────── */}
           <div className="bg-white rounded-xl border overflow-hidden">
@@ -931,7 +1021,7 @@ export default function LaporanPendapatan() {
                     <th className="text-left px-3 py-2.5">No Invoice SAP</th>
                     <th className="text-left px-3 py-2.5">No Billing SAP</th>
                     <SortTh label="Tagihan" col="totalTagihan" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
-                    <SortTh label="Pendapatan" col="pendapatanAkrual" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
+                    <SortTh label="DPP Ditagihkan" col="pendapatanAkrual" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
                     <SortTh label="Cash In" col="cashIn" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
                     <SortTh label="Sisa" col="sisa" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" />
                   </tr>
@@ -976,8 +1066,9 @@ export default function LaporanPendapatan() {
                         )}
                       </td>
 
-                      <td className="px-3 py-2">
+                      <td className="relative h-10 min-w-[120px] p-0">
                         <EditableCell
+                          label="No Kontrak SAP"
                           value={row.noKontrakSAP}
                           isEditing={editing?.id === row.id && editing?.field === 'no_kontrak_sap'}
                           editValue={editing?.value ?? ''}
@@ -986,10 +1077,12 @@ export default function LaporanPendapatan() {
                           onSave={saveEdit}
                           onCancel={cancelEdit}
                           saving={saving}
+                          hasError={!!sapError}
                         />
                       </td>
-                      <td className="px-3 py-2">
+                      <td className={`relative h-10 min-w-[120px] p-0 ${sapTerisi(row.noInvoice) ? '' : 'bg-amber-50'}`}>
                         <EditableCell
+                          label="No Invoice SAP"
                           value={row.noInvoice}
                           isEditing={editing?.id === row.id && editing?.field === 'no_invoice_sap'}
                           editValue={editing?.value ?? ''}
@@ -998,10 +1091,12 @@ export default function LaporanPendapatan() {
                           onSave={saveEdit}
                           onCancel={cancelEdit}
                           saving={saving}
+                          hasError={!!sapError}
                         />
                       </td>
-                      <td className="px-3 py-2">
+                      <td className={`relative h-10 min-w-[120px] p-0 ${sapTerisi(row.noBilling) ? '' : 'bg-amber-50'}`}>
                         <EditableCell
+                          label="No Billing SAP"
                           value={row.noBilling}
                           isEditing={editing?.id === row.id && editing?.field === 'no_billing_sap'}
                           editValue={editing?.value ?? ''}
@@ -1010,6 +1105,7 @@ export default function LaporanPendapatan() {
                           onSave={saveEdit}
                           onCancel={cancelEdit}
                           saving={saving}
+                          hasError={!!sapError}
                         />
                       </td>
 
@@ -1109,7 +1205,7 @@ function ProgramView({
     <>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <SummaryCard label="Target RKAP" value={summary.rkap} color="text-gray-800" />
-        <SummaryCard label="Pendapatan" value={summary.pendapatan} color="text-[#5B2C6F]" />
+        <SummaryCard label="DPP Ditagihkan" value={summary.pendapatan} color="text-[#5B2C6F]" />
         <SummaryCard label="Cash In" value={summary.cashIn} color="text-green-700" />
         <div className="bg-white rounded-xl border px-4 py-3">
           <p className="text-xs text-gray-500">Capaian (Cash In ÷ RKAP)</p>
@@ -1123,7 +1219,7 @@ function ProgramView({
       </div>
       <p className="text-[11px] text-gray-500 -mt-1">
         Sama filter bulan/tahun dengan Detail.
-        <strong> Pendapatan</strong> &amp; <strong>Cash In</strong> di sini = jumlah baris Detail yang punya ID Monika
+        <strong> DPP Ditagihkan</strong> &amp; <strong>Cash In</strong> di sini = jumlah baris Detail yang punya ID Monika
         ({formatRupiah(detailPendapatanMonika)} · {formatRupiah(detailCashInMonika)}).
         {nTanpaMonika > 0
           ? ` Ada ${nTanpaMonika} baris Detail tanpa Monika — tidak masuk di sini.`
@@ -1135,7 +1231,7 @@ function ProgramView({
           <div>
             <p className="text-sm font-semibold text-gray-800">Per Proker (ID Monika)</p>
             <p className="text-[11px] text-gray-500">
-              Target RKAP · Pendapatan (akrual) · Cash In (kas) · Capaian = Cash In ÷ RKAP
+              Target RKAP · DPP Ditagihkan · Cash In (kas) · Capaian = Cash In ÷ RKAP
             </p>
           </div>
           <div className="flex flex-wrap gap-1.5">
@@ -1160,7 +1256,7 @@ function ProgramView({
                 <ProgramSortTh label="Kategori" col="kategori" sortKey={programSort} sortDir={programSortDir} onSort={onSort} />
                 <th className="text-left px-3 py-2.5 font-semibold min-w-[180px]">Program Aset</th>
                 <ProgramSortTh label="Target RKAP" col="rkap" sortKey={programSort} sortDir={programSortDir} onSort={onSort} align="right" />
-                <ProgramSortTh label="Pendapatan" col="pendapatan" sortKey={programSort} sortDir={programSortDir} onSort={onSort} align="right" />
+                <ProgramSortTh label="DPP Ditagihkan" col="pendapatan" sortKey={programSort} sortDir={programSortDir} onSort={onSort} align="right" />
                 <ProgramSortTh label="Cash In" col="cashIn" sortKey={programSort} sortDir={programSortDir} onSort={onSort} align="right" />
                 <ProgramSortTh label="Capaian %" col="capaian" sortKey={programSort} sortDir={programSortDir} onSort={onSort} align="right" />
                 <th className="text-left px-3 py-2.5 font-semibold min-w-[160px]">Proses Pencarian Mitra</th>
@@ -1359,33 +1455,47 @@ function SortTh({ label, col, sortKey, sortDir, onSort, align = 'left' }: {
 
 // ─── Inline editable cell ─────────────────────────────────────────────────────
 
-function EditableCell({ value, isEditing, editValue, onStartEdit, onChange, onSave, onCancel, saving }: {
-  value: string; isEditing: boolean; editValue: string
+function EditableCell({ label, value, isEditing, editValue, onStartEdit, onChange, onSave, onCancel, saving, hasError }: {
+  label: string; value: string; isEditing: boolean; editValue: string
   onStartEdit: () => void; onChange: (v: string) => void
-  onSave: () => void; onCancel: () => void; saving: boolean
+  onSave: () => void; onCancel: () => void; saving: boolean; hasError: boolean
 }) {
+  const inputRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (isEditing && !saving) inputRef.current?.focus()
+  }, [isEditing, saving])
+
+  if (isEditing) {
+    return (
+      <Input
+        autoFocus
+        ref={inputRef}
+        aria-label={label}
+        aria-invalid={hasError}
+        value={editValue}
+        onChange={e => onChange(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') { e.preventDefault(); onCancel() } }}
+        onBlur={onSave}
+        className={cn('absolute inset-0 h-full min-h-10 w-full rounded-none border-0 px-3 text-xs focus-visible:ring-inset focus-visible:ring-offset-0')}
+        disabled={saving}
+      />
+    )
+  }
+
   return (
-    <div
-      className={`cursor-pointer py-0.5 px-1 -mx-1 rounded text-xs ${isEditing ? 'ring-1 ring-[#1B4F72] bg-white' : 'hover:bg-gray-100'}`}
-      onClick={() => !isEditing && onStartEdit()}
-      title="Klik untuk edit"
-    >
-      {isEditing ? (
-        <input
-          autoFocus
-          value={editValue}
-          onChange={e => onChange(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') onCancel() }}
-          onBlur={onSave}
-          className="w-full outline-none bg-transparent text-xs text-gray-700"
-          disabled={saving}
-          style={{ minWidth: '80px' }}
-        />
-      ) : (
-        <span className={!value || value === '-' ? 'text-gray-300' : 'text-gray-700'}>
-          {!value || value === '-' ? '' : value}
-        </span>
+    <Button
+      type="button"
+      variant="ghost"
+      onClick={onStartEdit}
+      disabled={saving}
+      title="Klik di area sel untuk edit nomor SAP"
+      aria-label={`Edit ${label}${value && value !== '-' ? ` ${value}` : ''}`}
+      className={cn(
+        'absolute inset-0 h-full min-h-10 w-full justify-start rounded-none px-3 text-xs font-normal focus-visible:ring-inset focus-visible:ring-offset-0',
+        !value || value === '-' ? 'text-muted-foreground' : 'text-foreground',
       )}
-    </div>
+    >
+      {!value || value === '-' ? 'Isi nomor' : value}
+    </Button>
   )
 }

@@ -1,6 +1,7 @@
 import { create } from 'zustand'
+import { api } from '@/lib/apiClient'
 import { supabase } from '@/lib/supabase'
-import { Kompensasi, SuratPeringatan, LogNotifikasi, SPJenis, KerjaSamaStatus } from '@/types'
+import { Kompensasi, SuratPeringatan, LogNotifikasi, SPJenis } from '@/types'
 import { cekJatuhTempoH14 } from '@/utils/notifikasiUtils'
 import { kirimWA } from '@/services/waService'
 
@@ -50,31 +51,8 @@ export const useNotifikasiStore = create<NotifikasiStore>((set, get) => ({
   },
 
   terbitkanSP: async (ksId, kompensasiId, jenis) => {
-    const tglTerbit = new Date().toISOString().split('T')[0]
-    const tglDeadlineDate = new Date()
-    tglDeadlineDate.setDate(tglDeadlineDate.getDate() + 14)
-    const tglDeadline = tglDeadlineDate.toISOString().split('T')[0]
-
-    // Nonaktifkan semua SP lama sebelum menerbitkan yang baru
-    await supabase
-      .from('surat_peringatan')
-      .update({ status: 'tidak_aktif' })
-      .eq('ks_id', ksId)
-      .eq('status', 'aktif')
-
-    await supabase.from('surat_peringatan').insert({
-      ks_id: ksId,
-      kompensasi_id: kompensasiId,
-      jenis,
-      tgl_terbit: tglTerbit,
-      tgl_deadline: tglDeadline,
-      status: 'aktif',
-    })
-
-    const newStatus = jenis === 'PUTUS' ? 'putus' : jenis.toLowerCase()
-    await supabase.from('kerja_sama').update({ status: newStatus }).eq('id', ksId)
-
-    await get().fetchSPAktif()
+    await api.post('/api/notifikasi/sp', { ks_id: ksId, kompensasi_id: kompensasiId, jenis })
+    await Promise.all([get().fetchSPAktif(), get().fetchAllSP()])
   },
 
   kirimNotifWA: async ({ noWA, pesan, ksId, jenis }) => {
@@ -99,29 +77,7 @@ export const useNotifikasiStore = create<NotifikasiStore>((set, get) => ({
   },
 
   deleteSP: async (id) => {
-    const sp = [...get().allSP, ...get().spAktif].find(s => s.id === id)
-    await supabase.from('surat_peringatan').delete().eq('id', id)
-
-    if (sp?.ks_id) {
-      const { data: remaining } = await supabase
-        .from('surat_peringatan')
-        .select('jenis')
-        .eq('ks_id', sp.ks_id)
-        .eq('status', 'aktif')
-        .order('tgl_terbit', { ascending: false })
-
-      const spToStatus: Record<string, KerjaSamaStatus> = {
-        SP1: 'sp1', SP2: 'sp2', SP3: 'sp3', PUTUS: 'putus',
-      }
-      const newStatus: KerjaSamaStatus =
-        remaining && remaining.length > 0
-          ? (spToStatus[remaining[0].jenis] ?? 'aktif')
-          : 'aktif'
-
-      await supabase.from('kerja_sama').update({ status: newStatus }).eq('id', sp.ks_id)
-    }
-
-    await get().fetchSPAktif()
-    await get().fetchAllSP()
+    await api.delete(`/api/notifikasi/sp/${encodeURIComponent(id)}`)
+    await Promise.all([get().fetchSPAktif(), get().fetchAllSP()])
   },
 }))

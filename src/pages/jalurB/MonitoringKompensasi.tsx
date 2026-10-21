@@ -230,7 +230,7 @@ export default function MonitoringKompensasi() {
     <div className="space-y-4 pb-8">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-lg font-bold text-gray-800">Monitoring Kompensasi — {tahun}</h1>
+          <h1 className="text-lg font-bold text-gray-800">Monitoring & Penagihan — Semua Tagihan {tahun}</h1>
           <p className="text-xs text-gray-500 mt-1">
             Semua mitra dengan tagihan JT tahun <strong>{tahun}</strong> ditampilkan.
             {horizon === 'jt_berjalan'
@@ -262,7 +262,7 @@ export default function MonitoringKompensasi() {
           onExport={async () => {
             setExportingExcel(true)
             try {
-              await exportMonitoringExcel(tahun, filteredDetail, groups, 'mitra', { hideSp: false })
+              await exportMonitoringExcel(tahun, filteredDetail, groups, 'mitra', { hideSp: false, horizon })
             } finally {
               setExportingExcel(false)
             }

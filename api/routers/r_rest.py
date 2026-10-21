@@ -22,6 +22,13 @@ def _table_or_404(name: str) -> str:
     return name
 
 
+def _writable_table_or_404(name: str) -> str:
+    _table_or_404(name)
+    if name in {"pembayaran", "pendapatan_diterima_dimuka", "pengakuan_pendapatan", "surat_peringatan"}:
+        raise HTTPException(405, "Gunakan API domain untuk perubahan data ini")
+    return name
+
+
 def _format_select_response(rows: list, accept: str | None):
     wants_object = accept and "application/vnd.pgrst.object+json" in accept
     if wants_object:
@@ -50,7 +57,10 @@ def rest_select(
 ):
     _table_or_404(table)
     params = dict(request.query_params)
-    rows = query_rows(db, table, params)
+    try:
+        rows = query_rows(db, table, params)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
     if prefer and "count=exact" in prefer:
         response.headers["Content-Range"] = f"0-{max(0, len(rows) - 1)}/{len(rows)}"
     return _format_select_response(rows, accept)
@@ -65,7 +75,7 @@ async def rest_insert(
     _admin: dict[str, Any] = Depends(require_rest_write),
     prefer: str | None = Header(default=None),
 ):
-    _table_or_404(table)
+    _writable_table_or_404(table)
     payload = await request.json()
     on_conflict = request.query_params.get("on_conflict")
     ignore_dup = prefer and "ignore-duplicates" in prefer
@@ -94,7 +104,7 @@ async def rest_update(
     _admin: dict[str, Any] = Depends(require_rest_write),
     prefer: str | None = Header(default=None),
 ):
-    _table_or_404(table)
+    _writable_table_or_404(table)
     payload = await request.json()
     params = dict(request.query_params)
     rows = update_rows(db, table, payload, params)
@@ -110,7 +120,7 @@ def rest_delete(
     db: Session = Depends(get_db),
     _admin: dict[str, Any] = Depends(require_rest_write),
 ):
-    _table_or_404(table)
+    _writable_table_or_404(table)
     params = dict(request.query_params)
     delete_rows(db, table, params)
     return Response(status_code=204)

@@ -29,8 +29,7 @@ export function PotensiPendapatan() {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const location = useLocation()
 
-  useEffect(() => { fetchAset(); fetchAllNJOP(); fetchAllKJPP(); void fetchLuasOpset() }, [])
-  useEffect(() => { fetchAllNJOP(); fetchAllKJPP() }, [location.key])
+  useEffect(() => { fetchAset(); fetchAllNJOP(); fetchAllKJPP(); void fetchLuasOpset() }, [location.key])
 
   const rows = useMemo(() => {
     return daftarAset

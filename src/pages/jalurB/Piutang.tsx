@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import {
   Banknote,
+  ChevronDown,
+  ChevronRight,
   FileText,
   Filter,
   MessageSquareWarning,
@@ -21,6 +23,7 @@ import { Button } from '@/components/ui/button'
 import { cn, formatTanggal, formatRupiah } from '@/lib/utils'
 import {
   buildPiutangRows,
+  groupPiutangByMitra,
   PIUTANG_AGING_LABEL,
   PIUTANG_AGING_ORDER,
   summarizePiutang,
@@ -63,6 +66,8 @@ export default function Piutang() {
   const [filterTahun, setFilterTahun] = useState<TahunFilter>('all')
   const [q, setQ] = useState('')
   const [exporting, setExporting] = useState(false)
+  const [viewMode, setViewMode] = useState<'mitra' | 'tagihan'>('mitra')
+  const [expandedMitra, setExpandedMitra] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     fetchAllKompensasi()
@@ -113,6 +118,22 @@ export default function Piutang() {
   }, [allRows, filterMitra, filterAging, filterInvoice, filterTahun, q])
 
   const summary = useMemo(() => summarizePiutang(rows), [rows])
+  const mitraGroups = useMemo(() => groupPiutangByMitra(rows), [rows])
+  const visibleRows = useMemo(() => viewMode === 'tagihan'
+    ? rows.map((row, index) => ({ kind: 'detail' as const, row, index }))
+    : mitraGroups.flatMap(group => [
+      { kind: 'group' as const, row: group.oldest, index: 0, group },
+      ...(expandedMitra.has(group.ksId)
+        ? group.rows.map((row, index) => ({ kind: 'detail' as const, row, index }))
+        : []),
+    ]), [viewMode, rows, mitraGroups, expandedMitra])
+
+  const toggleMitra = (ksId: string) => setExpandedMitra(previous => {
+    const next = new Set(previous)
+    if (next.has(ksId)) next.delete(ksId)
+    else next.add(ksId)
+    return next
+  })
 
   // Denda cash in is recorded per KS, and may settle late fees of invoices
   // already paid, so the fee balance is computed per KS over all its invoices.
@@ -172,7 +193,7 @@ export default function Piutang() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-lg font-bold text-gray-800">Piutang — Collection</h1>
+          <h1 className="text-lg font-bold text-gray-800">Monitoring & Penagihan — Piutang</h1>
           <p className="text-xs text-gray-500 mt-1 max-w-2xl">
             Tagihan dengan <strong>sisa &gt; 0</strong> yang sudah <strong>jatuh tempo</strong>.
             {' '}Tagihan ber-invoice tetapi belum jatuh tempo tetap dipantau di menu Kompensasi.
@@ -204,7 +225,7 @@ export default function Piutang() {
 
       <ExportExcelPanel
         title="Ekspor daftar piutang"
-        description="Unduh Excel sesuai filter aging, mitra, tahun, dan pencarian yang aktif."
+        description="Unduh sheet Piutang dan Daftar Piutang format Proker Regional 8 sesuai filter aktif. Sheet Proker berisi posisi bulan berjalan."
         meta={`${rows.length} baris · sisa ${formatRupiah(summary.totalSisa)}`}
         fileNameHint="Piutang_YYYY-MM-DD.xlsx"
         onExport={handleExport}
@@ -337,7 +358,18 @@ export default function Piutang() {
         <span className="ml-auto text-xs text-gray-400">{rows.length} baris</span>
       </div>
 
-      {/* Table */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex gap-1" role="group" aria-label="Tampilan piutang">
+          <Button size="sm" variant={viewMode === 'mitra' ? 'default' : 'outline'} aria-pressed={viewMode === 'mitra'} onClick={() => setViewMode('mitra')}>Per Mitra ({mitraGroups.length})</Button>
+          <Button size="sm" variant={viewMode === 'tagihan' ? 'default' : 'outline'} aria-pressed={viewMode === 'tagihan'} onClick={() => setViewMode('tagihan')}>Per Tagihan ({rows.length})</Button>
+        </div>
+        {viewMode === 'mitra' && rows.length > 0 && <>
+          <p className="text-xs text-gray-500">Dikelompokkan per kerja sama mitra. Klik mitra untuk melihat tagihan.</p>
+          <Button size="sm" variant="ghost" onClick={() => setExpandedMitra(new Set(mitraGroups.map(group => group.ksId)))}>Buka semua</Button>
+          <Button size="sm" variant="ghost" onClick={() => setExpandedMitra(new Set())}>Tutup semua</Button>
+        </>}
+      </div>
+
       {isLoading && allKompensasi.length === 0 ? (
         <TableSkeleton rows={6} />
       ) : rows.length === 0 ? (
@@ -370,7 +402,34 @@ export default function Piutang() {
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {rows.map((r, i) => (
+                {visibleRows.map(entry => {
+                  const r = entry.row
+                  const i = entry.index
+                  if (entry.kind === 'group' && 'group' in entry) {
+                    const group = entry.group
+                    const expanded = expandedMitra.has(group.ksId)
+                    return <tr key={`mitra-${group.ksId}`} className="bg-blue-50/60 align-top">
+                      <td className="px-3 py-3 text-gray-400">—</td>
+                      <td className="px-3 py-3">
+                        <button type="button" aria-expanded={expanded} onClick={() => toggleMitra(group.ksId)} className="flex items-center gap-2 rounded text-left font-semibold text-[#1B4F72] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
+                          {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}{group.namaMitra}
+                        </button>
+                        <div className="mt-1 text-[11px] text-gray-500">{group.namaAset}</div>
+                        <div className="text-[10px] text-gray-400">{group.noPerjanjian}</div>
+                      </td>
+                      <td className="px-3 py-3">
+                        <div className="font-medium text-gray-700">{group.rows.length} tagihan</div>
+                        <div className="mt-1 text-[11px] text-gray-500">JT terlama {formatTanggal(group.oldest.tglJatuhTempo)}</div>
+                        <span className={cn('mt-1 inline-block whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-semibold', AGING_COLOR[group.oldest.aging])}>{PIUTANG_AGING_LABEL[group.oldest.aging]}</span>
+                      </td>
+                      <td className="border-l border-orange-50 px-3 py-3 text-right"><CurrencyDisplay value={group.summary.totalPokok} size="sm" className="font-medium" /><div className="whitespace-nowrap text-[10px] text-gray-400">tagihan {formatRupiah(group.summary.totalTagihan)}</div></td>
+                      <td className="px-3 py-3 text-right text-green-700"><CurrencyDisplay value={group.summary.totalDibayar} size="sm" /></td>
+                      <td className="px-3 py-3 text-right"><CurrencyDisplay value={group.summary.totalSisaPokok} size="sm" className="font-semibold text-orange-600" /><div className="whitespace-nowrap text-[10px] text-gray-400">tagihan {formatRupiah(group.summary.totalSisa)}</div></td>
+                      <td className="border-l border-red-50 px-3 py-3 text-right"><CurrencyDisplay value={group.summary.totalDenda} size="sm" className="text-red-600" /></td>
+                      <td className="sticky right-0 bg-blue-50 px-3 py-3 text-right"><Button size="sm" variant="ghost" aria-expanded={expanded} onClick={() => toggleMitra(group.ksId)}>{expanded ? 'Tutup' : 'Rincian'}</Button></td>
+                    </tr>
+                  }
+                  return (
                   <tr key={r.id} className="hover:bg-gray-50 align-top">
                     <td className="px-3 py-2 text-gray-400">{i + 1}</td>
                     <td className="px-3 py-2">
@@ -432,12 +491,13 @@ export default function Piutang() {
                       )}
                     </td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
               <tfoot>
                 <tr className="border-t-2 bg-gray-50 font-semibold text-xs">
                   <td colSpan={3} className="px-3 py-2.5 text-gray-700">
-                    Total ({rows.length} piutang)
+                    Total ({mitraGroups.length} mitra / kerja sama · {rows.length} piutang)
                   </td>
                   <td className="px-3 py-2.5 text-right">
                     <CurrencyDisplay value={summary.totalPokok} size="sm" />
@@ -497,8 +557,8 @@ export default function Piutang() {
       )}
 
       <p className="text-[11px] text-gray-400">
-        Definisi: nilai pokok = nominal kompensasi (DPP) tanpa PPN/PPh. Sisa tagihan = (total tagihan − pengurang) − cash in pembayaran; sisa pokok = bagian pokok dari sisa tagihan (proporsional). Sisa denda = denda terhitung − cash in denda per kerja sama. Masuk daftar jika sisa &gt; 0 dan
-        (ada nomor/tanggal invoice ATAU tgl jatuh tempo ≤ hari ini). Aging &amp; denda dihitung dari
+        Definisi: nilai pokok = nominal kompensasi (DPP) tanpa PPN/PPh. Sisa tagihan = (total tagihan − pengurang) − cash in pembayaran; sisa pokok mengikuti alokasi pembayaran pokok/pajak yang sama dengan Evaluasi Kinerja. Sisa denda = denda terhitung − cash in denda per kerja sama. Masuk daftar jika sisa &gt; 0 dan
+        tgl jatuh tempo ≤ hari ini. Aging &amp; denda dihitung dari
         tgl JT — denda mulai H+1 setelah jatuh tempo (tanpa grace).
       </p>
     </div>

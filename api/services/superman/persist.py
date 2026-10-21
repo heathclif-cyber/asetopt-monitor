@@ -58,8 +58,14 @@ def save_superman_to_kompensasi(
         row = db.query(models.Kompensasi).filter(models.Kompensasi.id == kompensasi_id.strip()).first()
         if not row:
             raise ValueError(f"Kompensasi tidak ditemukan: {kompensasi_id}")
-        row.superman = label
-        _sync_superman_to_pembayaran(db, row.id, label)
+        now = datetime.now(timezone.utc)
+        if sppn_no and str(sppn_no).strip():
+            row.sppn_no = str(sppn_no).strip()
+            row.sppn_dibuat_at = row.sppn_dibuat_at or now
+        if sppb_no and str(sppb_no).strip():
+            row.sppb_pph_no = str(sppb_no).strip()
+            row.sppb_pph_dibuat_at = row.sppb_pph_dibuat_at or now
+        label = _sync_combined_label(db, row)
         db.commit()
     finally:
         db.close()

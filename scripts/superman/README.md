@@ -28,12 +28,12 @@ Masukkan username/password **app AsetOpt** (admin), biarkan jendela terbuka.
 
 ```powershell
 python scripts\superman\commands\agent.py watch `
-  --api https://monitoringpemasaran-production.up.railway.app `
+  --api <URL_API_ASETOPT> `
   --username <user_app> `
   --password <pass_app>
 ```
 
-Opsional env: `ASETOPT_API_URL`, `ASETOPT_USER`, `ASETOPT_PASSWORD`.
+URL API AsetOpt wajib melalui `--api` atau `ASETOPT_API_URL`. Gunakan alamat API instalasi AsetOpt Anda. Login juga bisa melalui `ASETOPT_USER` dan `ASETOPT_PASSWORD`.
 
 ## Alur kerja
 
@@ -47,7 +47,7 @@ Opsional env: `ASETOPT_API_URL`, `ASETOPT_USER`, `ASETOPT_PASSWORD`.
 
 ```powershell
 python scripts\superman\commands\agent.py status `
-  --api https://monitoringpemasaran-production.up.railway.app `
+  --api <URL_API_ASETOPT> `
   --username <user> --password <pass>
 ```
 

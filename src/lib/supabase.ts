@@ -20,6 +20,16 @@ async function authFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
       window.location.href = '/login'
     }
   }
+  if (res.ok) return res
+  // API mengirim {"detail": "..."}; klien Supabase membaca error.message.
+  const body = await res.clone().json().catch(() => null)
+  if (body && typeof body.detail === 'string' && !body.message) {
+    return new Response(JSON.stringify({ ...body, message: body.detail }), {
+      status: res.status,
+      statusText: res.statusText,
+      headers: res.headers,
+    })
+  }
   return res
 }
 

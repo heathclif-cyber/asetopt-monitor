@@ -85,26 +85,25 @@ export function findTglPelunasan(
 interface TentukanStatusSPParams {
   persenDenda: number
   riwayatSP: SuratPeringatan[]
+  tglHariIni?: Date
 }
 
 export type AksiSP = 'TIDAK_ADA' | 'TERBITKAN_SP1' | 'TERBITKAN_SP2' | 'TERBITKAN_SP3' | 'LAKUKAN_PEMUTUSAN' | 'MONITORING'
 
+export function getSPDeadline(sp: Pick<SuratPeringatan, 'tgl_terbit' | 'tgl_deadline'>): Date {
+  const date = parseLocalNoon(sp.tgl_terbit)
+  date.setDate(date.getDate() + 14)
+  const deadline = parseLocalNoon(sp.tgl_deadline)
+  return Number.isFinite(deadline.getTime()) && deadline > date ? deadline : date
+}
+
 export function tentukanStatusSP(params: TentukanStatusSPParams): { aksi: AksiSP } {
-  const { persenDenda, riwayatSP } = params
-  const hariIni = new Date()
-  const spAktif = riwayatSP.filter(sp => sp.jenis !== 'PUTUS')
-  const spTerakhir = spAktif[spAktif.length - 1]
-
-  if (!spTerakhir) {
-    if (persenDenda >= 5) return { aksi: 'TERBITKAN_SP1' }
-    return { aksi: 'TIDAK_ADA' }
-  }
-
-  const hariSejak = Math.floor((hariIni.getTime() - new Date(spTerakhir.tgl_terbit).getTime()) / (1000 * 60 * 60 * 24))
-
-  if (spTerakhir.jenis === 'SP1' && hariSejak >= 14) return { aksi: 'TERBITKAN_SP2' }
-  if (spTerakhir.jenis === 'SP2' && hariSejak >= 14) return { aksi: 'TERBITKAN_SP3' }
-  if (spTerakhir.jenis === 'SP3' && hariSejak >= 14) return { aksi: 'LAKUKAN_PEMUTUSAN' }
-
-  return { aksi: 'MONITORING' }
+  const { persenDenda, riwayatSP, tglHariIni = new Date() } = params
+  const latest = riwayatSP.filter(sp => sp.status === 'aktif').sort((a, b) =>
+    b.tgl_terbit.localeCompare(a.tgl_terbit) || b.created_at.localeCompare(a.created_at),
+  )[0]
+  if (!latest) return { aksi: persenDenda + 1e-9 >= 5 ? 'TERBITKAN_SP1' : 'TIDAK_ADA' }
+  if (latest.jenis === 'PUTUS') return { aksi: 'TIDAK_ADA' }
+  if (parseLocalNoon(tglHariIni) < getSPDeadline(latest)) return { aksi: 'MONITORING' }
+  return { aksi: { SP1: 'TERBITKAN_SP2', SP2: 'TERBITKAN_SP3', SP3: 'LAKUKAN_PEMUTUSAN' }[latest.jenis] as AksiSP }
 }

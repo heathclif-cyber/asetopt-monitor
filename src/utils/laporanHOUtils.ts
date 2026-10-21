@@ -20,6 +20,7 @@ import { resolveMonikaId, KATEGORI_BY_KODE } from '@/utils/laporanProgramUtils'
 import {
   alokasiPembayaranKeHO,
   hitungPendapatan,
+  hitungSisaPokok,
 } from '@/utils/accountingTerms'
 
 export const BULAN_LABELS_HO = [
@@ -540,7 +541,7 @@ export function buildLaporanHO(opts: {
       if (!pddm?.ks_id) return
       const ks = ksMap.get(pddm.ks_id)
       const komp = allKompensasi.find(
-        k => k.ks_id === pddm.ks_id && dateKey(k.tgl_jatuh_tempo) === dateKey(pp.tgl_awal),
+        k => pp.kompensasi_id ? k.id === pp.kompensasi_id : k.ks_id === pddm.ks_id && dateKey(k.tgl_jatuh_tempo) === dateKey(pp.tgl_awal),
       )
       const monikaId = komp
         ? resolveMonikaIdHO(komp, ksMap.get(komp.ks_id) ?? komp.kerja_sama, asetById)
@@ -548,7 +549,7 @@ export function buildLaporanHO(opts: {
           || (ks?.aset_id ? asetById.get(ks.aset_id)?.kode_aset?.trim() : null)
           || null
       if (!monikaId) return
-      const key = `${monikaId}|${parsed.m}`
+      const key = `${monikaId}|${parsed.m}|${pddm.ks_id}|${pp.kompensasi_id ?? "legacy"}`
       akrualByMonikaMonth.set(key, (akrualByMonikaMonth.get(key) ?? 0) + (pp.nominal || 0))
     })
 
@@ -566,7 +567,9 @@ export function buildLaporanHO(opts: {
 
     const a = ensure(monikaId, rkapByMonika.get(monikaId)?.nama || monikaId)
     const m = a.pendapatan[parsed.m]
-    const key = `${monikaId}|${parsed.m}`
+    const linked = allPengakuan.some(pp => pp.kompensasi_id === k.id && pp.status === 'diakui' && parseYMD(pp.tgl_awal)?.m === parsed.m && parseYMD(pp.tgl_awal)?.y === tahun)
+    const legacy = akrualByMonikaMonth.has(`${monikaId}|${parsed.m}|${k.ks_id}|legacy`)
+    const key = `${monikaId}|${parsed.m}|${k.ks_id}|${linked ? k.id : legacy ? "legacy" : k.id}`
     const pokok = Math.max(0, k.nominal ?? 0)
 
     invoicePokokByMonikaMonth.set(key, (invoicePokokByMonikaMonth.get(key) ?? 0) + pokok)
@@ -582,7 +585,7 @@ export function buildLaporanHO(opts: {
     if (!a) return
     const akrual = akrualByMonikaMonth.get(key) ?? 0
     const m = a.pendapatan[monthIdx]
-    m.pendapatan = akrual > 0 ? akrual : invoicePokok
+    m.pendapatan += akrualByMonikaMonth.has(key) ? akrual : invoicePokok
     m.ppn = 0
     m.pph = 0
     m.pbb = 0
@@ -623,18 +626,7 @@ export function buildLaporanHO(opts: {
       const pokok = hitungPendapatan(k)
       if (pokok <= 0.5) return
 
-      // Porsi DPP yang sudah "terbayar" via alokasi SSOT (bukan full nominal_bayar)
-      let dibayarPokok = 0
-      ;(k.pembayaran ?? []).forEach(p => {
-        const tgl = dateKey(p.tgl_bayar)
-        if (!tgl || tgl > asOf) return
-        const bayar = p.nominal_bayar || 0
-        if (bayar <= 0) return
-        dibayarPokok += alokasiPembayaranKeHO(k, bayar).kompensasi
-      })
-      // Cap: tidak boleh melebihi pokok (kelebihan bayar ke kompensasi tidak bikin sisa negatif)
-      dibayarPokok = Math.min(pokok, Math.max(0, dibayarPokok))
-      const sisaPokok = Math.max(0, pokok - dibayarPokok)
+      const sisaPokok = hitungSisaPokok(k, k.pembayaran ?? [], asOf)
       if (sisaPokok <= 0.5) return
 
       const hasInv = Boolean(
@@ -809,7 +801,7 @@ export function summarizeHO(rows: HOMasterRow[], months: number[]): HOSummary {
  */
 export function toRp000(value: number): number {
   if (value == null || Number.isNaN(value) || value === 0) return 0
-  return Math.round(value / 1000)
+  return value / 1000
 }
 
 /** Bulan 0..end inclusive → array [0,1,...,end] */

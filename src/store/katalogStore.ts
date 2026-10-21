@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { supabase } from '@/lib/supabase'
+import { api } from '@/lib/apiClient'
 import type {
   KatalogAset, KatalogAksesibilitas, KatalogLingkungan, KatalogSkema, KatalogFoto,
   KatalogFactsheetData, KatalogLayout, NJOP, PenilaianKJPP,
@@ -89,61 +90,28 @@ export const useKatalogStore = create<KatalogStore>((set, get) => ({
 
   createKatalog: async ({ katalog, aksesibilitas, lingkungan, skema }) => {
     set({ isSaving: true })
-    const { data, error } = await supabase
-      .from('katalog_aset')
-      .insert(katalog)
-      .select('id')
-      .single()
-    if (error) {
-      console.error('[katalogStore.createKatalog]', error)
+    try {
+      const saved = await api.post<{ id: string }>('/api/katalog', { katalog, aksesibilitas, lingkungan, skema })
+      await get().fetchAll()
+      return saved.id
+    } finally {
       set({ isSaving: false })
-      return null
     }
-    const id = data.id
-    // Insert child records
-    if (aksesibilitas.length > 0) {
-      await supabase.from('katalog_aksesibilitas').insert(aksesibilitas.map((a, i) => ({ ...a, katalog_id: id, urutan: a.urutan ?? i })))
-    }
-    if (lingkungan.length > 0) {
-      await supabase.from('katalog_lingkungan').insert(lingkungan.map((l, i) => ({ ...l, katalog_id: id, urutan: l.urutan ?? i })))
-    }
-    if (skema.length > 0) {
-      await supabase.from('katalog_skema').insert(skema.map((s, i) => ({ ...s, katalog_id: id, urutan: s.urutan ?? i })))
-    }
-    await get().fetchAll()
-    set({ isSaving: false })
-    return id
   },
 
   updateKatalog: async (id, { katalog, aksesibilitas, lingkungan, skema }) => {
     set({ isSaving: true })
-    const { id: _id, created_at, updated_at, aset, ...updateData } = katalog as any
-    await supabase.from('katalog_aset').update(updateData).eq('id', id)
-
-    if (aksesibilitas !== undefined) {
-      await supabase.from('katalog_aksesibilitas').delete().eq('katalog_id', id)
-      if (aksesibilitas.length > 0) {
-        await supabase.from('katalog_aksesibilitas').insert(aksesibilitas.map((a, i) => ({ ...a, katalog_id: id, urutan: a.urutan ?? i })))
-      }
+    try {
+      await api.patch(`/api/katalog/${id}`, { katalog, aksesibilitas, lingkungan, skema })
+      await get().fetchAll()
+    } finally {
+      set({ isSaving: false })
     }
-    if (lingkungan !== undefined) {
-      await supabase.from('katalog_lingkungan').delete().eq('katalog_id', id)
-      if (lingkungan.length > 0) {
-        await supabase.from('katalog_lingkungan').insert(lingkungan.map((l, i) => ({ ...l, katalog_id: id, urutan: l.urutan ?? i })))
-      }
-    }
-    if (skema !== undefined) {
-      await supabase.from('katalog_skema').delete().eq('katalog_id', id)
-      if (skema.length > 0) {
-        await supabase.from('katalog_skema').insert(skema.map((s, i) => ({ ...s, katalog_id: id, urutan: s.urutan ?? i })))
-      }
-    }
-    await get().fetchAll()
-    set({ isSaving: false })
   },
 
   deleteKatalog: async (id) => {
-    await supabase.from('katalog_aset').delete().eq('id', id)
+    const { error } = await supabase.from('katalog_aset').delete().eq('id', id)
+    if (error) throw new Error(`Gagal menghapus katalog: ${error.message}`)
     await get().fetchAll()
   },
 
@@ -159,22 +127,7 @@ export const useKatalogStore = create<KatalogStore>((set, get) => ({
     try {
       const dataUrl = await toBase64(file)
 
-      // Replace existing photo in same slot
-      const { data: existing } = await supabase
-        .from('katalog_foto')
-        .select('id')
-        .eq('katalog_id', katalogId)
-        .eq('slot_id', slotId)
-      if (existing && existing.length > 0) {
-        await supabase.from('katalog_foto').delete().eq('id', existing[0].id)
-      }
-
-      await supabase.from('katalog_foto').insert({
-        katalog_id: katalogId,
-        slot_id: slotId,
-        url: dataUrl,
-        urutan: 0,
-      })
+      await api.post(`/api/katalog/${katalogId}/foto`, { slot_id: slotId, url: dataUrl })
       await get().fetchAll()
       return dataUrl
     } catch (err) {
@@ -184,7 +137,8 @@ export const useKatalogStore = create<KatalogStore>((set, get) => ({
   },
 
   deleteFoto: async (_katalogId, fotoId) => {
-    await supabase.from('katalog_foto').delete().eq('id', fotoId)
+    const { error } = await supabase.from('katalog_foto').delete().eq('id', fotoId)
+    if (error) throw new Error(`Gagal menghapus foto: ${error.message}`)
     await get().fetchAll()
   },
 
@@ -269,7 +223,7 @@ export const useKatalogStore = create<KatalogStore>((set, get) => ({
       recommendation: katalog.rekomendasi_pengembangan ?? '',
       recommendationSummary: katalog.rekomendasi_summary ?? '',
       partnershipSchemes: skm.map(s => ({ code: s.kode, name: s.nama ?? '', note: s.catatan ?? '' })),
-      accessibility: akses.map(a => ({ label: a.label, value: a.nilai ?? '', sub: a.keterangan ?? '' })),
+      accessibility: akses.map(a => ({ label: a.label, value: a.nilai ?? '', sub: a.keterangan ?? '', urutan: a.urutan })),
       surroundings: lingk.map(l => ({ name: l.nama, distance: l.jarak ?? '', type: l.tipe ?? '' })),
       pic: {
         name: katalog.pic_nama ?? '',

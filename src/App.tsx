@@ -12,9 +12,8 @@ import { InputPembayaran } from './pages/jalurB/InputPembayaran'
 import { BuatInvoice } from './pages/jalurB/BuatInvoice'
 import { NotifikasiSP } from './pages/jalurB/NotifikasiSP'
 import LaporanPendapatan from './pages/jalurB/LaporanPendapatan2'
-import MonitoringKompensasi from './pages/jalurB/MonitoringKompensasi'
-import Piutang from './pages/jalurB/Piutang'
-import LaporanHO from './pages/jalurB/LaporanHO'
+import MonitoringPenagihan from './pages/jalurB/MonitoringPenagihan'
+import { APP_PAGES, type AppPageKey } from './lib/navigation'
 import { DataAset } from './pages/master/DataAset'
 import { MasterAset } from './pages/master/MasterAset'
 import { DataNJOP } from './pages/master/DataNJOP'
@@ -23,7 +22,33 @@ import { RKAPMonitor } from './pages/RKAPMonitor'
 import { KatalogAset } from './pages/katalog/KatalogAset'
 import KatalogFactsheetPage from './pages/KatalogAset'
 import AdminUsers from './pages/AdminUsers'
+import BuatExcel from './pages/laporan/BuatExcel'
 import GISMap from './pages/GISMap'
+
+const pageComponents: Record<AppPageKey, React.ReactNode> = {
+  dashboard: <Dashboard />,
+  timeline: <TimelineProgram />,
+  potensi: <PotensiPendapatan />,
+  kerjaSama: <KerjaSama />,
+  kompensasi: <Kompensasi />,
+  invoice: <BuatInvoice />,
+  pembayaran: <InputPembayaran />,
+  pbb: <PembayaranPBB />,
+  notifikasi: <NotifikasiSP />,
+  laporan: <LaporanPendapatan />,
+  buatExcel: <BuatExcel />,
+  monitoring: <MonitoringPenagihan mode="semua" />,
+  piutang: <MonitoringPenagihan mode="piutang" />,
+  masterAset: <MasterAset />,
+  dataAset: <DataAset />,
+  njop: <DataNJOP />,
+  kjpp: <PenilaianKJPP />,
+  gis: <GISMap />,
+  users: <AdminUsers />,
+  rkap: <RKAPMonitor />,
+  katalog: <KatalogAset />,
+  factsheet: <KatalogFactsheetPage />,
+}
 
 function App() {
   return (
@@ -32,28 +57,7 @@ function App() {
 
       <Route element={<RequireAuth />}>
         <Route element={<AppLayout />}>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/jalur-a/timeline" element={<TimelineProgram />} />
-          <Route path="/jalur-a/potensi" element={<PotensiPendapatan />} />
-          <Route path="/jalur-b/kerja-sama" element={<KerjaSama />} />
-          <Route path="/jalur-b/kompensasi" element={<Kompensasi />} />
-          <Route path="/jalur-b/invoice" element={<BuatInvoice />} />
-          <Route path="/jalur-b/pembayaran" element={<InputPembayaran />} />
-          <Route path="/jalur-b/pbb" element={<PembayaranPBB />} />
-          <Route path="/jalur-b/notifikasi" element={<NotifikasiSP />} />
-          <Route path="/jalur-b/laporan" element={<LaporanPendapatan />} />
-          <Route path="/jalur-b/laporan-ho" element={<LaporanHO />} />
-          <Route path="/jalur-b/monitoring-kompensasi" element={<MonitoringKompensasi />} />
-          <Route path="/jalur-b/piutang" element={<Piutang />} />
-          <Route path="/master/aset" element={<MasterAset />} />
-          <Route path="/master/aset/dioptimalkan" element={<DataAset />} />
-          <Route path="/master/njop" element={<DataNJOP />} />
-          <Route path="/master/kjpp" element={<PenilaianKJPP />} />
-          <Route path="/gis" element={<GISMap />} />
-          <Route path="/admin/users" element={<AdminUsers />} />
-          <Route path="/rkap" element={<RKAPMonitor />} />
-          <Route path="/katalog" element={<KatalogAset />} />
-          <Route path="/katalog/factsheet" element={<KatalogFactsheetPage />} />
+          {APP_PAGES.map(page => <Route key={page.path} path={page.path} element={pageComponents[page.key]} />)}
         </Route>
       </Route>
 

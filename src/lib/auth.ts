@@ -15,9 +15,10 @@ export interface AuthUser {
 export const AUTH_TOKEN_KEY = 'asetopt_auth_token'
 export const AUTH_USER_KEY = 'asetopt_auth_user'
 
-/** Viewer: hanya halaman collection/laporan (tanpa Laporan HO) */
+/** Viewer: hanya halaman collection/laporan */
 export const VIEWER_ALLOWED_PATHS = [
   '/jalur-b/laporan',
+  '/laporan/excel',
   '/jalur-b/piutang',
   '/jalur-b/monitoring-kompensasi',
 ] as const

@@ -1,6 +1,7 @@
 import type { KerjaSama, Kompensasi, SuratPeringatan } from '@/types'
 import { hitungDenda } from '@/utils/taxUtils'
 import { formatTanggal } from '@/lib/utils'
+import { hitungSisaPokok } from '@/utils/accountingTerms'
 
 /**
  * Bucket aging piutang untuk collection.
@@ -180,8 +181,7 @@ export function buildPiutangRows(opts: {
       efektifTagihan: efektif,
       totalDibayar,
       sisa,
-      // Partial payments settle principal and tax pro rata.
-      sisaPokok: efektif > 0 ? sisa * Math.min(1, (k.nominal ?? 0) / efektif) : 0,
+      sisaPokok: hitungSisaPokok(k, k.pembayaran ?? []),
       hariDariJT,
       hariLewatGrace: Math.max(0, hariDariJT),
       dalamGrace: false,
@@ -201,6 +201,24 @@ export function buildPiutangRows(opts: {
     if (b.sisa !== a.sisa) return b.sisa - a.sisa
     return a.tglJatuhTempo.localeCompare(b.tglJatuhTempo)
   })
+}
+
+export function groupPiutangByMitra(rows: PiutangRow[]) {
+  const groups = new Map<string, PiutangRow[]>()
+  for (const row of rows) {
+    const group = groups.get(row.ksId) ?? []
+    group.push(row)
+    groups.set(row.ksId, group)
+  }
+  return [...groups.entries()].map(([ksId, items]) => ({
+    ksId,
+    namaMitra: items[0].namaMitra,
+    noPerjanjian: items[0].noPerjanjian,
+    namaAset: [...new Set(items.map(item => item.namaAset))].join(', '),
+    oldest: items.reduce((oldest, item) => item.hariDariJT > oldest.hariDariJT ? item : oldest),
+    rows: items,
+    summary: summarizePiutang(items),
+  })).sort((a, b) => b.summary.totalSisaPokok - a.summary.totalSisaPokok || a.namaMitra.localeCompare(b.namaMitra, 'id'))
 }
 
 export function summarizePiutang(rows: PiutangRow[]) {

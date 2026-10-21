@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { StatusBadge } from '@/components/common/StatusBadge'
 import { EmptyState } from '@/components/common/EmptyState'
 import { TableSkeleton } from '@/components/common/LoadingSkeleton'
-import { formatTanggal, hitungSisaHari } from '@/lib/utils'
+import { formatTanggal, hitungSisaHari, cn } from '@/lib/utils'
 import { Plus, Pencil, AlertCircle } from 'lucide-react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -39,11 +39,14 @@ export function KerjaSama() {
   const { daftarAset, fetchAset } = useAsetStore()
   const { daftarKonsesi, fetchKonsesi } = useKonsesiStore()
   const [konsesiFilter, setKonsesiFilter] = useState('')
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('semua')
+  const [submitError, setSubmitError] = useState('')
   const [searchParams, setSearchParams] = useSearchParams()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<KSType | null>(null)
 
-  const { register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<KSForm>({
+  const { register, handleSubmit, reset, setValue, watch, formState: { errors, isSubmitting } } = useForm<KSForm>({
     resolver: zodResolver(ksSchema),
   })
 
@@ -60,6 +63,7 @@ export function KerjaSama() {
   }, [searchParams])
 
   const openAdd = () => {
+    setSubmitError('')
     setEditTarget(null)
     setKonsesiFilter('')
     reset()
@@ -67,11 +71,13 @@ export function KerjaSama() {
   }
 
   const handleDialogChange = (open: boolean) => {
+    if (isSubmitting) return
     setDialogOpen(open)
     if (!open && searchParams.has('tambah')) setSearchParams({})
   }
 
   const openEdit = (ks: KSType) => {
+    setSubmitError('')
     setEditTarget(ks)
     setKonsesiFilter('')
     reset({
@@ -88,12 +94,18 @@ export function KerjaSama() {
   }
 
   const onSubmit = async (data: KSForm) => {
-    if (editTarget) {
-      await updateKS(editTarget.id, data)
-    } else {
-      await addKS({ ...data, status: 'aktif', prospek_id: null } as any)
+    setSubmitError('')
+    try {
+      if (editTarget) {
+        await updateKS(editTarget.id, data)
+      } else {
+        await addKS({ ...data, status: 'aktif', prospek_id: null } as any)
+      }
+      setDialogOpen(false)
+      if (searchParams.has('tambah')) setSearchParams({})
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : 'Gagal menyimpan. Silakan coba kembali.')
     }
-    handleDialogChange(false)
   }
 
   const sortedKS = useMemo(() => [...daftarKS].sort((a, b) => {
@@ -105,23 +117,59 @@ export function KerjaSama() {
     return sisaA - sisaB
   }), [daftarKS])
 
+  const filteredKS = useMemo(() => {
+    const query = search.trim().toLocaleLowerCase('id-ID')
+    return sortedKS.filter(ks => {
+      if (statusFilter !== 'semua' && ks.status !== statusFilter) return false
+      return !query || [ks.nama_mitra, ks.no_perjanjian, ks.aset?.nama_aset, ks.aset?.kode_aset]
+        .some(value => value?.toLocaleLowerCase('id-ID').includes(query))
+    })
+  }, [sortedKS, search, statusFilter])
+  const clearFilters = () => { setSearch(''); setStatusFilter('semua') }
+
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
+      <div className={cn("flex flex-wrap items-start justify-between gap-3")}>
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Program Kerja Sama</h1>
-          <p className="text-sm text-gray-500">{daftarKS.length} program kerja sama terdaftar (Jalur B)</p>
+          <p className="text-sm text-gray-500">{daftarKS.length} program kerja sama terdaftar</p>
         </div>
-        <Button onClick={openAdd} className="bg-[#5B2C6F] hover:bg-[#5B2C6F]/90">
+        <Button onClick={openAdd} className={cn("h-10")}>
           <Plus size={16} /> Tambah Program
         </Button>
       </div>
 
-      <div className="bg-white rounded-xl border overflow-hidden">
+      <div className={cn('flex flex-wrap items-center gap-3 rounded-xl border bg-card p-3')}>
+        <Input
+          aria-label="Cari program kerja sama"
+          placeholder="Cari mitra, aset, atau nomor perjanjian..."
+          value={search}
+          onChange={event => setSearch(event.target.value)}
+          className={cn('h-10 flex-1 min-w-[220px]')}
+        />
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger aria-label="Filter status kerja sama" className={cn('h-10 w-full sm:w-44')}><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="semua">Semua status</SelectItem>
+            <SelectItem value="aktif">Aktif</SelectItem>
+            <SelectItem value="sp1">SP1</SelectItem>
+            <SelectItem value="sp2">SP2</SelectItem>
+            <SelectItem value="sp3">SP3</SelectItem>
+            <SelectItem value="putus">Putus</SelectItem>
+            <SelectItem value="selesai">Selesai</SelectItem>
+          </SelectContent>
+        </Select>
+        {(search || statusFilter !== 'semua') && <Button variant="outline" className={cn('h-10')} onClick={clearFilters}>Reset filter</Button>}
+        <p role="status" className={cn('text-xs text-muted-foreground')}>{filteredKS.length} dari {daftarKS.length} program</p>
+      </div>
+
+      <div className={cn('rounded-xl border bg-card overflow-x-auto')}>
         {isLoading ? (
           <div className="p-6"><TableSkeleton /></div>
         ) : daftarKS.length === 0 ? (
           <EmptyState title="Belum ada program kerja sama" description="Tambahkan kerja sama baru, misalnya dengan PT RSS Service System, atau konversi dari prospek mitra di Jalur A." action={<Button onClick={openAdd} size="sm"><Plus size={14} /> Tambah Program</Button>} />
+        ) : filteredKS.length === 0 ? (
+          <EmptyState title="Tidak ada program sesuai filter" description="Coba kata pencarian lain atau tampilkan semua status." action={<Button variant="outline" onClick={clearFilters}>Reset filter</Button>} />
         ) : (
           <table className="w-full text-sm">
             <thead>
@@ -136,7 +184,7 @@ export function KerjaSama() {
               </tr>
             </thead>
             <tbody className="divide-y">
-              {sortedKS.map(ks => {
+              {filteredKS.map(ks => {
                 const sisaHari = hitungSisaHari(ks.tgl_selesai)
                 return (
                   <tr key={ks.id} className="hover:bg-gray-50">
@@ -161,11 +209,11 @@ export function KerjaSama() {
                     <td className="px-4 py-3 text-center"><StatusBadge type="ks" value={ks.status} /></td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <Button variant="ghost" size="sm" asChild>
+                        <Button variant="outline" className={cn("h-10")} asChild>
                           <Link to={`/jalur-b/kerja-sama/${ks.id}`}>Detail</Link>
                         </Button>
-                        <Button variant="ghost" size="icon" onClick={() => openEdit(ks)}>
-                          <Pencil size={15} />
+                        <Button variant="ghost" className={cn("h-10")} aria-label={`Edit kerja sama ${ks.nama_mitra}`} onClick={() => openEdit(ks)}>
+                          <Pencil size={15} /> Edit
                         </Button>
                       </div>
                     </td>
@@ -178,7 +226,7 @@ export function KerjaSama() {
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={handleDialogChange}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className={cn("max-w-lg max-h-[90dvh] overflow-y-auto")}>
           <DialogHeader>
             <DialogTitle>{editTarget ? 'Edit Program Kerja Sama' : 'Tambah Program Kerja Sama'}</DialogTitle>
           </DialogHeader>
@@ -220,39 +268,40 @@ export function KerjaSama() {
               <p className="text-[11px] text-gray-500 mt-1">Aset belum ada? Tambahkan di <Link className="text-[#1B4F72] underline" to="/master/aset/dioptimalkan">Aset Dioptimalkan</Link> dan tautkan ke konsesi GIS-nya.</p>
             </div>
             <div>
-              <Label>Nama Mitra</Label>
-              <Input {...register('nama_mitra')} className="mt-1" placeholder="Contoh: PT RSS Service System" />
+              <Label htmlFor="ks-nama_mitra">Nama Mitra</Label>
+              <Input id="ks-nama_mitra" {...register('nama_mitra')} className="mt-1" placeholder="Contoh: PT RSS Service System" />
               {errors.nama_mitra && <p className="text-xs text-red-500 mt-1">{errors.nama_mitra.message}</p>}
             </div>
             <div>
-              <Label>No. Perjanjian</Label>
-              <Input {...register('no_perjanjian')} className="mt-1" />
+              <Label htmlFor="ks-no_perjanjian">No. Perjanjian</Label>
+              <Input id="ks-no_perjanjian" {...register('no_perjanjian')} className="mt-1" />
             </div>
             <div>
-              <Label>Skema Kerja Sama</Label>
-              <Input {...register('skema_kerja_sama')} className="mt-1" placeholder="Contoh: sewa, KSO, BOT" />
+              <Label htmlFor="ks-skema_kerja_sama">Skema Kerja Sama</Label>
+              <Input id="ks-skema_kerja_sama" {...register('skema_kerja_sama')} className="mt-1" placeholder="Contoh: sewa, KSO, BOT" />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label>Tanggal Mulai</Label>
-                <Input type="date" {...register('tgl_mulai')} className="mt-1" />
+                <Label htmlFor="ks-tgl_mulai">Tanggal Mulai</Label>
+                <Input type="date" id="ks-tgl_mulai" {...register('tgl_mulai')} className="mt-1" />
               </div>
               <div>
-                <Label>Tanggal Selesai</Label>
-                <Input type="date" {...register('tgl_selesai')} className="mt-1" />
+                <Label htmlFor="ks-tgl_selesai">Tanggal Selesai</Label>
+                <Input type="date" id="ks-tgl_selesai" {...register('tgl_selesai')} className="mt-1" />
               </div>
             </div>
             <div>
-              <Label>No. WhatsApp Mitra (628xxx)</Label>
-              <Input {...register('no_wa_mitra')} className="mt-1" placeholder="628123456789" />
+              <Label htmlFor="ks-no_wa_mitra">No. WhatsApp Mitra (628xxx)</Label>
+              <Input id="ks-no_wa_mitra" {...register('no_wa_mitra')} className="mt-1" placeholder="628123456789" />
             </div>
             <div>
-              <Label>Keterangan</Label>
-              <Textarea {...register('keterangan')} className="mt-1" rows={2} />
+              <Label htmlFor="ks-keterangan">Keterangan</Label>
+              <Textarea id="ks-keterangan" {...register('keterangan')} className="mt-1" rows={2} />
             </div>
+            {submitError && <p role="alert" className={cn("text-sm text-destructive")}>{submitError} Isian tetap tersedia.</p>}
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => handleDialogChange(false)}>Batal</Button>
-              <Button type="submit" className="bg-[#5B2C6F]">{editTarget ? 'Simpan' : 'Tambah Program'}</Button>
+              <Button type="button" variant="outline" disabled={isSubmitting} onClick={() => handleDialogChange(false)}>Batal</Button>
+              <Button type="submit" disabled={isSubmitting}>{isSubmitting ? 'Menyimpan...' : editTarget ? 'Simpan' : 'Tambah Program'}</Button>
             </DialogFooter>
           </form>
         </DialogContent>

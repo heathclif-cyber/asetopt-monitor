@@ -1,5 +1,7 @@
 import logging
 import os
+import asyncio
+from contextlib import suppress
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,6 +15,10 @@ from routers.r_superman import router as superman_router
 from routers.r_integrasi import router as integrasi_router
 from routers.r_users import router as users_router
 from routers.r_gis import router as gis_router
+from routers.r_aggregate import router as aggregate_router
+from routers.r_notifikasi import router as notifikasi_router
+from routers.r_report_format import router as report_format_router
+from services.pendapatan_sync import sync_pendapatan
 from services.auth_service import auth_secret, ensure_app_users_table, seed_default_users
 
 logging.basicConfig(level=logging.INFO)
@@ -47,6 +53,41 @@ app.include_router(documents_router)
 app.include_router(superman_router)
 app.include_router(integrasi_router)
 app.include_router(gis_router)
+app.include_router(aggregate_router)
+app.include_router(notifikasi_router)
+app.include_router(report_format_router)
+
+
+def reconcile_pendapatan():
+    with SessionLocal() as db:
+        try:
+            result = sync_pendapatan(db)
+            db.commit()
+            if result['skipped_duplicate_ks']:
+                logger.warning('PDDM duplikat perlu rekonsiliasi: %s', result['skipped_duplicate_ks'])
+            if result['skipped_recognized_conflict_ks']:
+                logger.warning('Pengakuan historis berbeda dari tagihan: %s', result['skipped_recognized_conflict_ks'])
+        except Exception:
+            db.rollback()
+            logger.exception('Rekonsiliasi pendapatan gagal')
+
+
+async def recognition_worker():
+    while True:
+        await asyncio.to_thread(reconcile_pendapatan)
+        await asyncio.sleep(3600)
+
+
+@app.on_event('startup')
+async def start_recognition_worker():
+    app.state.recognition_task = asyncio.create_task(recognition_worker())
+
+
+@app.on_event('shutdown')
+async def stop_recognition_worker():
+    app.state.recognition_task.cancel()
+    with suppress(asyncio.CancelledError):
+        await app.state.recognition_task
 
 
 @app.on_event("startup")

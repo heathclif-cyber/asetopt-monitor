@@ -313,7 +313,7 @@ def build_parser() -> argparse.ArgumentParser:
             "--api",
             default=os.getenv(
                 "ASETOPT_API_URL",
-                "https://monitoringpemasaran-production.up.railway.app",
+                "",
             ),
             help="Base URL app/API Railway",
         )
@@ -350,6 +350,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if not args.api:
+        parser.error("Isi --api atau ASETOPT_API_URL dengan URL API AsetOpt.")
     if not args.username or not args.password:
         print(
             "Wajib: --username dan --password (user admin app AsetOpt), "

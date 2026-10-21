@@ -1,9 +1,9 @@
 import { PIUTANG_AGING_LABEL, type PiutangRow } from '@/utils/piutangUtils'
+import { addPiutangProkerSheet } from '@/utils/piutangProkerExport'
 import {
   addTemplatedSheet,
   downloadWorkbook,
   newWorkbook,
-  todayKey,
   type ExcelColumn,
 } from '@/utils/excelTemplate'
 
@@ -18,7 +18,7 @@ export async function exportPiutangExcel(
   opts?: { includeSP?: boolean },
 ): Promise<void> {
   const includeSP = opts?.includeSP ?? false
-  const today = todayKey()
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
 
   const columns: ExcelColumn[] = [
     { header: 'Mitra', key: 'namaMitra', width: 24, type: 'text' },
@@ -76,7 +76,7 @@ export async function exportPiutangExcel(
   addTemplatedSheet(wb, {
     sheetName: 'Piutang',
     title: 'Daftar Piutang — Collection',
-    subtitle: 'Tagihan outstanding (sisa > 0) yang sudah ber-invoice atau jatuh tempo',
+    subtitle: 'Tagihan outstanding (sisa > 0) yang sudah jatuh tempo',
     metaLines: [
       `Jumlah tagihan: ${rows.length}`,
       `Total sisa piutang: ${totalSisa.toLocaleString('id-ID')}`,
@@ -89,5 +89,6 @@ export async function exportPiutangExcel(
     totalLabelCol: 0,
   })
 
+  addPiutangProkerSheet(wb, rows, today)
   await downloadWorkbook(wb, `Piutang_${today}.xlsx`)
 }

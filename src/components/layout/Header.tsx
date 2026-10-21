@@ -3,30 +3,9 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { useNotifikasiStore } from '@/store/notifikasiStore'
 import { useAuthStore } from '@/store/authStore'
 import { Button } from '@/components/ui/button'
+import { APP_PAGES } from '@/lib/navigation'
 
-const breadcrumbMap: Record<string, string[]> = {
-  '/': ['Dashboard'],
-  '/jalur-a/timeline': ['Jalur A', 'Timeline Program'],
-  '/jalur-a/potensi': ['Jalur A', 'Potensi Pendapatan'],
-  '/jalur-b/kerja-sama': ['Jalur B', 'Program Kerja Sama'],
-  '/jalur-b/kompensasi': ['Jalur B', 'Kompensasi'],
-  '/jalur-b/invoice': ['Jalur B', 'Buat Invoice'],
-  '/jalur-b/pembayaran': ['Jalur B', 'Input Cash In'],
-  '/jalur-b/piutang': ['Jalur B', 'Piutang'],
-  '/jalur-b/pbb': ['Jalur B', 'Pembayaran PBB'],
-  '/jalur-b/notifikasi': ['Jalur B', 'Notifikasi & SP'],
-  '/jalur-b/laporan': ['Jalur B', 'Laporan Pendapatan'],
-  '/jalur-b/laporan2': ['Jalur B', 'Laporan Pendapatan 2'],
-  '/jalur-b/laporan-ho': ['Jalur B', 'Laporan Format HO'],
-  '/jalur-b/monitoring-kompensasi': ['Jalur B', 'Monitoring Kompensasi'],
-  '/master/aset': ['Master Data', 'Master Aset (GIS)'],
-  '/master/aset/dioptimalkan': ['Master Data', 'Aset Dioptimalkan'],
-  '/master/njop': ['Master Data', 'NJOP & SPPT'],
-  '/master/kjpp': ['Master Data', 'Penilaian KJPP'],
-  '/rkap': ['RKAP Monitor 2026'],
-  '/katalog': ['Katalog Aset', 'Daftar Katalog'],
-  '/gis': ['Peta GIS', 'Layer Konsesi & Referensi'],
-}
+const breadcrumbMap = new Map(APP_PAGES.map(page => [page.path as string, page.breadcrumb]))
 
 export function Header({ onMenuClick }: { onMenuClick?: () => void }) {
   const location = useLocation()
@@ -34,7 +13,7 @@ export function Header({ onMenuClick }: { onMenuClick?: () => void }) {
   const { jatuhTempoH14, spAktif } = useNotifikasiStore()
   const { user, logout } = useAuthStore()
 
-  const crumbs = breadcrumbMap[location.pathname] ?? ['AsetOpt']
+  const crumbs = breadcrumbMap.get(location.pathname) ?? ['AsetOpt']
   const totalAlert = jatuhTempoH14.length + spAktif.length
 
   const handleLogout = async () => {

@@ -48,7 +48,7 @@ export async function exportLaporanDetailExcel(
     { header: 'No. Invoice SAP', key: 'noInvoice', width: 16, type: 'text' },
     { header: 'No. Billing SAP', key: 'noBilling', width: 14, type: 'text' },
     { header: 'Tagihan', key: 'totalTagihan', width: 15, type: 'money' },
-    { header: 'Pendapatan', key: 'pendapatanAkrual', width: 15, type: 'money' },
+    { header: 'DPP Ditagihkan', key: 'pendapatanAkrual', width: 15, type: 'money' },
     { header: 'Cash In', key: 'cashIn', width: 14, type: 'money' },
     { header: 'Sisa', key: 'sisa', width: 14, type: 'money' },
   ]
@@ -73,7 +73,7 @@ export async function exportLaporanDetailExcel(
   const wb = newWorkbook()
   addTemplatedSheet(wb, {
     sheetName: 'Detail Tagihan',
-    title: `Laporan Pendapatan — Detail Tagihan ${opts.tahunLabel}`,
+    title: `Laporan Tagihan & Cash In — Detail Tagihan ${opts.tahunLabel}`,
     subtitle: 'Rekap kompensasi & cash in per tahap tagihan',
     metaLines: [
       `Basis filter: ${opts.bulanBasis === 'diterima' ? 'Tanggal bayar (diterima)' : 'Jatuh tempo'}`,
@@ -92,7 +92,7 @@ export async function exportLaporanDetailExcel(
 
 export async function exportLaporanProgramExcel(
   rows: ProgramLaporanRow[],
-  opts: { tahunLabel: string; horizon: string },
+  opts: { tahunLabel: string; horizon: string; monthLabels?: string[] },
 ): Promise<void> {
   const today = todayKey()
   const columns: ExcelColumn[] = [
@@ -101,7 +101,7 @@ export async function exportLaporanProgramExcel(
     { header: 'Nama Proker', key: 'programAset', width: 32, type: 'text' },
     { header: 'Kategori', key: 'kategori', width: 16, type: 'text' },
     { header: 'Target RKAP', key: 'rkap', width: 15, type: 'money' },
-    { header: 'Pendapatan', key: 'pendapatan', width: 15, type: 'money' },
+    { header: 'DPP Ditagihkan', key: 'pendapatan', width: 15, type: 'money' },
     { header: 'Cash In', key: 'cashIn', width: 15, type: 'money' },
     { header: 'Capaian %', key: 'capaianPct', width: 12, type: 'percent', align: 'center' },
   ]
@@ -120,10 +120,10 @@ export async function exportLaporanProgramExcel(
   const wb = newWorkbook()
   addTemplatedSheet(wb, {
     sheetName: 'Per Proker',
-    title: `Laporan Pendapatan — Per Proker ${opts.tahunLabel}`,
-    subtitle: 'Rekap Optimalisasi Aset per ID Monika',
+    title: `Laporan Tagihan & Cash In — Per Proker ${opts.tahunLabel}`,
+    subtitle: 'Rekap per ID Monika · DPP ditagihkan, bukan pengakuan PSAK 73',
     metaLines: [
-      `Cakupan: ${opts.horizon === 'ytd' ? 'YTD s.d. hari ini' : 'Full year'}`,
+      `Cakupan: ${opts.horizon === 'ytd' ? 'YTD s.d. hari ini' : opts.horizon === 'bulan_filter' ? (opts.monthLabels ?? []).join(', ') : 'Full year'}`,
       `Jumlah program: ${rows.length}`,
       `Diekspor: ${today}`,
     ],

@@ -38,7 +38,6 @@ from services.superman.payload import (
     sppn_ready,
 )
 from services.superman.persist import (
-    assert_kompensasi_not_submitted,
     format_superman_ref,
     get_kompensasi_superman,
     get_sppb_pph_no,
@@ -73,7 +72,7 @@ AGENT_HELP_MESSAGE = (
     "Solusi yang berhasil: agent di PC Anda\n\n"
     "Jalankan di PC (bukan di server Railway):\n\n"
     "python scripts/superman/commands/agent.py watch "
-    "--api https://monitoringpemasaran-production.up.railway.app "
+    "--api <URL_API_ASETOPT> "
     "--username <user_app> --password <pass>\n\n"
     "Atau double-click: scripts/superman/Mulai-Superman-Agent.bat\n\n"
     "Biarkan jendela itu terbuka, lalu di web klik lagi «Kirim ke Superman». "
@@ -213,7 +212,7 @@ def get_status() -> dict[str, Any]:
     }
 
 
-def preview_deklarasi(*, kompensasi_id: str) -> dict[str, Any]:
+def _build_ready_payload(kompensasi_id: str) -> DeklarasiPayload:
     sppn_ok, sppb_ok = _sppn_sppb_readiness(kompensasi_id)
     if sppn_ok and sppb_ok:
         payload = build_payload_from_kompensasi(kompensasi_id)
@@ -222,7 +221,12 @@ def preview_deklarasi(*, kompensasi_id: str) -> dict[str, Any]:
     elif sppb_ok:
         payload = build_sppb_pph_payload(kompensasi_id)
     else:
-        payload = build_payload_from_kompensasi(kompensasi_id)  # error message informatif
+        raise ValueError("Belum ada SPPn/SPPb yang siap atau belum dideklarasikan.")
+    return payload
+
+
+def preview_deklarasi(*, kompensasi_id: str) -> dict[str, Any]:
+    payload = _build_ready_payload(kompensasi_id)
     supports = resolve_support_docs_from_kompensasi(kompensasi_id)
     data = payload.to_dict()
     data["support_docs"] = [{"path": str(doc.path), "source": doc.describe()} for doc in supports]
@@ -476,16 +480,16 @@ def _coalesce_spp_numbers(
 ) -> tuple[str | None, str | None]:
     sppb_no = store_sppb
     sppn_no = store_sppn
-    if match:
-        sppb_no = match.get("sppb_no") or match.get("no_sppb") or sppb_no
-        sppn_no = match.get("sppn_no") or match.get("no_sppn") or sppn_no
-        blob_sppb, blob_sppn = _extract_numbers_from_blob(_todo_row_blob(match))
-        sppb_no = sppb_no or blob_sppb
-        sppn_no = sppn_no or blob_sppn
     if store_body is not None and (not sppb_no or not sppn_no):
         body_sppb, body_sppn = _extract_numbers_from_store(store_body)
         sppb_no = sppb_no or body_sppb
         sppn_no = sppn_no or body_sppn
+    if match:
+        sppb_no = sppb_no or match.get("sppb_no") or match.get("no_sppb")
+        sppn_no = sppn_no or match.get("sppn_no") or match.get("no_sppn")
+        blob_sppb, blob_sppn = _extract_numbers_from_blob(_todo_row_blob(match))
+        sppb_no = sppb_no or blob_sppb
+        sppn_no = sppn_no or blob_sppn
     if not sppb_no or not sppn_no:
         combined = json.dumps({"store": store_body, "match": match}, ensure_ascii=False, default=str)
         blob_sppb, blob_sppn = _extract_numbers_from_blob(combined)
@@ -763,10 +767,11 @@ def run_browser_deklarasi(
     on_progress: ProgressCallback | None = None,
     support_labels: list[str] | None = None,
     persist: bool = True,
-    fill_fn=fill_sppn_draft,
+    fill_fn=None,
 ) -> dict[str, Any]:
     """Isi form Superman via Playwright. Dipakai server dan agent lokal."""
     report = on_progress or (lambda _percent, _stage: None)
+    fill_fn = fill_fn or (fill_sppb_only_draft if payload.jenis_form == "sppb" else fill_sppn_draft)
     report(20, "Membuka browser Superman")
     store_sppb: str | None = None
     store_sppn: str | None = None
@@ -787,11 +792,6 @@ def run_browser_deklarasi(
         store_body = submit_sppn_draft(page, on_progress=on_progress)
         report(90, "Draft tersimpan — mengekstrak nomor SPPn/SPPb")
         store_sppb, store_sppn = _extract_numbers_from_store(store_body)
-        if not (store_sppb or store_sppn):
-            page_sppb, page_sppn = _extract_numbers_from_page(page)
-            store_sppb = store_sppb or page_sppb
-            store_sppn = store_sppn or page_sppn
-
         has_store_numbers = bool(store_sppb or store_sppn)
         try:
             match = _find_todo_match(
@@ -857,6 +857,10 @@ def run_browser_deklarasi(
         match=match,
         store_body=store_body,
     )
+    if payload.jenis_form == "sppn":
+        sppb_no = None
+    elif payload.jenis_form == "sppb":
+        sppn_no = None
     if match:
         result.update({"sppb_no": sppb_no, "sppn_no": sppn_no, "todo_matched": True})
     elif sppb_no or sppn_no:
@@ -958,15 +962,7 @@ def submit_deklarasi_smart(
     support_paths = [doc.path for doc in supports]
     support_labels = [doc.describe() for doc in supports]
 
-    if sppn_ok and sppb_ok:
-        payload = build_payload_from_kompensasi(kompensasi_id)
-        fill_fn = fill_sppn_draft  # jenis_form="sppb_sppn" — isi SPPb+SPPn dalam 1 draft
-    elif sppn_ok:
-        payload = build_sppn_payload(kompensasi_id)
-        fill_fn = fill_sppn_draft
-    else:
-        payload = build_sppb_pph_payload(kompensasi_id)
-        fill_fn = fill_sppb_only_draft
+    payload = _build_ready_payload(kompensasi_id)
 
     result = run_browser_deklarasi(
         cfg,
@@ -975,7 +971,6 @@ def submit_deklarasi_smart(
         on_progress=on_progress,
         support_labels=support_labels,
         persist=False,
-        fill_fn=fill_fn,
     )
 
     # Simpan hanya jenis nomor yang memang dibuat form ini — nomor lain yang
@@ -1057,8 +1052,7 @@ def build_agent_job_bundle(job_id: str) -> dict[str, Any]:
         raise ValueError("Job tidak ditemukan atau kedaluwarsa.")
     if job.executor != "agent":
         raise ValueError("Job ini bukan untuk agent lokal.")
-    assert_kompensasi_not_submitted(job.kompensasi_id)
-    payload = build_payload_from_kompensasi(job.kompensasi_id)
+    payload = _build_ready_payload(job.kompensasi_id)
     supports = resolve_support_docs_from_kompensasi(job.kompensasi_id)
     docs = []
     for idx, doc in enumerate(supports):
@@ -1124,7 +1118,7 @@ def agent_complete_job(job_id: str, result: dict[str, Any]) -> dict[str, Any]:
     sppn_no = str(sppn_no).strip() if sppn_no else None
 
     saved = None
-    if sppb_no or sppn_no:
+    if payload.get("ok") is not False and (sppb_no or sppn_no):
         try:
             saved = save_superman_to_kompensasi(job.kompensasi_id, sppb_no, sppn_no)
         except Exception as exc:

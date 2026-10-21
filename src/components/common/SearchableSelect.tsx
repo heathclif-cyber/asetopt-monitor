@@ -22,6 +22,8 @@ interface SearchableSelectProps {
   emptyText?: string
   disabled?: boolean
   className?: string
+  contentClassName?: string
+  wrapText?: boolean
   /** Izinkan clear ke value kosong */
   allowClear?: boolean
   clearLabel?: string
@@ -45,6 +47,8 @@ export function SearchableSelect({
   emptyText = 'Tidak ada hasil',
   disabled = false,
   className,
+  contentClassName,
+  wrapText = false,
   allowClear = false,
   clearLabel = '— Kosongkan —',
   emptyValue = '',
@@ -98,7 +102,7 @@ export function SearchableSelect({
           )}
           aria-expanded={open}
         >
-          <span className="truncate text-left flex-1">
+          <span className={cn('min-w-0 text-left flex-1', wrapText ? 'whitespace-normal break-words' : 'truncate')}>
             {selected?.label ?? placeholder}
           </span>
           <span className="flex items-center gap-1 shrink-0 ml-2 text-muted-foreground">
@@ -122,7 +126,7 @@ export function SearchableSelect({
         </button>
       </PopoverTrigger>
       <PopoverContent
-        className="w-[var(--radix-popover-trigger-width)] min-w-[240px] max-w-[420px] p-0"
+        className={cn('w-[var(--radix-popover-trigger-width)] min-w-[240px] max-w-[420px] p-0', contentClassName)}
         align="start"
         onOpenAutoFocus={e => e.preventDefault()}
       >
@@ -186,9 +190,9 @@ export function SearchableSelect({
                   className={cn('mt-0.5 shrink-0', isSelected ? 'opacity-100' : 'opacity-0')}
                 />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate">{opt.label}</span>
+                  <span className={cn('block', wrapText ? 'whitespace-normal break-words' : 'truncate')}>{opt.label}</span>
                   {opt.description && (
-                    <span className="block text-[11px] text-muted-foreground truncate">
+                    <span className={cn('block text-[11px] text-muted-foreground', wrapText ? 'whitespace-normal break-words' : 'truncate')}>
                       {opt.description}
                     </span>
                   )}

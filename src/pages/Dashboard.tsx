@@ -38,31 +38,23 @@ export function Dashboard() {
   const { rows: rkapRows, fetchRKAP } = useRKAPStore()
   const { allPBB, fetchAllPBB } = usePBBStore()
   const { allCashIn, fetchAllCashIn } = useCashInStore()
-  const { daftarPDDM, allPengakuan, fetchAll: fetchPDDM, syncAllPDDM } = usePendapatanStore()
+  const { daftarPDDM, allPengakuan, fetchAll: fetchPDDM } = usePendapatanStore()
 
   const location = useLocation()
 
   // Fetch sekali saat pertama mount (data statis)
   useEffect(() => {
     fetchAset()
-    fetchSPAktif()
     fetchAllNJOP()
     fetchAllPBB()
   }, [])
 
-  // Fetch + auto-sync PDDM setiap mount / navigasi ke dashboard
   useEffect(() => {
     const loadAndSync = async () => {
       await Promise.all([
         fetchAllKompensasi(), fetchAllCashIn(), fetchKS(), fetchSPAktif(),
-        fetchRKAP(CURRENT_MONTH >= 0 ? new Date().getFullYear() : 2026),
+        fetchRKAP(CURRENT_MONTH >= 0 ? new Date().getFullYear() : 2026), fetchPDDM(),
       ])
-      await fetchPDDM()
-      // Auto-sync: setelah semua data loaded, sinkronkan PDDM dari kompensasi
-      const { allKompensasi: komp } = useKompensasiStore.getState()
-      const { daftarKS: ks } = useKerjaSamaStore.getState()
-      await syncAllPDDM(komp, ks)
-      await fetchPDDM() // Refresh PDDM setelah sync
     }
     loadAndSync()
   }, [location.key])
@@ -494,7 +486,7 @@ export function Dashboard() {
         <Card
           className={`cursor-pointer hover:shadow-md transition-shadow ${stats.totalPiutang > 0 ? 'border-orange-300' : ''}`}
           onClick={() => navigate('/jalur-b/piutang')}
-          title="Buka halaman Piutang (Jalur B)"
+          title="Buka halaman Piutang"
         >
           <CardContent className="p-5">
             <div className="flex items-start justify-between">

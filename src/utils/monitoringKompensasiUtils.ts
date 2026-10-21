@@ -513,7 +513,7 @@ export async function exportMonitoringExcel(
   detail: MonitoringDetailRow[],
   groups: MonitoringGroup[],
   groupBy: 'mitra' | 'proker',
-  opts?: { hideSp?: boolean },
+  opts?: { hideSp?: boolean; horizon?: MonitoringHorizon },
 ): Promise<void> {
   const hideSp = opts?.hideSp ?? false
   const today = todayKey()
@@ -540,7 +540,8 @@ export async function exportMonitoringExcel(
       : [{ header: 'Status KS', key: 'statusKs', width: 10, type: 'text' as const, align: 'center' as const }]),
   ]
 
-  const detailRows = detail.map(r => ({
+  const exportDetail = opts?.horizon === 'jt_berjalan' ? detail.filter(row => row.isDue) : detail
+  const detailRows = exportDetail.map(r => ({
     namaMitra: r.namaMitra,
     noPerjanjian: r.noPerjanjian,
     monikaId: r.monikaId ?? '—',
@@ -559,13 +560,14 @@ export async function exportMonitoringExcel(
     ...(hideSp ? {} : { statusKs: displayStatusKs(r.statusKs, false) }),
   }))
 
-  const totalSisa = detail.reduce((s, r) => s + r.sisa, 0)
+  const totalSisa = exportDetail.reduce((s, r) => s + r.sisa, 0)
   addTemplatedSheet(wb, {
     sheetName: 'Detail Tagihan',
     title: `Monitoring Kompensasi — Detail ${tahun}`,
     subtitle: 'Track record tagihan, pembayaran, keterlambatan & denda per tahap',
     metaLines: [
-      `Jumlah tagihan: ${detail.length}`,
+      `Jumlah tagihan: ${exportDetail.length}`,
+      `Cakupan: ${opts?.horizon === 'jt_berjalan' ? 'JT berjalan' : 'Full year'}`,
       `Total outstanding: ${Math.round(totalSisa).toLocaleString('id-ID')}`,
       `Diekspor: ${today}`,
     ],

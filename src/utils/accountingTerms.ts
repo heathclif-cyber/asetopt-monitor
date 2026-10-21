@@ -98,6 +98,20 @@ export function alokasiPembayaranKeHO(
   }
 }
 
+/** Sisa DPP dengan alokasi yang sama untuk HO dan collection. */
+export function hitungSisaPokok(
+  k: Parameters<typeof alokasiPembayaranKeHO>[0],
+  payments: Pick<Pembayaran, 'nominal_bayar' | 'tgl_bayar'>[],
+  asOfKey?: string,
+): number {
+  const paid = (payments ?? []).reduce((sum, payment) => {
+    if (asOfKey && String(payment.tgl_bayar).slice(0, 10) > asOfKey) return sum
+    return sum + alokasiPembayaranKeHO(k, payment.nominal_bayar || 0).kompensasi
+  }, 0)
+  const effectivePrincipal = Math.min(hitungPendapatan(k), Math.max(0, alokasiPembayaranKeHO(k, hitungTagihan(k)).kompensasi))
+  return Math.max(0, effectivePrincipal - Math.max(0, paid))
+}
+
 /** Cash In dari daftar pembayaran */
 export function hitungCashInPembayaran(
   payments: Pick<Pembayaran, 'nominal_bayar' | 'tgl_bayar'>[],

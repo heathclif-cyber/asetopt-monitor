@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { supabase } from '@/lib/supabase'
-import { PBB, PBBObjek } from '@/types'
+import { api } from '@/lib/apiClient'
+import { PBB } from '@/types'
 
 export interface PBBObjekInput {
   nama_objek: string
@@ -27,16 +28,6 @@ interface PBBStore {
   addPBB: (data: PBBCoreData, objek: PBBObjekInput[]) => Promise<void>
   updatePBB: (id: string, data: Partial<PBB>, asetId: string, objek?: PBBObjekInput[]) => Promise<void>
   deletePBB: (id: string) => Promise<void>
-}
-
-async function upsertObjek(pbbId: string, objek: PBBObjekInput[]) {
-  await supabase.from('pbb_objek').delete().eq('pbb_id', pbbId)
-  if (objek.length > 0) {
-    const { error } = await supabase.from('pbb_objek').insert(
-      objek.map(o => ({ ...o, pbb_id: pbbId }))
-    )
-    if (error) throw new Error(`Gagal menyimpan objek PBB: ${error.message}`)
-  }
 }
 
 export const usePBBStore = create<PBBStore>((set, get) => ({
@@ -73,32 +64,13 @@ export const usePBBStore = create<PBBStore>((set, get) => ({
   },
 
   addPBB: async (data, objek) => {
-    const nilai_pbb = objek.reduce((sum, o) => sum + (o.nilai_pbb_objek ?? 0), 0)
-    const { data: rows, error } = await supabase
-      .from('pbb')
-      .upsert({ ...data, nilai_pbb }, { onConflict: 'aset_id,tahun' })
-      .select()
-    if (error) throw new Error(`Gagal menyimpan PBB: ${error.message}`)
-    const pbbId = rows![0].id
-    await upsertObjek(pbbId, objek)
+    await api.post('/api/pbb', { pbb: data, objek })
     await get().fetchAllPBB()
   },
 
   updatePBB: async (id, data, _asetId, objek?) => {
-    const { id: _id, created_at, aset, pbb_objek, ...rest } = data as any
-    const updateData: Record<string, unknown> = { ...rest }
-
-    if (objek !== undefined) {
-      updateData.nilai_pbb = objek.reduce((sum, o) => sum + (o.nilai_pbb_objek ?? 0), 0)
-    }
-
-    const { error } = await supabase.from('pbb').update(updateData).eq('id', id)
-    if (error) throw new Error(`Gagal update PBB: ${error.message}`)
-
-    if (objek !== undefined) {
-      await upsertObjek(id, objek)
-    }
-
+    const { id: _id, created_at, aset, pbb_objek, ...pbb } = data as any
+    await api.patch(`/api/pbb/${id}`, { pbb, objek })
     await get().fetchAllPBB()
   },
 

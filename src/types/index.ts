@@ -242,6 +242,8 @@ export interface SupermanDocRequirement {
 }
 
 export interface SupermanDeklarasiResult {
+  ok?: boolean
+  needs_recover?: boolean
   superman_saved?: string | null
   superman?: string | null
   sppn_no?: string | null
@@ -511,7 +513,7 @@ export interface KatalogFactsheetData {
   recommendationSummary: string
   partnershipSchemes: { code: string; name: string; note: string }[]
   // Accessibility
-  accessibility: { label: string; value: string; sub: string }[]
+  accessibility: { label: string; value: string; sub: string; urutan?: number }[]
   // Surroundings
   surroundings: { name: string; distance: string; type: string }[]
   // Contact
@@ -554,6 +556,7 @@ export interface PendapatanDiterimaDimuka {
 }
 
 export interface PengakuanPendapatan {
+  kompensasi_id?: string | null
   id: string
   pddm_id: string
   periode_ke: number

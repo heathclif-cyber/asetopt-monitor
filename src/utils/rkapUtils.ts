@@ -1,5 +1,5 @@
 import { RKAPItem, BULAN_LABELS } from '@/data/rkap2026'
-import { PengakuanPendapatan, PendapatanDiterimaDimuka } from '@/types'
+import { PengakuanPendapatan, PendapatanDiterimaDimuka, KerjaSama } from '@/types'
 
 export interface MonthSummary {
   bulanIdx: number
@@ -61,6 +61,23 @@ export function hitungRKAP(
 }
 
 
+export function aggregateManualPrognosa(
+  items: RKAPItem[],
+  manual: Record<string, Array<number | null>>,
+  actual: Record<string, number[]>,
+  currentMonth: number,
+): Array<number | null> {
+  return Array.from({ length: 12 }, (_, month) => {
+    if (!items.some(item => manual[item.kode]?.[month] != null)) return null
+    return items.reduce((sum, item) => {
+      const override = manual[item.kode]?.[month]
+      const realized = actual[item.kode]?.[month] ?? 0
+      const target = item.bulan[month] ?? 0
+      return sum + (override ?? (month > currentMonth ? target : month === currentMonth ? Math.max(realized, target) : realized))
+    }, 0)
+  })
+}
+
 export function getCashInPerBulanByYear(
   allKompensasi: { pembayaran?: { tgl_bayar: string; nominal_bayar: number }[] }[],
   tahun: number,
@@ -80,10 +97,6 @@ export function getCashInPerBulanByYear(
   return arr
 }
 
-// Backward-compat alias
-export const getCashInPerBulan2026 = (kompensasi: Parameters<typeof getCashInPerBulanByYear>[0], allCashIn?: any[]) =>
-  getCashInPerBulanByYear(kompensasi, 2026, allCashIn)
-
 export function getPendapatanPerBulanByYear(
   allPengakuan: PengakuanPendapatan[],
   tahun: number
@@ -101,7 +114,7 @@ export function getPendapatanPerBulanByYear(
 export function getPendapatanPerKode(
   allPengakuan: PengakuanPendapatan[],
   daftarPDDM: PendapatanDiterimaDimuka[],
-  allKompensasi: { ks_id: string; tgl_jatuh_tempo: string; rkap_kode: string | null }[],
+  allKompensasi: { id?: string; ks_id: string; tgl_jatuh_tempo: string; rkap_kode: string | null; kerja_sama?: KerjaSama }[],
   tahun: number
 ): Record<string, number[]> {
   const byKey: Record<string, number[]> = {}
@@ -112,9 +125,12 @@ export function getPendapatanPerKode(
       const pddm = daftarPDDM.find(p => p.id === pp.pddm_id)
       if (!pddm?.ks_id) return
       const komp = allKompensasi.find(
-        k => k.ks_id === pddm.ks_id && k.tgl_jatuh_tempo === pp.tgl_awal
+        k => pp.kompensasi_id ? k.id === pp.kompensasi_id : k.ks_id === pddm.ks_id && k.tgl_jatuh_tempo === pp.tgl_awal
       )
-      const key = komp?.rkap_kode
+      const contractInvoices = allKompensasi.filter(k => k.ks_id === pddm.ks_id)
+      const codes = [...new Set(contractInvoices.map(k => k.rkap_kode?.trim()).filter(Boolean))]
+      const key = komp?.rkap_kode?.trim() || (codes.length === 1 ? codes[0] : undefined)
+        || contractInvoices.find(k => k.kerja_sama?.aset?.kode_aset)?.kerja_sama?.aset?.kode_aset
       if (!key) return
       if (!byKey[key]) byKey[key] = Array(12).fill(0)
       const d = new Date(pp.tgl_awal)

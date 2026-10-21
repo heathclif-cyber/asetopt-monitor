@@ -1,7 +1,7 @@
 import { QRCodeSVG } from 'qrcode.react'
 import type { CSSProperties } from 'react'
 import type { KatalogFactsheetData } from '@/types'
-import { accessRows, canvaBox as box, canvaPhoto, locationLink, CANVA_HEIGHT, CANVA_WIDTH } from './canva-layout'
+import { accessRows, isRoadAccess, canvaBox as box, canvaPhoto, locationLink, CANVA_HEIGHT, CANVA_WIDTH } from './canva-layout'
 import './factsheet-canva.css'
 
 export { CANVA_HEIGHT, CANVA_WIDTH } from './canva-layout'
@@ -31,7 +31,7 @@ export default function FactsheetCanvaLandscape({ data }: { data: KatalogFactshe
   const photo = (slot: string) => canvaPhoto(data.photos, slot)
   const rows = accessRows(data)
   const radius = data.accessibility.find(item => /^radius$/i.test(item.label.trim()))?.value
-  const road = data.accessibility.find(item => /tol|toll|jalan|road/i.test(item.label))
+  const road = data.accessibility.find(isRoadAccess)
   const roadUnit = road?.sub.match(/^(km|m|kilometer|meter)\b[\s–-]*/i)
   const locationUrl = locationLink(data)
   const catalogueUrl = typeof window === 'undefined' ? 'https://opsetreg8.my.id/katalog/factsheet' : `${window.location.origin}/katalog/factsheet`

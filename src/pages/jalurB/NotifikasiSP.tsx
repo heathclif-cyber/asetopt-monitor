@@ -8,43 +8,9 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { CurrencyDisplay } from '@/components/common/CurrencyDisplay'
 import { EmptyState } from '@/components/common/EmptyState'
-import { TableSkeleton } from '@/components/common/LoadingSkeleton'
 import { formatTanggal, hitungSisaHari, formatRupiah } from '@/lib/utils'
-import { buatPesanWA } from '@/utils/notifikasiUtils'
-import { hitungDenda } from '@/utils/taxUtils'
-import { MessageSquare, FileWarning, CheckCircle, Trash2, AlertTriangle, Bot } from 'lucide-react'
-
-// Helper: tambah hari ke date string
-function addDays(dateStr: string, days: number): Date {
-  const d = new Date(dateStr)
-  d.setDate(d.getDate() + days)
-  return d
-}
-
-function fmtDate(d: Date) {
-  return d.toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })
-}
-
-// SP1 diterbitkan saat denda mencapai 5%: denda = 1/1000 per hari × 50 hari = 5%
-// SP1: grace period + 50 hari; SP2: +14; SP3: +28; PUTUS: +42
-const HARI_DENDA_SP1 = 50  // 50 × 1‰ = 5%
-
-function hitungAutoSP(tglJatuhTempo: string, maksHariBayar: number) {
-  const tglSP1   = addDays(tglJatuhTempo, maksHariBayar + HARI_DENDA_SP1)
-  const tglSP2   = addDays(tglJatuhTempo, maksHariBayar + HARI_DENDA_SP1 + 14)
-  const tglSP3   = addDays(tglJatuhTempo, maksHariBayar + HARI_DENDA_SP1 + 28)
-  const tglPutus = addDays(tglJatuhTempo, maksHariBayar + HARI_DENDA_SP1 + 42)
-  const today = new Date(); today.setHours(0,0,0,0)
-
-  let level: 'BELUM' | 'SP1' | 'SP2' | 'SP3' | 'PUTUS' = 'BELUM'
-  let tglLevel = tglSP1
-  if (today >= tglPutus) { level = 'PUTUS'; tglLevel = tglPutus }
-  else if (today >= tglSP3) { level = 'SP3'; tglLevel = tglSP3 }
-  else if (today >= tglSP2) { level = 'SP2'; tglLevel = tglSP2 }
-  else if (today >= tglSP1) { level = 'SP1'; tglLevel = tglSP1 }
-
-  return { level, tglLevel, tglSP1, tglSP2, tglSP3, tglPutus }
-}
+import { buatPesanWA, getSPEligibility } from '@/utils/notifikasiUtils'
+import { MessageSquare, FileWarning, CheckCircle, Trash2, Bot } from 'lucide-react'
 
 export function NotifikasiSP() {
   const { allKompensasi, fetchAllKompensasi } = useKompensasiStore()
@@ -64,44 +30,20 @@ export function NotifikasiSP() {
 
   useEffect(() => { checkJatuhTempo(allKompensasi) }, [allKompensasi])
 
-  // Hitung status SP otomatis per KS
-  const autoSPList = useMemo(() => {
-    // Kelompokkan kompensasi belum lunas per KS
-    const byKS: Record<string, { ks_id: string; tglJT: string; maksHari: number; namaAset: string; namaMitra: string; totalSisa: number }> = {}
+  const autoSPList = useMemo(() => daftarKS.map(ks => ({
+    ks_id: ks.id, namaMitra: ks.nama_mitra, namaAset: ks.aset?.nama_aset ?? '-',
+    ...getSPEligibility(allKompensasi.filter(k => k.ks_id === ks.id), allSP.filter(sp => sp.ks_id === ks.id)),
+  })).filter(item => item.eligible && item.jenis), [allKompensasi, daftarKS, allSP])
 
-    allKompensasi.forEach(k => {
-      // Sama dengan getKompensasiWithStatus: lunas = bayar ≥ (total_tagihan − pengurang)
-      const efektifTagihan = Math.max(0, (k.total_tagihan ?? 0) - (k.pengurang ?? 0))
-      const totalDibayar = (k.pembayaran ?? []).reduce((s, p) => s + p.nominal_bayar, 0)
-      const sisa = Math.max(0, efektifTagihan - totalDibayar)
-      if (sisa <= 0) return   // sudah lunas, skip
-      const today = new Date(); today.setHours(0,0,0,0)
-      const graceEnd = addDays(k.tgl_jatuh_tempo, k.maks_hari_bayar ?? 0)
-      if (graceEnd > today) return   // masih dalam grace period
-
-      const ks = daftarKS.find(x => x.id === k.ks_id)
-      if (!byKS[k.ks_id] || new Date(k.tgl_jatuh_tempo) < new Date(byKS[k.ks_id].tglJT)) {
-        byKS[k.ks_id] = {
-          ks_id: k.ks_id,
-          tglJT: k.tgl_jatuh_tempo,
-          maksHari: k.maks_hari_bayar ?? 0,
-          namaAset: (ks?.aset as any)?.nama_aset ?? '-',
-          namaMitra: ks?.nama_mitra ?? '-',
-          totalSisa: 0,
-        }
-      }
-      byKS[k.ks_id].totalSisa += sisa
-    })
-
-    return Object.values(byKS).map(item => ({
-      ...item,
-      ...hitungAutoSP(item.tglJT, item.maksHari),
-    })).filter(x => x.level !== 'BELUM')
-      .sort((a, b) => {
-      const order: Record<string, number> = { PUTUS: 0, SP3: 1, SP2: 2, SP1: 3, BELUM: 9 }
-        return (order[a.level] ?? 9) - (order[b.level] ?? 9)
-      })
-  }, [allKompensasi, daftarKS])
+  const issueSP = async (ksId: string) => {
+    const eligibility = getSPEligibility(allKompensasi.filter(k => k.ks_id === ksId), allSP.filter(sp => sp.ks_id === ksId))
+    if (!eligibility.eligible || !eligibility.jenis) { alert(eligibility.alasan); return }
+    if (!confirm(`Terbitkan ${eligibility.jenis} untuk kerja sama ini?`)) return
+    try {
+      await terbitkanSP(ksId, eligibility.kompensasiId, eligibility.jenis)
+      await fetchKS()
+    } catch (error) { alert(error instanceof Error ? error.message : 'Gagal menerbitkan SP.') }
+  }
 
   const handleKirimWA = async (k: Kompensasi, jenis: string) => {
     const ks = daftarKS.find(x => x.id === k.ks_id)
@@ -125,19 +67,11 @@ export function NotifikasiSP() {
     alert('Selesai mengirim semua notifikasi')
   }
 
-  const handleTerbitkanSPBerikutnya = async (sp: SuratPeringatan) => {
-    const nextMap: Record<string, string> = { SP1: 'SP2', SP2: 'SP3', SP3: 'PUTUS' }
-    const jenis = nextMap[sp.jenis]
-    if (!jenis) return
-    if (confirm(`Terbitkan ${jenis} untuk kerja sama ini?`)) {
-      await terbitkanSP(sp.ks_id, sp.kompensasi_id, jenis as any)
-    }
-  }
-
   const handleDeleteSP = async (sp: SuratPeringatan) => {
     const mitra = (sp.kerja_sama as any)?.nama_mitra ?? 'ini'
     if (confirm(`Hapus ${sp.jenis} untuk ${mitra}? Data tidak dapat dikembalikan.`)) {
-      await deleteSP(sp.id)
+      try { await deleteSP(sp.id); await fetchKS() }
+      catch (error) { alert(error instanceof Error ? error.message : 'Gagal menghapus SP.') }
     }
   }
 
@@ -242,71 +176,17 @@ export function NotifikasiSP() {
         {/* Tab Status SP Otomatis */}
         <TabsContent value="sp_auto" className="mt-4">
           <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-700">
-            <strong>Keterangan:</strong> SP1 diterbitkan saat denda keterlambatan mencapai 5% (50 hari × 1‰/hari setelah grace period).
-            SP2 setelah +14 hari dari SP1, SP3 setelah +14 hari dari SP2, PUTUS setelah +14 hari dari SP3.
+            <strong>Keterangan:</strong> SP1 dapat diterbitkan saat akumulasi denda mencapai 5% sesuai tarif tagihan, dihitung sejak H+1 jatuh tempo.
+            Tahap berikutnya mengikuti deadline dan minimal 14 hari sejak SP sebelumnya benar-benar diterbitkan.
           </div>
           {autoSPList.length === 0 ? (
             <EmptyState title="Tidak ada KS yang memerlukan SP" description="Semua kompensasi masih dalam batas toleransi." />
           ) : (
             <div className="space-y-3">
               {autoSPList.map(item => (
-                <div key={item.ks_id} className={`rounded-xl border p-4 ${
-                  item.level === 'PUTUS' ? 'bg-gray-900 border-gray-700' :
-                  item.level === 'SP3'  ? 'bg-red-50 border-red-200' :
-                  item.level === 'SP2'  ? 'bg-orange-50 border-orange-200' :
-                                          'bg-yellow-50 border-yellow-200'
-                }`}>
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="flex items-center gap-2 mb-1">
-                        <AlertTriangle size={15} className={item.level === 'PUTUS' ? 'text-gray-300' : 'text-orange-500'} />
-                        <span className={`font-bold text-sm ${item.level === 'PUTUS' ? 'text-white' : 'text-gray-900'}`}>
-                          {item.namaMitra}
-                        </span>
-                        <span className={`text-xs px-2 py-0.5 rounded-full border font-semibold ${levelColor(item.level)}`}>
-                          {item.level}
-                        </span>
-                      </div>
-                      <p className={`text-xs mb-2 ${item.level === 'PUTUS' ? 'text-gray-400' : 'text-gray-500'}`}>
-                        {item.namaAset}
-                      </p>
-                      <p className={`text-sm font-medium ${item.level === 'PUTUS' ? 'text-gray-200' : 'text-gray-800'}`}>
-                        Berdasarkan jangka waktu keterlambatan, <strong>{item.namaMitra}</strong> seharusnya
-                        telah mendapat <strong>{item.level}</strong> pada <strong>{fmtDate(item.tglLevel)}</strong>
-                      </p>
-                      <p className={`text-xs mt-1 ${item.level === 'PUTUS' ? 'text-gray-400' : 'text-gray-500'}`}>
-                        Total piutang belum lunas: {formatRupiah(item.totalSisa)}
-                      </p>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <div className="text-[10px] space-y-0.5">
-                        <div className={
-                          item.level === 'PUTUS' ? 'font-semibold text-yellow-400' :
-                          (item.level === 'SP1' || item.level === 'SP2' || item.level === 'SP3') ? 'font-semibold text-yellow-700' :
-                          'text-gray-400'
-                        }>
-                          SP1: {fmtDate(item.tglSP1)}
-                        </div>
-                        <div className={
-                          item.level === 'PUTUS' ? 'font-semibold text-orange-400' :
-                          (item.level === 'SP2' || item.level === 'SP3') ? 'font-semibold text-orange-600' :
-                          'text-gray-400'
-                        }>
-                          SP2: {fmtDate(item.tglSP2)}
-                        </div>
-                        <div className={
-                          item.level === 'PUTUS' ? 'font-semibold text-red-400' :
-                          item.level === 'SP3' ? 'font-semibold text-red-600' :
-                          'text-gray-400'
-                        }>
-                          SP3: {fmtDate(item.tglSP3)}
-                        </div>
-                        <div className={item.level === 'PUTUS' ? 'font-semibold text-white' : 'text-gray-400'}>
-                          PUTUS: {fmtDate(item.tglPutus)}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                <div key={item.ks_id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-orange-50 p-4">
+                  <div><p className="font-semibold text-gray-900">{item.namaMitra} <span className={`ml-2 rounded-full border px-2 py-0.5 text-xs ${levelColor(item.jenis!)}`}>{item.jenis}</span></p><p className="mt-1 text-xs text-gray-500">{item.namaAset}</p><p className="mt-2 text-sm">Layak diterbitkan sejak {formatTanggal(item.tglLayak!.toLocaleDateString('en-CA'))} · Sisa {formatRupiah(item.totalSisa)}</p></div>
+                  <Button size="sm" variant="outline" onClick={() => issueSP(item.ks_id)}><FileWarning size={13} /> Terbitkan {item.jenis}</Button>
                 </div>
               ))}
             </div>
@@ -352,12 +232,12 @@ export function NotifikasiSP() {
                         <td className="px-4 py-3 text-right">
                           <div className="flex items-center justify-end gap-2">
                             {sp.jenis !== 'SP3' && sp.jenis !== 'PUTUS' && (
-                              <Button size="sm" variant="outline" className="text-orange-700 border-orange-300" onClick={() => handleTerbitkanSPBerikutnya(sp)}>
+                              <Button size="sm" variant="outline" className="text-orange-700 border-orange-300" disabled={!getSPEligibility(allKompensasi.filter(k => k.ks_id === sp.ks_id), allSP.filter(item => item.ks_id === sp.ks_id)).eligible} onClick={() => issueSP(sp.ks_id)}>
                                 <FileWarning size={13} /> SP Berikutnya
                               </Button>
                             )}
                             {sp.jenis === 'SP3' && (
-                              <Button size="sm" variant="outline" className="text-red-700 border-red-300" onClick={() => handleTerbitkanSPBerikutnya(sp)}>
+                              <Button size="sm" variant="outline" className="text-red-700 border-red-300" disabled={!getSPEligibility(allKompensasi.filter(k => k.ks_id === sp.ks_id), allSP.filter(item => item.ks_id === sp.ks_id)).eligible} onClick={() => issueSP(sp.ks_id)}>
                                 Lakukan Pemutusan
                               </Button>
                             )}

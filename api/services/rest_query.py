@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import re
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from sqlalchemy import text
+from fastapi import HTTPException
+from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
 
 ALLOWED_TABLES = {
@@ -33,6 +35,10 @@ EMBEDS: dict[str, dict[str, dict[str, Any]]] = {
     "kompensasi": {
         "pembayaran": {"kind": "o2m", "table": "pembayaran", "fk": "kompensasi_id"},
         "kerja_sama": {"kind": "m2o", "table": "kerja_sama", "fk": "ks_id"},
+    },
+    "cash_in": {
+        "kerja_sama": {"kind": "m2o", "table": "kerja_sama", "fk": "ks_id"},
+        "kompensasi": {"kind": "m2o", "table": "kompensasi", "fk": "kompensasi_id"},
     },
     "pbb": {
         "aset": {"kind": "m2o", "table": "aset", "fk": "aset_id"},
@@ -153,9 +159,40 @@ def parse_filters(params: dict[str, str]) -> list[tuple[str, str, Any]]:
     return filters
 
 
+def _identifier(value: str) -> str:
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value):
+        raise HTTPException(400, "Nama kolom tidak valid")
+    return value
+
+
+def _lock_domain_write(db: Session, table: str) -> None:
+    if table == "kompensasi":
+        from services.pendapatan_sync import lock_pendapatan
+        lock_pendapatan(db)
+
+
+def _guard_recognized_update(db: Session, data: dict, where: str, bind: dict) -> None:
+    fields = {"nominal", "tgl_jatuh_tempo", "ks_id"}.intersection(data)
+    if not fields:
+        return
+    rows = db.execute(text(f"""SELECT k.nominal, k.tgl_jatuh_tempo, k.ks_id FROM kompensasi k
+        WHERE {where} AND EXISTS (SELECT 1 FROM pengakuan_pendapatan pp
+        WHERE pp.kompensasi_id=k.id AND pp.status='diakui')"""), bind).mappings()
+    for row in rows:
+        for field in fields:
+            before, after = row[field], data[field]
+            try:
+                changed = Decimal(str(before)) != Decimal(str(after)) if field == "nominal" else str(before) != str(after)
+            except (InvalidOperation, ValueError):
+                changed = True
+            if changed:
+                raise HTTPException(409, "Nilai, jatuh tempo, dan kerja sama tagihan dengan pendapatan yang sudah diakui tidak dapat diubah")
+
+
 def _where_clause(filters: list[tuple[str, str, Any]], params: dict[str, Any]) -> str:
     clauses: list[str] = []
     for col, op, val in filters:
+        _identifier(col)
         key = f"f_{col}_{op}"
         if op == "eq":
             clauses.append(f'"{col}" = :{key}')
@@ -176,6 +213,9 @@ def _where_clause(filters: list[tuple[str, str, Any]], params: dict[str, Any]) -
             clauses.append(f'"{col}" > :{key}')
             params[key] = val
         elif op == "in":
+            if not val:
+                clauses.append("FALSE")
+                continue
             placeholders = ", ".join(f":{key}_{i}" for i in range(len(val)))
             clauses.append(f'"{col}" IN ({placeholders})')
             for i, v in enumerate(val):
@@ -187,44 +227,28 @@ def _row_to_dict(row) -> dict:
     return dict(row._mapping)
 
 
-def _fetch_embed(db: Session, parent_table: str, embed_name: str, parent_row: dict, inner_select: str):
-    cfg = EMBEDS.get(parent_table, {}).get(embed_name)
-    if not cfg:
-        return None
-    table = cfg["table"]
-    fk = cfg["fk"]
-    kind = cfg["kind"]
-    _, child_embeds = parse_select(inner_select)
-
-    if kind == "m2o":
-        fk_val = parent_row.get(fk)
-        if not fk_val:
-            return None
-        sql = text(f'SELECT * FROM "{table}" WHERE id = :id LIMIT 1')
-        row = db.execute(sql, {"id": fk_val}).fetchone()
-        if not row:
-            return None
-        data = _row_to_dict(row)
-        for alias, cname, inner in child_embeds:
-            embedded = _fetch_embed(db, table, cname if cname in EMBEDS.get(table, {}) else alias, data, inner)
-            if embedded is not None:
-                data[alias] = embedded
-        return data
-
-    parent_id = parent_row.get("id")
-    if not parent_id:
-        return []
-    sql = text(f'SELECT * FROM "{table}" WHERE "{fk}" = :pid')
-    rows = db.execute(sql, {"pid": parent_id}).fetchall()
-    result = []
-    for row in rows:
-        data = _row_to_dict(row)
-        for alias, cname, inner in child_embeds:
-            embedded = _fetch_embed(db, table, cname if cname in EMBEDS.get(table, {}) else alias, data, inner)
-            if embedded is not None:
-                data[alias] = embedded
-        result.append(data)
-    return result
+def _attach_embeds(db: Session, table: str, rows: list[dict], embeds: list[tuple[str, str, str]]) -> None:
+    for alias, embed_name, inner in embeds:
+        lookup = embed_name if embed_name in EMBEDS.get(table, {}) else alias
+        cfg = EMBEDS.get(table, {}).get(lookup)
+        if not cfg:
+            raise ValueError(f"Relasi {table}.{embed_name} tidak tersedia")
+        child_table, fk = cfg["table"], cfg["fk"]
+        is_parent = cfg["kind"] == "m2o"
+        parent_key, child_key = (fk, "id") if is_parent else ("id", fk)
+        ids = list({row[parent_key] for row in rows if row.get(parent_key) is not None})
+        children: list[dict] = []
+        if ids:
+            stmt = text(f'SELECT * FROM "{child_table}" WHERE "{child_key}" IN :ids').bindparams(bindparam("ids", expanding=True))
+            children = [_row_to_dict(row) for row in db.execute(stmt, {"ids": ids}).fetchall()]
+        _, nested = parse_select(inner)
+        _attach_embeds(db, child_table, children, nested)
+        grouped: dict[Any, list[dict]] = {}
+        for child in children:
+            grouped.setdefault(child[child_key], []).append(child)
+        for row in rows:
+            matches = grouped.get(row.get(parent_key), [])
+            row[alias] = (matches[0] if matches else None) if is_parent else matches
 
 
 def query_rows(db: Session, table: str, params: dict[str, str]) -> list[dict]:
@@ -236,29 +260,26 @@ def query_rows(db: Session, table: str, params: dict[str, str]) -> list[dict]:
     where = _where_clause(filters, bind)
     sql = f'SELECT * FROM "{table}" WHERE {where}'
     if orders:
-        order_sql = ", ".join(f'"{c}" {"ASC" if asc else "DESC"}' for c, asc in orders)
+        order_sql = ", ".join(f'"{_identifier(c)}" {"ASC" if asc else "DESC"}' for c, asc in orders)
         sql += f" ORDER BY {order_sql}"
     if params.get("limit"):
         sql += " LIMIT :_limit"
         bind["_limit"] = int(params["limit"])
     rows = db.execute(text(sql), bind).fetchall()
     result = [_row_to_dict(r) for r in rows]
-    for row in result:
-        for alias, embed_table, inner in embeds:
-            key = alias if alias != embed_table else alias
-            lookup = embed_table if embed_table in EMBEDS.get(table, {}) else alias
-            embedded = _fetch_embed(db, table, lookup, row, inner)
-            if embedded is not None:
-                row[key] = embedded
+    _attach_embeds(db, table, result, embeds)
     return result
 
 
-def strip_generated(table: str, data: dict) -> dict:
+def strip_generated(table: str, data: dict, *, preserve_null: bool = False) -> dict:
     skip = GENERATED_COLS.get(table, set())
-    return {k: v for k, v in data.items() if k not in skip and v is not None}
+    return {_identifier(k): v for k, v in data.items() if k not in skip and (preserve_null or v is not None)}
 
 
-def insert_rows(db: Session, table: str, payload: list[dict] | dict, on_conflict: str | None = None, ignore_dup: bool = False) -> list[dict]:
+def insert_rows(db: Session, table: str, payload: list[dict] | dict, on_conflict: str | None = None, ignore_dup: bool = False, *, commit: bool = True) -> list[dict]:
+    _lock_domain_write(db, table)
+    conflict_cols = [_identifier(col.strip()) for col in on_conflict.split(",")] if on_conflict else []
+    conflict_sql = ", ".join(f'"{col}"' for col in conflict_cols)
     rows = payload if isinstance(payload, list) else [payload]
     inserted: list[dict] = []
     for raw in rows:
@@ -270,38 +291,73 @@ def insert_rows(db: Session, table: str, payload: list[dict] | dict, on_conflict
         val_sql = ", ".join(f":{c}" for c in cols)
         if on_conflict:
             if ignore_dup:
-                sql = f'INSERT INTO "{table}" ({col_sql}) VALUES ({val_sql}) ON CONFLICT ({on_conflict}) DO NOTHING RETURNING *'
+                sql = f'INSERT INTO "{table}" ({col_sql}) VALUES ({val_sql}) ON CONFLICT ({conflict_sql}) DO NOTHING RETURNING *'
             else:
-                set_sql = ", ".join(f'"{c}" = EXCLUDED."{c}"' for c in cols if c not in on_conflict.split(","))
-                sql = f'INSERT INTO "{table}" ({col_sql}) VALUES ({val_sql}) ON CONFLICT ({on_conflict}) DO UPDATE SET {set_sql} RETURNING *'
+                set_sql = ", ".join(f'"{c}" = EXCLUDED."{c}"' for c in cols if c not in conflict_cols)
+                sql = f'INSERT INTO "{table}" ({col_sql}) VALUES ({val_sql}) ON CONFLICT ({conflict_sql}) DO UPDATE SET {set_sql} RETURNING *'
         else:
             sql = f'INSERT INTO "{table}" ({col_sql}) VALUES ({val_sql}) RETURNING *'
         row = db.execute(text(sql), data).fetchone()
         if row:
             inserted.append(_row_to_dict(row))
-    db.commit()
+    if commit:
+        if table == "kompensasi":
+            from services.pendapatan_sync import sync_pendapatan
+            sync_pendapatan(db)
+        db.commit()
     return inserted
 
 
-def update_rows(db: Session, table: str, payload: dict, params: dict[str, str]) -> list[dict]:
-    data = strip_generated(table, payload)
+def update_rows(db: Session, table: str, payload: dict, params: dict[str, str], *, commit: bool = True) -> list[dict]:
+    data = strip_generated(table, payload, preserve_null=True)
+    if not data:
+        return []
     filters = parse_filters(params)
     bind: dict[str, Any] = dict(data)
     where = _where_clause(filters, bind)
     if where == "TRUE":
         return []
+    _lock_domain_write(db, table)
+    if table == "kompensasi":
+        from services.pendapatan_sync import sync_pendapatan
+        sync_pendapatan(db)
+        _guard_recognized_update(db, data, where, bind)
     set_sql = ", ".join(f'"{k}" = :{k}' for k in data)
     sql = f'UPDATE "{table}" SET {set_sql} WHERE {where} RETURNING *'
     rows = db.execute(text(sql), bind).fetchall()
-    db.commit()
+    if commit:
+        if table == "kompensasi":
+            from services.pendapatan_sync import sync_pendapatan
+            sync_pendapatan(db)
+        db.commit()
     return [_row_to_dict(r) for r in rows]
 
 
-def delete_rows(db: Session, table: str, params: dict[str, str]) -> None:
+def delete_rows(db: Session, table: str, params: dict[str, str], *, commit: bool = True) -> None:
     filters = parse_filters(params)
     bind: dict[str, Any] = {}
     where = _where_clause(filters, bind)
     if where == "TRUE":
         return
+    _lock_domain_write(db, table)
+    if table == "kompensasi":
+        from services.pendapatan_sync import sync_pendapatan
+        sync_pendapatan(db)
+        linked = db.execute(text(f'SELECT 1 FROM pengakuan_pendapatan WHERE kompensasi_id IN (SELECT id FROM kompensasi WHERE {where}) AND status = :recognized LIMIT 1'), {**bind, "recognized": "diakui"}).first()
+        if linked:
+            raise HTTPException(409, "Tagihan dengan pendapatan yang sudah diakui tidak dapat dihapus")
+        empty_parent_candidates = db.execute(text(f'SELECT DISTINCT pddm_id FROM pengakuan_pendapatan WHERE kompensasi_id IN (SELECT id FROM kompensasi WHERE {where}) AND status = :projected'), {**bind, "projected": "proyeksi"}).scalars().all()
+        db.execute(text(f'DELETE FROM pengakuan_pendapatan WHERE kompensasi_id IN (SELECT id FROM kompensasi WHERE {where}) AND status = :projected'), {**bind, "projected": "proyeksi"})
     db.execute(text(f'DELETE FROM "{table}" WHERE {where}'), bind)
-    db.commit()
+    if table == "kompensasi" and empty_parent_candidates:
+        cleanup = text("""DELETE FROM pendapatan_diterima_dimuka
+            WHERE id IN :ids
+              AND NOT EXISTS (SELECT 1 FROM pengakuan_pendapatan pp WHERE pp.pddm_id=pendapatan_diterima_dimuka.id)
+              AND NOT EXISTS (SELECT 1 FROM kompensasi k WHERE k.ks_id=pendapatan_diterima_dimuka.ks_id)""").bindparams(bindparam("ids", expanding=True))
+        db.execute(cleanup, {"ids": empty_parent_candidates})
+
+    if commit:
+        if table == "kompensasi":
+            from services.pendapatan_sync import sync_pendapatan
+            sync_pendapatan(db)
+        db.commit()

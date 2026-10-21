@@ -15,7 +15,7 @@ echo    Input Pembayaran -^> Kirim ke Superman
 echo.
 
 REM --- URL API (ganti jika domain berbeda) ---
-if "%ASETOPT_API_URL%"=="" set "ASETOPT_API_URL=https://monitoringpemasaran-production.up.railway.app"
+if "%ASETOPT_API_URL%"=="" set /p "ASETOPT_API_URL=URL API AsetOpt: "
 
 REM --- Login app AsetOpt (bukan password Superman) ---
 if "%ASETOPT_USER%"=="" (

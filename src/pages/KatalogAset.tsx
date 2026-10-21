@@ -61,7 +61,7 @@ export default function KatalogAsetPage() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-heading font-semibold text-foreground">Katalog Aset</h1>
+        <h1 className="text-2xl font-heading font-semibold text-foreground">Buat Factsheet</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Buat dan kelola katalog factsheet aset untuk pemasaran kerjasama dengan format Katalog Landscape.
         </p>

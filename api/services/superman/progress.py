@@ -73,11 +73,12 @@ def complete_job(job_id: str, result: dict[str, Any]) -> None:
         job = _jobs.get(job_id)
         if not job:
             return
-        job.status = "completed"
+        failed = result.get("ok") is False
+        job.status = "failed" if failed else "completed"
         job.percent = 100
-        job.stage = "Selesai"
+        job.stage = "Gagal" if failed else "Selesai"
         job.result = result
-        job.error = None
+        job.error = str(result.get("message") or "Superman gagal") if failed else None
         job.updated_at = time.time()
 
 

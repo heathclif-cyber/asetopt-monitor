@@ -18,7 +18,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Upload, Loader2, CheckCircle2 } from 'lucide-react'
 import KatalogPreview from './KatalogPreview'
-import { CANVA_PHOTO_SLOTS, canvaPhoto } from './canva-layout'
+import { CANVA_PHOTO_SLOTS, canvaPhoto, makeAccessFormItems } from './canva-layout'
 import type { KatalogFactsheetData } from '@/types'
 
 const katalogSchema = z.object({
@@ -52,29 +52,6 @@ interface TollInfo { name: string; distance: string; time: string }
 const CARD_DIRECTIONS = ['N', 'W', 'E', 'S'] as const
 const emptyDirectionCards = (): AccessibilityItem[] => CARD_DIRECTIONS.map(direction => ({ label: `${direction}:`, nilai: '', keterangan: '' }))
 
-function makeAccessFormItems(items: { label: string; nilai?: string | null; keterangan?: string | null }[]) {
-  const cards = emptyDirectionCards()
-  const radius = items.find(item => /^radius$/i.test(item.label.trim()))?.nilai ?? ''
-  const toll = items.find(item => /tol|toll|jalan|road/i.test(item.label))
-  const pending: string[] = []
-  for (const item of items) {
-    const raw = item.label.trim()
-    if (/^radius$/i.test(raw) || /tol|toll|jalan|road/i.test(raw)) continue
-    const match = raw.match(/^([NWES])(?:\s*[:–-]\s*|$)/i)
-    const content = match
-      ? [raw.slice(match[0].length).trim(), item.nilai, item.keterangan].filter(Boolean).join('\n')
-      : [raw, item.nilai, item.keterangan].filter(Boolean).join('\n')
-    const index = match ? CARD_DIRECTIONS.indexOf(match[1].toUpperCase() as typeof CARD_DIRECTIONS[number]) : -1
-    if (index >= 0 && !cards[index].keterangan) cards[index].keterangan = content
-    else if (content) pending.push(content)
-  }
-  cards.forEach(card => { if (!card.keterangan && pending.length) card.keterangan = pending.shift() ?? '' })
-  return {
-    cards,
-    radius,
-    toll: { name: toll?.label ?? '', distance: toll?.nilai ?? '', time: toll?.keterangan ?? '' },
-  }
-}
 
 interface Props {
   existingKatalog?: KatalogAset | null
@@ -97,6 +74,7 @@ export default function KatalogForm({ existingKatalog, onSuccess, onCancel }: Pr
   const [savedKatalogId, setSavedKatalogId] = useState<string | null>(existingKatalog?.id ?? null)
   const [savedKatalog, setSavedKatalog] = useState<KatalogAset | null>(existingKatalog ?? null)
   const [saved, setSaved] = useState(!!existingKatalog)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   const katalogId = savedKatalogId || existingKatalog?.id || null
 
@@ -145,28 +123,39 @@ export default function KatalogForm({ existingKatalog, onSuccess, onCancel }: Pr
         : []),
     ]
 
-    if (katalogId) {
-      await updateKatalog(katalogId, { katalog: values, aksesibilitas: akses })
-      setSaved(true)
-    } else {
-      const id = await createKatalog({ katalog: values, aksesibilitas: akses, lingkungan: [], skema: [] })
-      if (id) {
-        setSavedKatalogId(id)
+    setSaveError(null)
+    try {
+      if (katalogId) {
+        await updateKatalog(katalogId, { katalog: values, aksesibilitas: akses })
         setSaved(true)
-        // Refresh to get photo data
-        const fresh = await fetchById(id)
-        if (fresh) setSavedKatalog(fresh)
+      } else {
+        const id = await createKatalog({ katalog: values, aksesibilitas: akses, lingkungan: [], skema: [] })
+        if (id) {
+          setSavedKatalogId(id)
+          setSaved(true)
+          const fresh = await fetchById(id)
+          if (fresh) setSavedKatalog(fresh)
+        }
       }
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Katalog gagal disimpan')
     }
   }
 
   const handleUpload = async (slotId: string, file: File) => {
     if (!katalogId) return
     setUploadingSlot(slotId)
-    await uploadFoto(katalogId, slotId, file)
-    const fresh = await fetchById(katalogId)
-    if (fresh) setSavedKatalog(fresh)
-    setUploadingSlot(null)
+    setSaveError(null)
+    try {
+      const url = await uploadFoto(katalogId, slotId, file)
+      if (!url) throw new Error('Foto gagal disimpan. Silakan coba kembali.')
+      const fresh = await fetchById(katalogId)
+      if (fresh) setSavedKatalog(fresh)
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Foto gagal disimpan')
+    } finally {
+      setUploadingSlot(null)
+    }
   }
 
   const buildPreviewData = (): KatalogFactsheetData => {
@@ -254,7 +243,7 @@ export default function KatalogForm({ existingKatalog, onSuccess, onCancel }: Pr
       accessibility: [
         ...aksesItems.map((a, i) => ({ label: `${CARD_DIRECTIONS[i]}:`, value: '', sub: a.keterangan })),
         ...(radius.trim() ? [{ label: 'Radius', value: radius.trim(), sub: '' }] : []),
-        ...(tollInfo.name.trim() || tollInfo.distance.trim() || tollInfo.time.trim() ? [{ label: tollInfo.name.trim() || 'Akses jalan', value: tollInfo.distance.trim(), sub: tollInfo.time.trim() }] : []),
+        ...(tollInfo.name.trim() || tollInfo.distance.trim() || tollInfo.time.trim() ? [{ label: tollInfo.name.trim() || 'Akses jalan', value: tollInfo.distance.trim(), sub: tollInfo.time.trim(), urutan: 5 }] : []),
       ],
       surroundings: [],
       pic: {
@@ -291,6 +280,7 @@ export default function KatalogForm({ existingKatalog, onSuccess, onCancel }: Pr
 
   return (
     <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+      {saveError && <p role="alert" className="text-sm text-destructive">{saveError}</p>}
       <TabsList className="mb-4">
         <TabsTrigger value="form">Isi Data</TabsTrigger>
         <TabsTrigger value="preview">Preview</TabsTrigger>

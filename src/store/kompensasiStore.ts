@@ -13,9 +13,6 @@ interface KompensasiStore {
   bulkAddKompensasi: (items: Omit<Kompensasi, 'id' | 'nominal_ppn' | 'nominal_pph' | 'total_tagihan' | 'created_at' | 'kerja_sama' | 'pembayaran'>[]) => Promise<void>
   updateKompensasi: (id: string, data: Partial<Kompensasi>) => Promise<void>
   deleteKompensasi: (id: string) => Promise<void>
-  catatPembayaran: (data: Omit<Pembayaran, 'id' | 'created_at'>) => Promise<void>
-  updatePembayaran: (id: string, data: Partial<Pick<Pembayaran, 'tgl_bayar' | 'nominal_bayar' | 'bukti_url' | 'keterangan'>>) => Promise<void>
-  deletePembayaran: (id: string) => Promise<void>
   getKompensasiWithStatus: (kompensasi: Kompensasi, pembayaran: Pembayaran[]) => KompensasiWithStatus
 }
 
@@ -77,26 +74,6 @@ export const useKompensasiStore = create<KompensasiStore>((set, get) => ({
   deleteKompensasi: async (id) => {
     const { error } = await supabase.from('kompensasi').delete().eq('id', id)
     if (error) throw new Error(`Gagal hapus kompensasi: ${error.message}`)
-    await get().fetchAllKompensasi()
-  },
-
-  catatPembayaran: async (data) => {
-    const { error } = await supabase.from('pembayaran').insert(data)
-    if (error) throw new Error(`Gagal catat pembayaran: ${error.message}`)
-    const kompensasi = Object.values(get().daftarKompensasi).flat().find(k => k.id === data.kompensasi_id)
-    if (kompensasi) await get().fetchKompensasi(kompensasi.ks_id)
-    await get().fetchAllKompensasi()
-  },
-
-  updatePembayaran: async (id, data) => {
-    const { error } = await supabase.from('pembayaran').update(data).eq('id', id)
-    if (error) throw new Error(`Gagal update pembayaran: ${error.message}`)
-    await get().fetchAllKompensasi()
-  },
-
-  deletePembayaran: async (id) => {
-    const { error } = await supabase.from('pembayaran').delete().eq('id', id)
-    if (error) throw new Error(`Gagal hapus pembayaran: ${error.message}`)
     await get().fetchAllKompensasi()
   },
 

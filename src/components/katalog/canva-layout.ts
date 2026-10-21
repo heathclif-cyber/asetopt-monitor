@@ -34,6 +34,38 @@ export function locationLink(data: KatalogFactsheetData) {
   return data.address.trim() ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(data.address)}` : undefined
 }
 
+export function isRoadAccess(item: { label: string; urutan?: number }) {
+  const label = item.label.trim()
+  if (/^(north|south|east|west|utara|selatan|timur|barat|[NWES])(?:\s*[:–-]\s*|$)/i.test(label)) return false
+  return item.urutan === 5 || /tol|toll|jalan|road/i.test(label)
+}
+
+export function makeAccessFormItems(items: { label: string; urutan?: number; nilai?: string | null; keterangan?: string | null }[]) {
+  const CARD_DIRECTIONS = ['N', 'W', 'E', 'S'] as const
+  const cards = CARD_DIRECTIONS.map(direction => ({ label: `${direction}:`, nilai: '', keterangan: '' }))
+  const radius = items.find(item => /^radius$/i.test(item.label.trim()))?.nilai ?? ''
+  const toll = items.find(isRoadAccess)
+  const pending: string[] = []
+  for (const item of items) {
+    const raw = item.label.trim()
+    if (/^radius$/i.test(raw) || isRoadAccess(item)) continue
+    const match = raw.match(/^([NWES])(?:\s*[:–-]\s*|$)/i)
+    const content = match
+      ? [raw.slice(match[0].length).trim(), item.nilai, item.keterangan].filter(Boolean).join('\n')
+      : [raw, item.nilai, item.keterangan].filter(Boolean).join('\n')
+    const index = match ? CARD_DIRECTIONS.indexOf(match[1].toUpperCase() as typeof CARD_DIRECTIONS[number]) : -1
+    if (index >= 0 && !cards[index].keterangan) cards[index].keterangan = content
+    else if (content) pending.push(content)
+  }
+  cards.forEach(card => { if (!card.keterangan && pending.length) card.keterangan = pending.shift() ?? '' })
+  return {
+    cards,
+    radius,
+    toll: { name: toll?.label ?? '', distance: toll?.nilai ?? '', time: toll?.keterangan ?? '' },
+  }
+}
+
+
 // The template always has the four compass cards. Older records without a
 // direction are placed in their saved order, but the visual marker never
 // becomes a sequence number.
@@ -44,7 +76,7 @@ export function accessRows(data: KatalogFactsheetData) {
   const unassigned: string[] = []
   for (const item of data.accessibility) {
     const raw = item.label.trim()
-    if (/^radius$/i.test(raw) || /tol|toll|jalan|road/i.test(raw)) continue
+    if (/^radius$/i.test(raw) || isRoadAccess(item)) continue
     const match = raw.match(/^(north|south|east|west|utara|selatan|timur|barat|[NWES])(?:\s*[:–-]\s*|$)/i)
     const label = match ? raw.slice(match[0].length).trim() : raw
     const details = [item.value, item.sub].filter(Boolean).join(' ')

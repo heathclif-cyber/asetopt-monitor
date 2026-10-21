@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom'
+import { NavLink, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, GitBranch, Handshake, Database,
   Building2, ChevronDown, ChevronRight, Target, BookOpen, Users, Map
@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils'
 import { useMemo, useState } from 'react'
 import { useAuthStore } from '@/store/authStore'
 import { canAccessPath, type AppRole } from '@/lib/auth'
+import { APP_PAGES } from '@/lib/navigation'
 
 interface NavItem {
   label: string
@@ -15,54 +16,31 @@ interface NavItem {
   children?: NavItem[]
 }
 
-const navItems: NavItem[] = [
-  { label: 'Dashboard', to: '/', icon: <LayoutDashboard size={15} /> },
-  { label: 'RKAP Monitor', to: '/rkap', icon: <Target size={15} /> },
-  {
-    label: 'Katalog Aset',
-    icon: <BookOpen size={15} />,
-    children: [
-      { label: 'Portfolio', to: '/katalog' },
-      { label: 'Buat Factsheet', to: '/katalog/factsheet' },
-    ],
-  },
-  {
-    label: 'Jalur A — Pipeline',
-    icon: <GitBranch size={15} />,
-    children: [
-      { label: 'Timeline Program', to: '/jalur-a/timeline' },
-      { label: 'Potensi Pendapatan', to: '/jalur-a/potensi' },
-    ],
-  },
-  {
-    label: 'Jalur B — Kerja Sama',
-    icon: <Handshake size={15} />,
-    children: [
-      { label: 'Data Kerja Sama', to: '/jalur-b/kerja-sama' },
-      { label: 'Kompensasi', to: '/jalur-b/kompensasi' },
-      { label: 'Buat Invoice', to: '/jalur-b/invoice' },
-      { label: 'Input Cash In', to: '/jalur-b/pembayaran' },
-      { label: 'Piutang', to: '/jalur-b/piutang' },
-      { label: 'Pembayaran PBB', to: '/jalur-b/pbb' },
-      { label: 'Notifikasi & SP', to: '/jalur-b/notifikasi' },
-      { label: 'Laporan Pendapatan', to: '/jalur-b/laporan' },
-      { label: 'Laporan Format HO', to: '/jalur-b/laporan-ho' },
-      { label: 'Monitoring Kompensasi', to: '/jalur-b/monitoring-kompensasi' },
-    ],
-  },
-  {
-    label: 'Master Data',
-    icon: <Database size={15} />,
-    children: [
-      { label: 'Master Aset (GIS)', to: '/master/aset' },
-      { label: 'Aset Dioptimalkan', to: '/master/aset/dioptimalkan' },
-      { label: 'NJOP & SPPT', to: '/master/njop' },
-      { label: 'Penilaian KJPP', to: '/master/kjpp' },
-    ],
-  },
-  { label: 'Peta Aset', to: '/gis', icon: <Map size={15} /> },
-  { label: 'Kelola Pengguna', to: '/admin/users', icon: <Users size={15} /> },
-]
+const navIcons: Record<string, React.ReactNode> = {
+  Dashboard: <LayoutDashboard size={15} />,
+  'RKAP Monitor': <Target size={15} />,
+  'Katalog Aset': <BookOpen size={15} />,
+  'Calon Mitra': <GitBranch size={15} />,
+  'Kerja Sama Berjalan': <Handshake size={15} />,
+  'Master Data': <Database size={15} />,
+  'Peta Aset': <Map size={15} />,
+  'Kelola Pengguna': <Users size={15} />,
+}
+
+const navItems: NavItem[] = []
+for (const page of APP_PAGES) {
+  if ('hidden' in page && page.hidden) continue
+  if (!page.group) {
+    navItems.push({ label: page.label, to: page.path, icon: navIcons[page.label] })
+    continue
+  }
+  let group = navItems.find(item => item.label === page.group && item.children)
+  if (!group) {
+    group = { label: page.group, icon: navIcons[page.group], children: [] }
+    navItems.push(group)
+  }
+  group.children!.push({ label: page.label, to: page.path })
+}
 
 function filterNav(items: NavItem[], role: AppRole | null | undefined): NavItem[] {
   if (!role) return []
@@ -86,6 +64,9 @@ function filterNav(items: NavItem[], role: AppRole | null | undefined): NavItem[
 
 function NavGroup({ item, onNavigate }: { item: NavItem; onNavigate?: () => void }) {
   const [open, setOpen] = useState(true)
+  const { pathname } = useLocation()
+  const page = APP_PAGES.find(item => item.path === pathname)
+  const parentPath = page && 'parentPath' in page ? page.parentPath : undefined
 
   if (item.to) {
     return (
@@ -132,7 +113,7 @@ function NavGroup({ item, onNavigate }: { item: NavItem; onNavigate?: () => void
               className={({ isActive }) =>
                 cn(
                   'block px-2.5 py-1.5 rounded-md text-xs transition-all duration-150',
-                  isActive
+                  isActive || child.to === parentPath
                     ? 'bg-white/15 text-white font-medium'
                     : 'text-blue-300 hover:bg-white/8 hover:text-white'
                 )

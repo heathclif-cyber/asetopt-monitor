@@ -28,6 +28,8 @@ export function SupermanProgressDialog({ open, jobId, onDone, onError, onClose }
   const [doneMessage, setDoneMessage] = useState<string | null>(null)
   const [pollMisses, setPollMisses] = useState(0)
   const finishedRef = useRef(false)
+  const callbacksRef = useRef({ onDone, onError })
+  useEffect(() => { callbacksRef.current = { onDone, onError } }, [onDone, onError])
 
   useEffect(() => {
     if (!open || !jobId) return
@@ -46,18 +48,26 @@ export function SupermanProgressDialog({ open, jobId, onDone, onError, onClose }
           const res = await api.get<SupermanDeklarasiProgress>(
             `/api/superman/deklarasi/progress?job_id=${jobId}`,
           )
+          if (cancelled) return
           consecutiveMisses = 0
           setPollMisses(0)
           setPercent(res.percent ?? 0)
           setStage(res.stage ?? 'Memproses...')
 
+          if (res.status === 'completed' && res.result?.ok === false) {
+            finishedRef.current = true
+            const msg = res.result.message || 'Superman gagal'
+            setErrorDetail(msg)
+            callbacksRef.current.onError(msg)
+            return
+          }
           if (res.status === 'completed') {
             finishedRef.current = true
             const ref = extractSupermanRef(res)
             const msg = res.result?.message
               ?? (ref ? `Berhasil: ${ref}` : 'Draft SPPn/SPPb berhasil dikirim ke Superman')
             if (ref) {
-              onDone(ref)
+              callbacksRef.current.onDone(ref)
             } else {
               // Draft sukses tapi nomor belum terbaca — biarkan user tutup dialog
               setDoneMessage(msg)
@@ -70,10 +80,11 @@ export function SupermanProgressDialog({ open, jobId, onDone, onError, onClose }
             finishedRef.current = true
             const msg = res.error ?? 'Superman gagal'
             setErrorDetail(msg)
-            onError(msg)
+            callbacksRef.current.onError(msg)
             return
           }
         } catch (e: any) {
+          if (cancelled) return
           const msg = String(e?.message ?? '')
           // Job hilang (multi-instance / restart) — jangan langsung fail keras
           if (msg.includes('tidak ditemukan') || msg.includes('kedaluwarsa') || msg.includes('404')) {
@@ -85,12 +96,13 @@ export function SupermanProgressDialog({ open, jobId, onDone, onError, onClose }
                 'Progress job tidak ditemukan di server (kemungkinan instance API berbeda atau worker restart). '
                 + 'Cek To Do List Superman — jika draft sudah masuk, gunakan Pulihkan nomor Superman.'
               setErrorDetail(hint)
-              onError(hint)
+              callbacksRef.current.onError(hint)
               return
             }
           } else {
             finishedRef.current = true
-            onError(msg || 'Gagal memantau progres Superman')
+            setErrorDetail(msg || 'Gagal memantau progres Superman')
+            callbacksRef.current.onError(msg || 'Gagal memantau progres Superman')
             return
           }
         }
@@ -100,7 +112,7 @@ export function SupermanProgressDialog({ open, jobId, onDone, onError, onClose }
 
     poll()
     return () => { cancelled = true }
-  }, [open, jobId, onDone, onError])
+  }, [open, jobId])
 
   return (
     <Dialog open={open} onOpenChange={v => { if (!v) onClose() }}>

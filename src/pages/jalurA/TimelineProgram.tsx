@@ -166,7 +166,7 @@ export function TimelineProgram() {
     <div className="space-y-5">
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Timeline Program</h1>
-        <p className="text-sm text-gray-500">Tracking tahapan optimalisasi aset pipeline (Jalur A)</p>
+        <p className="text-sm text-gray-500">Tracking tahapan optimalisasi aset pipeline calon mitra</p>
       </div>
 
       <div className="bg-white rounded-xl border overflow-hidden">

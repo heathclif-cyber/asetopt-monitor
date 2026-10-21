@@ -1,5 +1,7 @@
+import type { CashIn, Kompensasi } from '@/types'
+import { resolveMonikaId } from '@/utils/laporanProgramUtils'
 import { useEffect, useMemo, useRef, useState, Fragment } from 'react'
-import * as XLSX from 'xlsx'
+import { addReportMatrixSheet, newWorkbook, downloadWorkbook, todayKey } from '@/utils/excelTemplate'
 import { useKompensasiStore } from '@/store/kompensasiStore'
 import { useCashInStore } from '@/store/cashInStore'
 import { usePendapatanStore } from '@/store/pendapatanStore'
@@ -7,7 +9,8 @@ import { useRKAPStore, rowToRKAPItem, BULAN_COLS, RKAPTargetRow } from '@/store/
 import { useAsetStore } from '@/store/asetStore'
 import { BULAN_LABELS } from '@/data/rkap2026'
 import { SearchableSelect } from '@/components/common/SearchableSelect'
-import { hitungRKAP, getCashInPerBulanByYear, getPendapatanPerBulanByYear, getPendapatanPerKode, MonthSummary } from '@/utils/rkapUtils'
+import { ExportEvaluasiKinerjaButton } from '@/components/rkap/ExportEvaluasiKinerjaButton'
+import { aggregateManualPrognosa, hitungRKAP, getCashInPerBulanByYear, getPendapatanPerBulanByYear, getPendapatanPerKode, MonthSummary } from '@/utils/rkapUtils'
 import { RKAPItem } from '@/data/rkap2026'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -36,7 +39,7 @@ type PrognosaRow = {
 const PROGNOSA_COLS = ['jul', 'agu', 'sep', 'okt', 'nov', 'des'] as const
 
 // ── Excel export ──────────────────────────────────────────────────────────────
-function exportRKAPExcel(
+async function exportRKAPExcel(
   tahun: number,
   rkapDataCashIn: MonthSummary[],
   rkapItems: RKAPItem[],
@@ -49,10 +52,11 @@ function exportRKAPExcel(
   nonaktifPsak?: Set<string>,
   prognosaManualCash?: Record<string, Array<number | null>>,
   prognosaManualPendapatan?: Record<string, Array<number | null>>,
+  pendapatanItems: RKAPItem[] = rkapItems,
 ) {
   const nonaktifCI = nonaktifCashIn ?? new Set<string>()
   const nonaktifPD = nonaktifPsak ?? new Set<string>()
-  const wb = XLSX.utils.book_new()
+  const wb = newWorkbook()
   const now = new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })
   const fmt = (v: number | null) => v != null && v !== 0 ? v : null
   const pct = (v: number, t: number) => t > 0 ? +((v / t) * 100).toFixed(1) : null
@@ -99,7 +103,7 @@ function exportRKAPExcel(
 
     sh.push(
       [],
-      ['TOTAL', fmt(totalTarget), null, fmt(totalTarget),
+      ['TOTAL', fmt(data.reduce((sum, month) => sum + month.targetOriginal, 0)), null, fmt(data.reduce((sum, month) => sum + month.targetOriginal, 0)),
         fmt(data.reduce((s, m) => s + m.realisasi, 0)), null,
         pct(ytdReal, ytdTarget), fmt(totalProg), ''],
       [],
@@ -107,9 +111,7 @@ function exportRKAPExcel(
       ['Prognosa = realisasi bulan yang telah lewat/berjalan, dan target RKAP original untuk bulan-bulan mendatang.'],
     )
 
-    const ws = XLSX.utils.aoa_to_sheet(sh)
-    ws['!cols'] = [14, 22, 18, 26, 26, 20, 16, 22, 26].map(wch => ({ wch }))
-    XLSX.utils.book_append_sheet(wb, ws, sheetName)
+    addReportMatrixSheet(wb, sheetName, sh, [14, 22, 18, 26, 26, 20, 16, 22, 26])
   }
 
   // ── Helper: build prognosa per obyek sheet ─────────────────────────────────
@@ -119,6 +121,7 @@ function exportRKAPExcel(
     sheetName: string,
     nonaktif: Set<string> = new Set(),
     prognosaManual: Record<string, Array<number | null>> = {},
+    items: RKAPItem[] = rkapItems,
   ) {
     const sh: any[][] = [
       [`${titleLabel} ${tahun} (Rp)`],
@@ -130,7 +133,7 @@ function exportRKAPExcel(
     let totalProgObjek = 0
     const prognosaPerBulanAll = Array(12).fill(0)
 
-    rkapItems.forEach(item => {
+    items.forEach(item => {
       const realPerBulan = perNama[item.kode ?? ''] ?? perNama[item.nama] ?? Array(12).fill(0)
       const isNonaktif = !!(item.kode && nonaktif.has(item.kode))
       const progBulan = item.bulan.map((target, i) => {
@@ -156,9 +159,7 @@ function exportRKAPExcel(
       ['', '', 'TOTAL', ...prognosaPerBulanAll.map(fmt), fmt(totalProgObjek)],
     )
 
-    const ws = XLSX.utils.aoa_to_sheet(sh)
-    ws['!cols'] = [{ wch: 5 }, { wch: 10 }, { wch: 42 }, ...BL.map(() => ({ wch: 16 })), { wch: 18 }]
-    XLSX.utils.book_append_sheet(wb, ws, sheetName)
+    addReportMatrixSheet(wb, sheetName, sh, [5, 10, 42, ...BL.map(() => 16), 18])
   }
 
   // ── Sheet 1: Ringkasan Prognosa Cash In ────────────────────────────────────
@@ -182,9 +183,7 @@ function exportRKAPExcel(
     ],
   )
 
-  const ws2 = XLSX.utils.aoa_to_sheet(sh2)
-  ws2['!cols'] = [{ wch: 5 }, { wch: 10 }, { wch: 42 }, ...BL.map(() => ({ wch: 16 })), { wch: 18 }]
-  XLSX.utils.book_append_sheet(wb, ws2, `Target Per Obyek ${tahun}`)
+  addReportMatrixSheet(wb, `Target Per Obyek ${tahun}`, sh2, [5, 10, 42, ...BL.map(() => 16), 18])
 
   // ── Sheet 3: Prognosa Per Obyek Cash In ────────────────────────────────────
   buildPerObyekSheet(cashInPerNama, 'Prognosa Per Obyek Cash In', `Prog Cash In Per Obyek ${tahun}`, nonaktifCI, prognosaManualCash)
@@ -196,10 +195,10 @@ function exportRKAPExcel(
 
   // ── Sheet 5: Prognosa Per Obyek Pendapatan (PSAK 73) ───────────────────────
   if (pendapatanPerNama) {
-    buildPerObyekSheet(pendapatanPerNama, 'Prognosa Per Obyek Pendapatan (PSAK 73)', `Prog Pendapatan Per Obyek ${tahun}`, nonaktifPD, prognosaManualPendapatan)
+    buildPerObyekSheet(pendapatanPerNama, 'Prognosa Per Obyek Pendapatan (PSAK 73)', `Prog Pendapatan Per Obyek ${tahun}`, nonaktifPD, prognosaManualPendapatan, pendapatanItems)
   }
 
-  XLSX.writeFile(wb, `RKAP_Prognosa_${tahun}_${new Date().toISOString().slice(0, 10)}.xlsx`)
+  await downloadWorkbook(wb, `RKAP_Prognosa_${tahun}_${todayKey()}.xlsx`)
 }
 
 // ── Helper: fetch RKAP for arbitrary year (tanpa ubah store) ─────────────────
@@ -237,13 +236,13 @@ async function fetchPreviousRKAPObjects(currentTahun: number): Promise<{ kode: s
 
 // ── Helper: realisasi per kode for arbitrary year (cash-in) ──────────────────
 function getRealisasiPerKode(
-  allKompensasi: { rkap_kode: string | null; pembayaran?: { tgl_bayar: string; nominal_bayar: number }[] }[],
-  allCashIn: { rkap_kode: string | null; tgl_terima: string; nominal: number }[],
+  allKompensasi: Kompensasi[],
+  allCashIn: CashIn[],
   tahun: number
 ): Record<string, number[]> {
   const byKey: Record<string, number[]> = {}
   allKompensasi.forEach(k => {
-    const key = k.rkap_kode
+    const key = resolveMonikaId(k, k.kerja_sama)
     if (!key) return
     if (!byKey[key]) byKey[key] = Array(12).fill(0)
     ;(k.pembayaran ?? []).forEach(p => {
@@ -252,7 +251,8 @@ function getRealisasiPerKode(
     })
   })
   allCashIn.forEach(ci => {
-    const key = ci.rkap_kode
+    const invoice = ci.kompensasi_id ? allKompensasi.find(k => k.id === ci.kompensasi_id) : undefined
+    const key = ci.rkap_kode?.trim() || (invoice ? resolveMonikaId(invoice, invoice.kerja_sama) : null) || ci.kerja_sama?.aset?.kode_aset
     if (!key) return
     if (!byKey[key]) byKey[key] = Array(12).fill(0)
     const d = new Date(ci.tgl_terima)
@@ -358,11 +358,11 @@ async function fetchPerbandinganData(
   }
 }
 
-function downloadPerbandinganExcel(
+async function downloadPerbandinganExcel(
   data: { rows: PerbandinganRow[]; total: PerbandinganRow; tahunPrev: number; tahunNext: number; basisLabel: string },
   tahun: number,
 ) {
-  const wb = XLSX.utils.book_new()
+  const wb = newWorkbook()
   const now = new Date().toLocaleDateString('id-ID', { day: '2-digit', month: 'long', year: 'numeric' })
   const fmt = (v: number | null) => v != null && v !== 0 ? v : null
 
@@ -382,14 +382,9 @@ function downloadPerbandinganExcel(
     ['', '', 'TOTAL', fmt(data.total.realisasiPrev), fmt(data.total.rkapCur), fmt(data.total.progCur), fmt(data.total.rkapNxt)],
   )
 
-  const ws = XLSX.utils.aoa_to_sheet(sh)
-  ws['!cols'] = [
-    { wch: 5 }, { wch: 10 }, { wch: 48 },
-    { wch: 22 }, { wch: 22 }, { wch: 22 }, { wch: 22 },
-  ]
-  XLSX.utils.book_append_sheet(wb, ws, `Perbandingan ${data.tahunPrev}-${data.tahunNext}`)
+  addReportMatrixSheet(wb, `Perbandingan ${data.tahunPrev}-${data.tahunNext}`, sh, [5, 10, 48, 22, 22, 22, 22])
 
-  XLSX.writeFile(wb, `RKAP_Perbandingan_${data.tahunPrev}-${data.tahunNext}_${new Date().toISOString().slice(0, 10)}.xlsx`)
+  await downloadWorkbook(wb, `RKAP_Perbandingan_${data.tahunPrev}-${data.tahunNext}_${todayKey()}.xlsx`)
 }
 
 // ── CSV parser ────────────────────────────────────────────────────────────────
@@ -594,17 +589,27 @@ export function RKAPMonitor() {
     prognosaRows.forEach(row => { result[row.kode] = [null, null, null, null, null, null, ...PROGNOSA_COLS.map(col => row[`pendapatan_${col}` as keyof PrognosaRow] as number)] })
     return result
   }, [prognosaRows])
-  const totalManual = (items: RKAPItem[], manual: Record<string, Array<number | null>>) =>
-    Array.from({ length: 12 }, (_, i) => i < 6 ? null : items.reduce((sum, item) => sum + (manual[item.kode]?.[i] ?? 0), 0))
+  // Agregasi realisasi per kode RKAP per bulan (untuk tabel per obyek)
+  // Prioritas: rkap_kode pada kompensasi → fallback nama_aset (untuk data lama)
+  const cashInPerNama = useMemo(
+    () => getRealisasiPerKode(allKompensasi, allCashIn, tahunAktif),
+    [allKompensasi, allCashIn, tahunAktif],
+  )
+
+  // Agregasi pendapatan diakui per rkap_kode per bulan (untuk tabel & Excel)
+  const pendapatanPerNama = useMemo(
+    () => getPendapatanPerKode(allPengakuan, daftarPDDM, allKompensasi, tahunAktif),
+    [allPengakuan, daftarPDDM, allKompensasi, tahunAktif],
+  )
 
   const rkapDataCashIn = useMemo(
-    () => hitungRKAP(activeItemsCashIn, cashIn, efektifBulan, totalManual(activeItemsCashIn, prognosaManualCash)),
-    [activeItemsCashIn, cashIn, efektifBulan, prognosaManualCash]
+    () => hitungRKAP(activeItemsCashIn, cashIn, efektifBulan, aggregateManualPrognosa(activeItemsCashIn, prognosaManualCash, cashInPerNama, efektifBulan)),
+    [activeItemsCashIn, cashIn, efektifBulan, prognosaManualCash, cashInPerNama]
   )
 
   const rkapDataPendapatan = useMemo(
-    () => hitungRKAP(activeItemsPsak, pendapatanPerBulan, efektifBulan, totalManual(activeItemsPsak, prognosaManualPendapatan)),
-    [activeItemsPsak, pendapatanPerBulan, efektifBulan, prognosaManualPendapatan]
+    () => hitungRKAP(activeItemsPsak, pendapatanPerBulan, efektifBulan, aggregateManualPrognosa(activeItemsPsak, prognosaManualPendapatan, pendapatanPerNama, efektifBulan)),
+    [activeItemsPsak, pendapatanPerBulan, efektifBulan, prognosaManualPendapatan, pendapatanPerNama]
   )
 
   const rkapData = prognosaType === 'cash_in' ? rkapDataCashIn : rkapDataPendapatan
@@ -627,57 +632,6 @@ export function RKAPMonitor() {
     'Realisasi': Math.round(m.realisasi / 1_000_000),
     'Prognosa': Math.round(m.prognosa / 1_000_000),
   }))
-
-  // Agregasi realisasi per kode RKAP per bulan (untuk tabel per obyek)
-  // Prioritas: rkap_kode pada kompensasi → fallback nama_aset (untuk data lama)
-  const cashInPerNama = useMemo(() => {
-    const byKey: Record<string, number[]> = {}
-    allKompensasi.forEach(k => {
-      const rkapKode = (k as any).rkap_kode as string | null | undefined
-      const namaAset = (k.kerja_sama as any)?.aset?.nama_aset as string | undefined
-      const key = rkapKode || namaAset
-      if (!key) return
-      if (!byKey[key]) byKey[key] = Array(12).fill(0)
-        ; (k.pembayaran ?? []).forEach(p => {
-          const d = new Date(p.tgl_bayar)
-          if (d.getFullYear() === tahunAktif) {
-            byKey[key][d.getMonth()] += p.nominal_bayar
-          }
-        })
-    })
-    allCashIn.forEach(ci => {
-      const namaAset = (ci.kerja_sama as any)?.aset?.nama_aset as string | undefined
-      if (!namaAset) return
-      const d = new Date(ci.tgl_terima)
-      if (d.getFullYear() === tahunAktif) {
-        if (!byKey[namaAset]) byKey[namaAset] = Array(12).fill(0)
-        byKey[namaAset][d.getMonth()] += ci.nominal
-      }
-    })
-    return byKey
-  }, [allKompensasi, allCashIn, tahunAktif])
-
-  // Agregasi pendapatan diakui per rkap_kode per bulan (untuk tabel & Excel)
-  const pendapatanPerNama = useMemo(() => {
-    const byKey: Record<string, number[]> = {}
-    allPengakuan
-      .filter(pp => pp.status === 'diakui')
-      .forEach(pp => {
-        const pddm = daftarPDDM.find(p => p.id === pp.pddm_id)
-        if (!pddm?.ks_id) return
-        const komp = allKompensasi.find(
-          k => k.ks_id === pddm.ks_id && k.tgl_jatuh_tempo === pp.tgl_awal
-        )
-        const key = komp?.rkap_kode
-        if (!key) return
-        if (!byKey[key]) byKey[key] = Array(12).fill(0)
-        const d = new Date(pp.tgl_awal)
-        if (d.getFullYear() === tahunAktif) {
-          byKey[key][d.getMonth()] += pp.nominal
-        }
-      })
-    return byKey
-  }, [allPengakuan, daftarPDDM, allKompensasi, tahunAktif])
 
   const activePerNama = prognosaType === 'cash_in' ? cashInPerNama : pendapatanPerNama
 
@@ -832,7 +786,7 @@ export function RKAPMonitor() {
             size="sm"
             variant="outline"
             className="border-white/30 bg-white/10 text-white hover:bg-white/20 hover:text-white"
-            onClick={() => exportRKAPExcel(tahunAktif, rkapDataCashIn, rkapItems, totalTarget, efektifBulan, cashInPerNama, rkapDataPendapatan, pendapatanPerNama, nonaktifCashIn, nonaktifPsak, prognosaManualCash, prognosaManualPendapatan)}
+            onClick={() => exportRKAPExcel(tahunAktif, rkapDataCashIn, rkapItems, totalTarget, efektifBulan, cashInPerNama, rkapDataPendapatan, pendapatanPerNama, nonaktifCashIn, nonaktifPsak, prognosaManualCash, prognosaManualPendapatan, rkapItemsPendapatan)}
           >
             <FileDown size={14} /> Export Excel
           </Button>
@@ -856,6 +810,7 @@ export function RKAPMonitor() {
           >
             <FileDown size={14} /> Perbandingan
           </Button>
+          <ExportEvaluasiKinerjaButton tahun={tahunAktif} />
           {rows.length === 0 && tahunAktif === 2026 && (
             <Button size="sm" variant="outline" className="border-white/30 bg-white/10 text-white hover:bg-white/20 hover:text-white" onClick={seedFromHardcode}>
               <Download size={14} /> Import Data 2026

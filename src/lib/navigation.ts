@@ -1,0 +1,26 @@
+export const APP_PAGES = [
+  { key: 'dashboard', path: '/', label: 'Dashboard', group: '', breadcrumb: ['Dashboard'] },
+  { key: 'rkap', path: '/rkap', label: 'RKAP Monitor', group: '', breadcrumb: ['RKAP Monitor'] },
+  { key: 'katalog', path: '/katalog', label: 'Portfolio', group: 'Katalog Aset', breadcrumb: ['Katalog Aset', 'Portfolio'] },
+  { key: 'factsheet', path: '/katalog/factsheet', label: 'Buat Factsheet', group: 'Katalog Aset', breadcrumb: ['Katalog Aset', 'Buat Factsheet'] },
+  { key: 'timeline', path: '/jalur-a/timeline', label: 'Timeline Program', group: 'Calon Mitra', breadcrumb: ['Calon Mitra', 'Timeline Program'] },
+  { key: 'potensi', path: '/jalur-a/potensi', label: 'Potensi Pendapatan', group: 'Calon Mitra', breadcrumb: ['Calon Mitra', 'Potensi Pendapatan'] },
+  { key: 'kerjaSama', path: '/jalur-b/kerja-sama', label: 'Data Kerja Sama', group: 'Kerja Sama Berjalan', breadcrumb: ['Kerja Sama Berjalan', 'Data Kerja Sama'] },
+  { key: 'kompensasi', path: '/jalur-b/kompensasi', label: 'Kompensasi', group: 'Kerja Sama Berjalan', breadcrumb: ['Kerja Sama Berjalan', 'Kompensasi'] },
+  { key: 'invoice', path: '/jalur-b/invoice', label: 'Buat Invoice', group: 'Kerja Sama Berjalan', breadcrumb: ['Kerja Sama Berjalan', 'Buat Invoice'] },
+  { key: 'pembayaran', path: '/jalur-b/pembayaran', label: 'Cash In', group: 'Kerja Sama Berjalan', breadcrumb: ['Kerja Sama Berjalan', 'Cash In'] },
+  { key: 'piutang', path: '/jalur-b/piutang', label: 'Monitoring & Penagihan', group: 'Kerja Sama Berjalan', breadcrumb: ['Kerja Sama Berjalan', 'Monitoring & Penagihan', 'Piutang'] },
+  { key: 'monitoring', path: '/jalur-b/monitoring-kompensasi', label: 'Semua Tagihan', group: 'Kerja Sama Berjalan', breadcrumb: ['Kerja Sama Berjalan', 'Monitoring & Penagihan', 'Semua Tagihan'], hidden: true, parentPath: '/jalur-b/piutang' },
+  { key: 'pbb', path: '/jalur-b/pbb', label: 'Pembayaran PBB', group: 'Kerja Sama Berjalan', breadcrumb: ['Kerja Sama Berjalan', 'Pembayaran PBB'] },
+  { key: 'notifikasi', path: '/jalur-b/notifikasi', label: 'Notifikasi & SP', group: 'Kerja Sama Berjalan', breadcrumb: ['Kerja Sama Berjalan', 'Notifikasi & SP'] },
+  { key: 'laporan', path: '/jalur-b/laporan', label: 'Laporan Tagihan & Cash In', group: 'Kerja Sama Berjalan', breadcrumb: ['Kerja Sama Berjalan', 'Laporan Tagihan & Cash In'] },
+  { key: 'buatExcel', path: '/laporan/excel', label: 'Buat Excel Sendiri', group: 'Kerja Sama Berjalan', breadcrumb: ['Kerja Sama Berjalan', 'Buat Excel Sendiri'] },
+  { key: 'masterAset', path: '/master/aset', label: 'Master Aset (GIS)', group: 'Master Data', breadcrumb: ['Master Data', 'Master Aset (GIS)'] },
+  { key: 'dataAset', path: '/master/aset/dioptimalkan', label: 'Aset Dioptimalkan', group: 'Master Data', breadcrumb: ['Master Data', 'Aset Dioptimalkan'] },
+  { key: 'njop', path: '/master/njop', label: 'NJOP & SPPT', group: 'Master Data', breadcrumb: ['Master Data', 'NJOP & SPPT'] },
+  { key: 'kjpp', path: '/master/kjpp', label: 'Penilaian KJPP', group: 'Master Data', breadcrumb: ['Master Data', 'Penilaian KJPP'] },
+  { key: 'gis', path: '/gis', label: 'Peta Aset', group: '', breadcrumb: ['Peta Aset'] },
+  { key: 'users', path: '/admin/users', label: 'Kelola Pengguna', group: '', breadcrumb: ['Kelola Pengguna'] },
+] as const
+
+export type AppPageKey = typeof APP_PAGES[number]['key']

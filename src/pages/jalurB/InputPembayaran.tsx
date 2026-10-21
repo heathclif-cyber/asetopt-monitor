@@ -22,6 +22,7 @@ import { StatusBadge } from '@/components/common/StatusBadge'
 import { SupermanDocChecklist } from '@/components/common/SupermanDocChecklist'
 import { SupermanCaptchaDialog } from '@/components/common/SupermanCaptchaDialog'
 import { SupermanProgressDialog } from '@/components/common/SupermanProgressDialog'
+import { CashInLainnyaPanel } from '@/components/common/CashInLainnyaPanel'
 import { KuitansiDialog } from '@/components/common/KuitansiDialog'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { api } from '@/lib/apiClient'
@@ -48,6 +49,7 @@ export function InputPembayaran() {
 
   const initialView: ViewMode = params.get('tab') === 'daftar' ? 'daftar' : 'input'
   const [viewMode, setViewMode] = useState<ViewMode>(initialView)
+  useEffect(() => { setViewMode(params.get('tab') === 'daftar' ? 'daftar' : 'input') }, [params.get('tab')])
 
   const [selectedKsId, setSelectedKsId] = useState('')
   const [riwayat, setRiwayat] = useState<Pembayaran[]>([])
@@ -96,9 +98,11 @@ export function InputPembayaran() {
   const ws = selected ? getKompensasiWithStatus(selected, riwayat) : null
   const lockedBySuperman = !!(selected?.superman && String(selected.superman).trim())
 
-  const switchView = (mode: ViewMode) => {
+  const switchView = (mode: ViewMode, paymentId?: string) => {
     setViewMode(mode)
     const next = new URLSearchParams(params)
+    if (paymentId) next.set('payment_id', paymentId)
+    else next.delete('payment_id')
     if (mode === 'daftar') next.set('tab', 'daftar')
     else next.delete('tab')
     setSearchParams(next, { replace: true })
@@ -117,7 +121,7 @@ export function InputPembayaran() {
   }, [])
 
   useEffect(() => {
-    if (params.get('kompensasi_id')) return
+    if (params.get('kompensasi_id') || params.get('payment_id') || params.get('jenis') === 'lainnya') return
     try {
       const raw = localStorage.getItem(CASH_IN_DRAFT_KEY)
       if (!raw) return
@@ -154,7 +158,7 @@ export function InputPembayaran() {
   }, [selectedId, lastSaved, riwayatTick])
 
   useEffect(() => {
-    if (editingId) return
+    if (editingId || params.get('payment_id')) return
     if (selected && ws && ws.sisaTagihan > 0) {
       form.setValue('nominal_bayar', ws.sisaTagihan)
     }
@@ -403,8 +407,19 @@ export function InputPembayaran() {
     form.setValue('is_pph_disetor', p.is_pph_disetor ?? false)
     form.setValue('keterangan', p.keterangan ?? '')
     form.setValue('bukti_url', p.bukti_url ?? '')
-    switchView('input')
+    switchView('input', String(p.id))
   }
+
+  const openedPaymentRef = useRef<string | null>(null)
+  useEffect(() => {
+    const paymentId = params.get('payment_id')
+    if (!paymentId) { openedPaymentRef.current = null; return }
+    if (openedPaymentRef.current === paymentId) return
+    const payment = allKompensasi.flatMap(kompensasi => kompensasi.pembayaran ?? []).find(item => String(item.id) === paymentId)
+    if (!payment) return
+    openedPaymentRef.current = paymentId
+    openEdit(payment)
+  }, [params, allKompensasi])
 
   const startNewInput = () => {
     cancelEdit()
@@ -576,10 +591,23 @@ export function InputPembayaran() {
 
   return (
     <div className="w-full min-w-0 max-w-none space-y-4 pb-8">
+      <nav className="flex flex-wrap gap-1 rounded-lg border bg-white p-1" aria-label="Jenis cash in">
+        {[
+          { value: 'pokok', label: 'Pokok' },
+          { value: 'lainnya', label: 'Denda & Lainnya' },
+        ].map(item => <button type="button" key={item.value} onClick={() => {
+          const next = new URLSearchParams(params)
+          next.delete('payment_id'); next.delete('kompensasi_id')
+          if (item.value === 'lainnya') next.set('jenis', 'lainnya')
+          else next.delete('jenis')
+          setSearchParams(next)
+        }} className={cn('rounded-md px-4 py-2 text-sm font-medium', (params.get('jenis') === 'lainnya' ? 'lainnya' : 'pokok') === item.value ? 'bg-[#117A65] text-white' : 'text-gray-600 hover:bg-gray-50')}>{item.label}</button>)}
+      </nav>
+      {params.get('jenis') === 'lainnya' ? <CashInLainnyaPanel initialKsId={params.get('ks_id') ?? ''} /> : <>
       {/* Page header + view switch (pola Laporan Pendapatan) */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-lg font-bold text-gray-800">Cash In (Pembayaran)</h1>
+          <h1 className="text-lg font-bold text-gray-800">Cash In</h1>
           <p className="text-xs text-gray-500 mt-1">
             {viewMode === 'input'
               ? (editingId
@@ -618,7 +646,7 @@ export function InputPembayaran() {
       {/* Ringkasan ringkas */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         <div className="rounded-xl border bg-white px-4 py-3 shadow-sm">
-          <p className="text-[10px] uppercase tracking-wide text-gray-400 font-medium">Total Cash In</p>
+          <p className="text-[10px] uppercase tracking-wide text-gray-400 font-medium">Total Cash In Pokok</p>
           <p className="text-sm font-bold text-emerald-700 tabular-nums mt-0.5">{formatRupiah(totalCashInAll)}</p>
         </div>
         <div className="rounded-xl border bg-white px-4 py-3 shadow-sm">
@@ -697,7 +725,7 @@ export function InputPembayaran() {
                     disabled={!!editingId}
                     options={tagihanOptions.map(o => ({
                       value: o.id,
-                      label: `${o.mitra} — ${o.aset}`,
+                      label: `${o.mitra} — ${o.aset} · Periode pembayaran: ${o.periode}`,
                       searchText: [o.mitra, o.aset, o.monika, o.periode, o.jatuhTempo].filter(Boolean).join(' '),
                       description: [
                         o.status === 'terlambat' ? 'PIUTANG · terlambat' : 'Belum dibayar',
@@ -709,6 +737,9 @@ export function InputPembayaran() {
                     placeholder="Cari aset, mitra, Monika, atau periode tagihan..."
                     searchPlaceholder="Ketik aset, mitra, Monika, atau periode..."
                     emptyText="Tidak ada tagihan yang belum lunas"
+                    wrapText
+                    className="h-auto min-h-10 py-2"
+                    contentClassName="w-[max(var(--radix-popover-trigger-width),min(48rem,calc(100vw-2rem)))] max-w-[calc(100vw-2rem)]"
                   />
                   {ks && <p className="flex items-start gap-1.5 pt-2 text-[11px] text-gray-500"><Building2 size={12} className="mt-0.5 shrink-0 text-gray-400" /><span>{ks.nama_mitra}{ks.aset?.kode_aset ? ` · ${ks.aset.kode_aset}` : ''}{ks.no_perjanjian ? ` · ${ks.no_perjanjian}` : ''}</span></p>}
                 </section>
@@ -1160,6 +1191,7 @@ export function InputPembayaran() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      </>}
     </div>
   )
 }
