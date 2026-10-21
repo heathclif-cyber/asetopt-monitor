@@ -248,11 +248,10 @@ export function Dashboard() {
   }, [prognosa.rkapDataCashIn, prognosa.rkapDataPendapatan, prognosa.rkapItems, prognosa.rkapItemsPendapatan, prognosa.nonaktifEfektif])
 
   const rkapSummary = useMemo(() => {
-    const tahun = new Date().getFullYear()
-    const items = rkapRows.map(row => rowToRKAPItem(row))
-    const totalTarget = items.reduce((s, i) => s + i.total, 0)
-    const cashIn = getCashInPerBulanByYear(allKompensasi, tahun, allCashIn)
-    const months = hitungRKAP(items, cashIn)
+    // Satu sumber dengan RKAP Monitor (usePrognosaRKAP): target dan realisasi Cash In sama persis.
+    const totalTarget = prognosa.rkapItems.reduce((s, i) => s + i.total, 0)
+    const cashIn = prognosa.cashIn
+    const months = prognosa.rkapDataCashIn
     const ytdTarget = months.slice(0, CURRENT_MONTH + 1).reduce((s, m) => s + m.targetOriginal, 0)
     const ytdRealisasi = cashIn.slice(0, CURRENT_MONTH + 1).reduce((s, v) => s + v, 0)
     const achievement = ytdTarget > 0 ? (ytdRealisasi / ytdTarget) * 100 : 0
@@ -274,7 +273,7 @@ export function Dashboard() {
       return { label, target, realisasi, achievement, isFuture, isCurrent }
     })
     return { totalTarget, ytdTarget, ytdRealisasi, achievement, currentCarryOver, chartData, triwulan }
-  }, [allKompensasi, rkapRows, allCashIn])
+  }, [prognosa.rkapItems, prognosa.cashIn, prognosa.rkapDataCashIn])
 
   // PSAK 73 — Pendapatan Akrual Stats
   const akrualStats = useMemo(() => {

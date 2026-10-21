@@ -328,6 +328,9 @@ export function resolveMonikaIdHO(
   return fromJoin || null
 }
 
+/** Realisasi yang belum terhubung ke proker mana pun tetap dihitung (tidak hilang) sebagai satu baris khusus. */
+export const TANPA_PROKER = '(Belum terpetakan ke proker)'
+
 export function buildLaporanHO(opts: {
   tahun: number
   rkapRows: RKAPTargetRow[]
@@ -433,8 +436,8 @@ export function buildLaporanHO(opts: {
   // Breakdown HO via alokasiPembayaranKeHO (invariant: komponen sum = bayar).
   allKompensasi.forEach(k => {
     const ks = ksMap.get(k.ks_id) ?? k.kerja_sama
-    const monikaId = resolveMonikaIdHO(k, ks, asetById)
-    if (!monikaId) return
+    let monikaId: string | null = resolveMonikaIdHO(k, ks, asetById)
+    if (!monikaId) monikaId = TANPA_PROKER
 
     const aset = asetByKode.get(monikaId)
     const rkap = rkapByMonika.get(monikaId)
@@ -483,7 +486,7 @@ export function buildLaporanHO(opts: {
         || (ks.aset_id ? asetById.get(ks.aset_id)?.kode_aset?.trim() : null)
         || null
     }
-    if (!monikaId) return
+    if (!monikaId) monikaId = TANPA_PROKER
 
     const a = ensure(monikaId, rkapByMonika.get(monikaId)?.nama || monikaId)
     const m = a.cash[parsed.m]
@@ -521,7 +524,7 @@ export function buildLaporanHO(opts: {
         || (ksHit?.aset_id ? asetById.get(ksHit.aset_id)?.kode_aset?.trim() : '')
         || ''
     }
-    if (!monikaId) return
+    if (!monikaId) monikaId = TANPA_PROKER
 
     let nominalPbb = dibayar
     if (nominalPbb <= 0 && (status === 'lunas' || status === 'sebagian')) nominalPbb = nilai
@@ -550,12 +553,12 @@ export function buildLaporanHO(opts: {
       const komp = allKompensasi.find(
         k => pp.kompensasi_id ? k.id === pp.kompensasi_id : k.ks_id === pddm.ks_id && dateKey(k.tgl_jatuh_tempo) === dateKey(pp.tgl_awal),
       )
-      const monikaId = komp
+      let monikaId: string | null = komp
         ? resolveMonikaIdHO(komp, ksMap.get(komp.ks_id) ?? komp.kerja_sama, asetById)
         : (ks?.aset as Aset | undefined)?.kode_aset?.trim()
           || (ks?.aset_id ? asetById.get(ks.aset_id)?.kode_aset?.trim() : null)
           || null
-      if (!monikaId) return
+      if (!monikaId) monikaId = TANPA_PROKER
       const key = `${monikaId}|${parsed.m}|${pddm.ks_id}|${pp.kompensasi_id ?? "legacy"}`
       akrualByMonikaMonth.set(key, (akrualByMonikaMonth.get(key) ?? 0) + (pp.nominal || 0))
     })
@@ -569,8 +572,8 @@ export function buildLaporanHO(opts: {
     if (!parsed || parsed.y !== tahun) return
     if (!monthSet.has(parsed.m)) return
     const ks = ksMap.get(k.ks_id) ?? k.kerja_sama
-    const monikaId = resolveMonikaIdHO(k, ks, asetById)
-    if (!monikaId) return
+    let monikaId: string | null = resolveMonikaIdHO(k, ks, asetById)
+    if (!monikaId) monikaId = TANPA_PROKER
 
     const a = ensure(monikaId, rkapByMonika.get(monikaId)?.nama || monikaId)
     const m = a.pendapatan[parsed.m]
@@ -627,8 +630,8 @@ export function buildLaporanHO(opts: {
       if (jt > asOf) return
 
       const ks = ksMap.get(k.ks_id) ?? k.kerja_sama
-      const monikaId = resolveMonikaIdHO(k, ks, asetById)
-      if (!monikaId) return
+      let monikaId: string | null = resolveMonikaIdHO(k, ks, asetById)
+      if (!monikaId) monikaId = TANPA_PROKER
 
       const pokok = hitungPendapatan(k)
       if (pokok <= 0.5) return

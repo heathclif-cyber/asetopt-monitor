@@ -5,14 +5,10 @@ import { usePendapatanStore } from '@/store/pendapatanStore'
 import { useRKAPStore, rowToRKAPItem } from '@/store/rkapStore'
 import { useAsetStore } from '@/store/asetStore'
 import { PROGNOSA_COLS, usePrognosaStore, type PrognosaRow } from '@/store/prognosaStore'
-import {
-  aggregateManualPrognosa,
-  getCashInPerBulanByYear,
-  getPendapatanPerBulanByYear,
-  getPendapatanPerKode,
-  getRealisasiPerKode,
-  hitungRKAP,
-} from '@/utils/rkapUtils'
+import { usePBBStore } from '@/store/pbbStore'
+import { useKerjaSamaStore } from '@/store/kerjaSamaStore'
+import { aggregateManualPrognosa, hitungRKAP } from '@/utils/rkapUtils'
+import { TANPA_PROKER, buildLaporanHO } from '@/utils/laporanHOUtils'
 import { getJadwalPerKode, type NonaktifBulanPerKind } from '@/utils/prognosaUtils'
 
 const CURRENT_YEAR = new Date().getFullYear()
@@ -41,11 +37,14 @@ export function usePrognosaRKAP(tahun: number, bulanPilihan: number | null = nul
   const { daftarPDDM, allPengakuan } = usePendapatanStore()
   const { rows } = useRKAPStore()
   const { daftarAset } = useAsetStore()
+  const { allPBB, fetchAllPBB } = usePBBStore()
+  const { daftarKS, fetchKS } = useKerjaSamaStore()
   const { basis, manualRows, nonaktifRows: semuaNonaktif, fetchPrognosa } = usePrognosaStore()
   // Penonaktifan berlaku khusus per dasar prognosa: hanya yang sesuai dasar aktif yang dipakai.
   const nonaktifRows = useMemo(() => semuaNonaktif.filter(r => r.dasar === basis), [semuaNonaktif, basis])
 
   useEffect(() => { fetchPrognosa(tahun) }, [tahun])
+  useEffect(() => { fetchAllPBB(); fetchKS() }, [])
 
   const rkapItems = useMemo(() => {
     const target = rows.map(row => rowToRKAPItem(row, 'cash_in'))
@@ -62,13 +61,24 @@ export function usePrognosaRKAP(tahun: number, bulanPilihan: number | null = nul
     }))]
   }, [rows, manualRows])
 
-  const cashIn = useMemo(() => getCashInPerBulanByYear(allKompensasi, tahun, allCashIn), [allKompensasi, tahun, allCashIn])
-  const pendapatanPerBulan = useMemo(() => getPendapatanPerBulanByYear(allPengakuan, tahun), [allPengakuan, tahun])
-  const cashInPerNama = useMemo(() => getRealisasiPerKode(allKompensasi, allCashIn, tahun), [allKompensasi, allCashIn, tahun])
-  const pendapatanPerNama = useMemo(
-    () => getPendapatanPerKode(allPengakuan, daftarPDDM, allKompensasi, tahun),
-    [allPengakuan, daftarPDDM, allKompensasi, tahun],
-  )
+  // Realisasi (Cash In dan Pendapatan) berasal dari satu perhitungan: baris laporan HO, yang sama
+  // dengan file Evaluasi Kinerja. Realisasi tanpa proker tampil sebagai baris "(Belum terpetakan ke proker)".
+  const hoRows = useMemo(() => buildLaporanHO({
+    tahun, rkapRows: rows, daftarAset, daftarKS, allKompensasi, allCashIn, allPBB, daftarPDDM, allPengakuan,
+    months: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+  }), [tahun, rows, daftarAset, daftarKS, allKompensasi, allCashIn, allPBB, daftarPDDM, allPengakuan])
+  const cashInPerNama = useMemo(() => {
+    const hasil: Record<string, number[]> = {}
+    hoRows.forEach(r => { hasil[r.kodeMonika] = r.cashByMonth.map(m => m.totalDiluarJaminan) })
+    return hasil
+  }, [hoRows])
+  const pendapatanPerNama = useMemo(() => {
+    const hasil: Record<string, number[]> = {}
+    hoRows.forEach(r => { hasil[r.kodeMonika] = r.pendapatanByMonth.map(m => m.total) })
+    return hasil
+  }, [hoRows])
+  const cashIn = useMemo(() => Array.from({ length: 12 }, (_, m) => hoRows.reduce((s, r) => s + (r.cashByMonth[m]?.totalDiluarJaminan ?? 0), 0)), [hoRows])
+  const pendapatanPerBulan = useMemo(() => Array.from({ length: 12 }, (_, m) => hoRows.reduce((s, r) => s + (r.pendapatanByMonth[m]?.total ?? 0), 0)), [hoRows])
 
   const efektifBulanOtomatis = tahun < CURRENT_YEAR ? 11 : tahun === CURRENT_YEAR ? CURRENT_MONTH : -1
   const efektifBulan = efektifBulanOtomatis >= 0 && bulanPilihan != null ? bulanPilihan : efektifBulanOtomatis
@@ -95,21 +105,31 @@ export function usePrognosaRKAP(tahun: number, bulanPilihan: number | null = nul
     return { cash_in: gabung(nonaktifBulan.cash_in, nonaktifCashIn), pendapatan: gabung(nonaktifBulan.pendapatan, nonaktifPsak) }
   }, [nonaktifBulan, nonaktifCashIn, nonaktifPsak])
 
+  // Proker di luar RKAP (target 0) yang punya kerja sama tetap ikut prognosa dasar Jadwal.
+  const prokerDiLuarRkap = useMemo(() => {
+    const known = new Set([...rkapItems, ...rkapItemsPendapatan].map(item => item.kode))
+    return hoRows
+      .filter(r => r.kodeMonika !== TANPA_PROKER && !known.has(r.kodeMonika))
+      .map((r, index) => ({ no: rkapItems.length + index + 1, kode: r.kodeMonika, nama: r.obyek, total: 0, bulan: Array(12).fill(0) }))
+  }, [hoRows, rkapItems, rkapItemsPendapatan])
+  const itemsPrognosaCash = useMemo(() => [...rkapItems, ...prokerDiLuarRkap], [rkapItems, prokerDiLuarRkap])
+  const itemsPrognosaPendapatan = useMemo(() => [...rkapItemsPendapatan, ...prokerDiLuarRkap], [rkapItemsPendapatan, prokerDiLuarRkap])
+
   const rkapDataCashIn = useMemo(
-    () => hitungRKAP(rkapItems, cashIn, efektifBulan, aggregateManualPrognosa(
-      rkapItems, prognosaManualCash, cashInPerNama, efektifBulan, basis, 'cash_in', jadwalPerKode.cash_in, nonaktifEfektif.cash_in,
+    () => hitungRKAP(itemsPrognosaCash, cashIn, efektifBulan, aggregateManualPrognosa(
+      itemsPrognosaCash, prognosaManualCash, cashInPerNama, efektifBulan, basis, 'cash_in', jadwalPerKode.cash_in, nonaktifEfektif.cash_in,
     )),
-    [rkapItems, cashIn, efektifBulan, prognosaManualCash, cashInPerNama, basis, jadwalPerKode, nonaktifEfektif],
+    [itemsPrognosaCash, cashIn, efektifBulan, prognosaManualCash, cashInPerNama, basis, jadwalPerKode, nonaktifEfektif],
   )
   const rkapDataPendapatan = useMemo(
-    () => hitungRKAP(rkapItemsPendapatan, pendapatanPerBulan, efektifBulan, aggregateManualPrognosa(
-      rkapItemsPendapatan, prognosaManualPendapatan, pendapatanPerNama, efektifBulan, basis, 'pendapatan', jadwalPerKode.pendapatan, nonaktifEfektif.pendapatan,
+    () => hitungRKAP(itemsPrognosaPendapatan, pendapatanPerBulan, efektifBulan, aggregateManualPrognosa(
+      itemsPrognosaPendapatan, prognosaManualPendapatan, pendapatanPerNama, efektifBulan, basis, 'pendapatan', jadwalPerKode.pendapatan, nonaktifEfektif.pendapatan,
     )),
-    [rkapItemsPendapatan, pendapatanPerBulan, efektifBulan, prognosaManualPendapatan, pendapatanPerNama, basis, jadwalPerKode, nonaktifEfektif],
+    [itemsPrognosaPendapatan, pendapatanPerBulan, efektifBulan, prognosaManualPendapatan, pendapatanPerNama, basis, jadwalPerKode, nonaktifEfektif],
   )
 
   return {
-    basis, nonaktifRows,
+    basis, nonaktifRows, hoRows,
     rkapItems, rkapItemsPendapatan,
     cashIn, pendapatanPerBulan, cashInPerNama, pendapatanPerNama,
     efektifBulanOtomatis, efektifBulan,

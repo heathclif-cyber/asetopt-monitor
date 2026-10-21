@@ -20,13 +20,17 @@ export const PROGNOSA_BASIS_LABEL: Record<PrognosaBasis, string> = {
 }
 
 /**
- * Satu aturan prognosa per proker per bulan, dipakai grafik, tabel, ekspor RKAP,
- * Perbandingan, dan Evaluasi Kinerja agar angkanya selalu sama.
+ * Satu aturan prognosa, dipakai grafik, tabel, ekspor RKAP, Perbandingan, dan Evaluasi Kinerja
+ * agar angkanya selalu sama.
  *
- * Cash In (jadwal)   : jadwal = sisa tagihan yang jatuh tempo bulan itu; bulan berjalan
- *                      = realisasi + sisa (realisasi bisa berasal dari tagihan bulan lain).
- * Pendapatan (jadwal): jadwal = DPP seluruh tagihan jatuh tempo bulan itu; bulan berjalan
- *                      = yang lebih besar antara realisasi dan jadwal (realisasi sudah bagian dari jadwal).
+ * "s.d. bulan X" (currentMonth) berarti bulan 0..X SUDAH TEREALISASI. Prognosa dimulai bulan X+1.
+ *  - Bulan sampai X     : selalu realisasi (tidak pernah ditimpa isian manual atau target).
+ *  - Dasar RKAP         : target RKAP bulan itu, dibatasi sisa target tahunan proker
+ *                         (target tahun dikurangi realisasi dan prognosa yang sudah dihitung),
+ *                         sehingga proker yang sudah melampaui RKAP tidak ditambah target lagi.
+ *  - Dasar Jadwal       : Cash In = sisa tagihan yang jatuh tempo bulan itu;
+ *                         Pendapatan = DPP tagihan yang jatuh tempo bulan itu.
+ *  - Isian manual (rkap_prognosa) menimpa bulan prognosa; penonaktifan menimpa semuanya (0).
  */
 export function prognosaBulan(opts: {
   month: number
@@ -40,16 +44,47 @@ export function prognosaBulan(opts: {
   /** Prognosa bulan ini dinonaktifkan (diperkirakan tidak tercapai). */
   nonaktif?: boolean
 }): number {
-  const { month, currentMonth, target, realized, basis, kind, jadwal, manual, nonaktif } = opts
-  // Nonaktif menang atas isian manual: bulan mendatang 0, bulan berjalan hanya yang sudah terealisasi.
-  if (nonaktif && month >= currentMonth) return month === currentMonth ? realized : 0
+  const { month, currentMonth, target, realized, basis, jadwal, manual, nonaktif } = opts
+  if (month <= currentMonth) return realized
+  if (nonaktif) return 0
   if (manual != null) return manual
-  if (month > currentMonth) return basis === 'jadwal' ? jadwal : target
-  if (month === currentMonth) {
-    if (basis === 'rkap') return Math.max(realized, target)
-    return kind === 'cash_in' ? realized + jadwal : Math.max(realized, jadwal)
+  return basis === 'jadwal' ? jadwal : target
+}
+
+/** Prognosa 12 bulan satu proker. Indeks 0..currentMonth = realisasi, sesudahnya = prognosa. */
+export function prognosaProker(opts: {
+  currentMonth: number
+  /** Target RKAP per bulan (12 nilai) sesuai mode. */
+  target: number[]
+  /** Realisasi per bulan (12 nilai) sesuai mode. */
+  realized: number[]
+  basis: PrognosaBasis
+  kind: PrognosaKind
+  jadwal?: number[]
+  manual?: Array<number | null>
+  nonaktif?: number[]
+}): number[] {
+  const { currentMonth, target, realized, basis, kind, jadwal = [], manual = [], nonaktif = [] } = opts
+  const targetTahun = target.reduce((s, v) => s + (v || 0), 0)
+  const hasil: number[] = []
+  let berjalan = 0
+  for (let month = 0; month < 12; month++) {
+    const sisaTarget = Math.max(0, targetTahun - berjalan)
+    const nilai = prognosaBulan({
+      month,
+      currentMonth,
+      target: Math.min(target[month] ?? 0, sisaTarget),
+      realized: realized[month] ?? 0,
+      basis,
+      kind,
+      jadwal: jadwal[month] ?? 0,
+      manual: manual[month],
+      nonaktif: nonaktif.includes(month),
+    })
+    hasil.push(nilai)
+    berjalan += nilai
   }
-  return realized
+  return hasil
 }
 
 /** Jadwal tagihan per ID Monika per bulan jatuh tempo pada tahun tertentu. */
@@ -85,26 +120,20 @@ export function buildPrognosaEvaluasi(opts: {
   jadwal: Record<PrognosaKind, JadwalPerKode>
   manualCash: Record<string, Array<number | null>>
   manualPendapatan: Record<string, Array<number | null>>
-  nonaktifCashIn: Set<string>
-  nonaktifPsak: Set<string>
   nonaktifBulan: NonaktifBulanPerKind
 }): PrognosaEvaluasiRow[] {
-  const { rows, endMonth, basis, jadwal, manualCash, manualPendapatan, nonaktifCashIn, nonaktifPsak, nonaktifBulan } = opts
-  const build = (row: HOMasterRow, kind: PrognosaKind) => Array.from({ length: 12 }, (_, month) => {
-    if (month <= endMonth) return 0
-    const nonaktif = (kind === 'cash_in' ? nonaktifCashIn : nonaktifPsak).has(row.kodeMonika)
-    if (nonaktif) return 0
-    return prognosaBulan({
-      month,
-      currentMonth: endMonth,
-      target: (kind === 'cash_in' ? row.rkapBulan : row.rkapPendapatanBulan)[month] ?? 0,
-      realized: 0,
-      basis,
-      kind,
-      jadwal: jadwal[kind][row.kodeMonika]?.[month] ?? 0,
-      manual: (kind === 'cash_in' ? manualCash : manualPendapatan)[row.kodeMonika]?.[month],
-      nonaktif: nonaktifBulan[kind][row.kodeMonika]?.includes(month),
-    })
+  const { rows, endMonth, basis, jadwal, manualCash, manualPendapatan, nonaktifBulan } = opts
+  const hitung = (row: HOMasterRow, kind: PrognosaKind) => prognosaProker({
+    currentMonth: endMonth,
+    target: kind === 'cash_in' ? row.rkapBulan : row.rkapPendapatanBulan,
+    realized: kind === 'cash_in'
+      ? row.cashByMonth.map(m => m.totalDiluarJaminan)
+      : row.pendapatanByMonth.map(m => m.total),
+    basis,
+    kind,
+    jadwal: jadwal[kind][row.kodeMonika],
+    manual: (kind === 'cash_in' ? manualCash : manualPendapatan)[row.kodeMonika],
+    nonaktif: nonaktifBulan[kind][row.kodeMonika],
   })
-  return rows.map(row => ({ kode: row.kodeMonika, cash: build(row, 'cash_in'), pendapatan: build(row, 'pendapatan') }))
+  return rows.map(row => ({ kode: row.kodeMonika, cash: hitung(row, 'cash_in'), pendapatan: hitung(row, 'pendapatan') }))
 }

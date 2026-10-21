@@ -10,7 +10,7 @@ import { useAsetStore } from '@/store/asetStore'
 import { BULAN_LABELS } from '@/data/rkap2026'
 import { SearchableSelect } from '@/components/common/SearchableSelect'
 import { ExportEvaluasiKinerjaButton } from '@/components/rkap/ExportEvaluasiKinerjaButton'
-import { PROGNOSA_BASIS_LABEL, getJadwalPerKode, prognosaBulan, type JadwalPerKode, type NonaktifBulanPerKind, type PrognosaBasis } from '@/utils/prognosaUtils'
+import { PROGNOSA_BASIS_LABEL, prognosaProker, type JadwalPerKode, type NonaktifBulanPerKind, type PrognosaBasis } from '@/utils/prognosaUtils'
 import { PrognosaNonaktifDialog } from '@/components/rkap/PrognosaNonaktifDialog'
 import { useAuthStore } from '@/store/authStore'
 import { usePrognosaRKAP } from '@/hooks/usePrognosaRKAP'
@@ -137,22 +137,18 @@ async function exportRKAPExcel(
     items.forEach(item => {
       const realPerBulan = perNama[item.kode ?? ''] ?? perNama[item.nama] ?? Array(12).fill(0)
       const isNonaktif = !!(item.kode && nonaktif.has(item.kode))
-      const progBulan = item.bulan.map((target, i) => {
-        // Nonaktif: prognosa masa depan = 0, bulan lewat tetap realisasi
-        const prog = isNonaktif && i >= efektifBulan ? 0 : prognosaBulan({
-          month: i,
-          currentMonth: efektifBulan,
-          target,
-          realized: realPerBulan[i],
-          basis,
-          kind,
-          jadwal: jadwal[kind][item.kode ?? '']?.[i] ?? 0,
-          manual: prognosaManual[item.kode ?? '']?.[i],
-          nonaktif: nonaktifBulanKind[kind][item.kode ?? '']?.includes(i),
-        })
-        prognosaPerBulanAll[i] += prog
-        return prog
+      // Satu aturan prognosa bersama (prognosaProker); nonaktif proker-level sudah ada di nonaktifBulanKind.
+      const progBulan = prognosaProker({
+        currentMonth: efektifBulan,
+        target: item.bulan,
+        realized: realPerBulan,
+        basis,
+        kind,
+        jadwal: jadwal[kind][item.kode ?? ''],
+        manual: prognosaManual[item.kode ?? ''],
+        nonaktif: isNonaktif ? Array.from({ length: 12 }, (_, m) => m) : nonaktifBulanKind[kind][item.kode ?? ''],
       })
+      progBulan.forEach((value, i) => { prognosaPerBulanAll[i] += value })
       const totalProg = progBulan.reduce((s, v) => s + v, 0)
       totalProgObjek += totalProg
       sh.push([item.no, item.kode, item.nama, ...progBulan.map(fmt), fmt(totalProg)])
@@ -295,13 +291,14 @@ async function fetchPerbandinganData(
     if (!key) return
     const real = activePerNama[key] ?? Array(12).fill(0)
     const isNonaktif = nonaktifKodes.has(key)
-    prognosaPerKode[key] = item.bulan.map((target, i) => {
-      if (isNonaktif && i >= efektifBulan) return 0
-      return prognosaBulan({
-        month: i, currentMonth: efektifBulan, target, realized: real[i],
-        basis: prognosaBasis, kind: basis, jadwal: jadwal[key]?.[i] ?? 0,
-        nonaktif: nonaktifBulanKode[key]?.includes(i),
-      })
+    prognosaPerKode[key] = prognosaProker({
+      currentMonth: efektifBulan,
+      target: item.bulan,
+      realized: real,
+      basis: prognosaBasis,
+      kind: basis,
+      jadwal: jadwal[key],
+      nonaktif: isNonaktif ? Array.from({ length: 12 }, (_, m) => m) : nonaktifBulanKode[key],
     })
   })
 
@@ -448,7 +445,7 @@ export function RKAPMonitor() {
   const [bulanPilihan, setBulanPilihan] = useState<number | null>(null)
   useEffect(() => { setBulanPilihan(null) }, [tahunAktif])
   const {
-    basis: basisPrognosa, nonaktifRows, rkapItems, rkapItemsPendapatan, cashIn, pendapatanPerBulan,
+    basis: basisPrognosa, nonaktifRows, hoRows, rkapItems, rkapItemsPendapatan, cashIn, pendapatanPerBulan,
     cashInPerNama, pendapatanPerNama, efektifBulanOtomatis, efektifBulan, jadwalPerKode,
     prognosaManualCash, prognosaManualPendapatan, nonaktifCashIn, nonaktifPsak, nonaktifBulan, nonaktifEfektif,
     rkapDataCashIn, rkapDataPendapatan,
@@ -753,14 +750,13 @@ export function RKAPMonitor() {
             ))}
           </select>
           <ExportEvaluasiKinerjaButton
+            rows={hoRows}
             tahun={tahunAktif}
             endMonth={efektifBulan}
             basis={basisPrognosa}
             jadwal={jadwalPerKode}
             manualCash={prognosaManualCash}
             manualPendapatan={prognosaManualPendapatan}
-            nonaktifCashIn={nonaktifCashIn}
-            nonaktifPsak={nonaktifPsak}
             nonaktifBulan={nonaktifEfektif}
           />
           {rows.length === 0 && tahunAktif === 2026 && (
@@ -783,17 +779,16 @@ export function RKAPMonitor() {
                 nama={dialogNonaktif.nama}
                 basisLabel={prognosaType === 'cash_in' ? 'Cash In' : 'Pendapatan (PSAK 73)'}
                 dasarLabel={PROGNOSA_BASIS_LABEL[basisPrognosa]}
-                currentMonth={efektifBulan}
-                prognosaAsli={Array.from({ length: 12 }, (_, month) => prognosaBulan({
-                  month,
+                currentMonth={efektifBulan + 1}
+                prognosaAsli={prognosaProker({
                   currentMonth: efektifBulan,
-                  target: item?.bulan[month] ?? 0,
-                  realized: real[month] ?? 0,
+                  target: item?.bulan ?? Array(12).fill(0),
+                  realized: real,
                   basis: basisPrognosa,
                   kind: prognosaType,
-                  jadwal: jadwalPerKode[prognosaType][dialogNonaktif.kode]?.[month] ?? 0,
-                  manual: manual?.[month],
-                }))}
+                  jadwal: jadwalPerKode[prognosaType][dialogNonaktif.kode],
+                  manual,
+                })}
                 nonaktifBulan={bulanAda}
                 alasan={nonaktifRows.find(r => r.kode === dialogNonaktif.kode && r.basis === prognosaType && r.bulan >= 0)?.alasan ?? ''}
                 onSave={(bulan, alasan) => simpanNonaktif(dialogNonaktif.kode, bulan, alasan, bulanAda)}

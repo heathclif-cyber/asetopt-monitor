@@ -1,7 +1,7 @@
 import { RKAPItem, BULAN_LABELS } from '@/data/rkap2026'
 import { PengakuanPendapatan, PendapatanDiterimaDimuka, KerjaSama, Kompensasi, CashIn } from '@/types'
 import { resolveMonikaId } from '@/utils/laporanProgramUtils'
-import { prognosaBulan, type JadwalPerKode, type NonaktifBulan, type PrognosaBasis, type PrognosaKind } from '@/utils/prognosaUtils'
+import { prognosaProker, type NonaktifBulan, type PrognosaBasis, type PrognosaKind } from '@/utils/prognosaUtils'
 
 export interface MonthSummary {
   bulanIdx: number
@@ -35,16 +35,10 @@ export function hitungRKAP(
     carryOver = (i <= bulanSekarang && selisih < 0) ? Math.abs(selisih) : 0
 
     const isFuture = i > bulanSekarang
-    const isCurrent = i === bulanSekarang
-    // Prognosa:
-    //   • bulan lewat          → realisasi aktual
-    //   • bulan berjalan       → realisasi (jika ada), atau target (jika belum)
-    //   • bulan mendatang      → targetOriginal saja (BUKAN targetAdjusted agar tidak akumulasi)
-    // Prognosis manual hasil evaluasi dapat berlaku juga untuk bulan yang telah
-    // lewat (mis. Juli dievaluasi pada Agustus). Null berarti belum ada override.
-    const manual = prognosaManual[i]
-    const prognosa = manual != null ? manual
-      : isFuture ? targetOriginal : isCurrent ? Math.max(realisasi, targetOriginal) : realisasi
+    // Prognosa: bulan sampai "s.d. bulan" = realisasi; bulan sesudahnya = nilai dari prognosaManual
+    // (hasil aturan prognosa bersama) atau, bila kosong, targetOriginal (BUKAN targetAdjusted agar tidak akumulasi).
+    const manual = isFuture ? prognosaManual[i] : null
+    const prognosa = manual != null ? manual : isFuture ? targetOriginal : realisasi
 
     results.push({
       bulanIdx: i,
@@ -70,26 +64,22 @@ export function aggregateManualPrognosa(
   currentMonth: number,
   basis: PrognosaBasis = 'rkap',
   kind: PrognosaKind = 'cash_in',
-  jadwal: JadwalPerKode = {},
+  jadwal: Record<string, number[]> = {},
   nonaktifBulan: NonaktifBulan = {},
 ): Array<number | null> {
-  return Array.from({ length: 12 }, (_, month) => {
-    const hasManual = items.some(item => manual[item.kode]?.[month] != null)
-    // Basis jadwal menggantikan target RKAP untuk bulan berjalan dan mendatang.
-    const hasNonaktif = month >= currentMonth && items.some(item => nonaktifBulan[item.kode]?.includes(month))
-    if (!hasManual && !hasNonaktif && !(basis === 'jadwal' && month >= currentMonth)) return null
-    return items.reduce((sum, item) => sum + prognosaBulan({
-      month,
-      currentMonth,
-      target: item.bulan[month] ?? 0,
-      realized: actual[item.kode]?.[month] ?? 0,
-      basis,
-      kind,
-      jadwal: jadwal[item.kode]?.[month] ?? 0,
-      manual: manual[item.kode]?.[month],
-      nonaktif: nonaktifBulan[item.kode]?.includes(month),
-    }), 0)
-  })
+  // Jumlah prognosa semua proker per bulan; bulan sampai currentMonth = null (hitungRKAP memakai realisasi).
+  const perItem = items.map(item => prognosaProker({
+    currentMonth,
+    target: item.bulan,
+    realized: actual[item.kode] ?? [],
+    basis,
+    kind,
+    jadwal: jadwal[item.kode],
+    manual: manual[item.kode],
+    nonaktif: nonaktifBulan[item.kode],
+  }))
+  return Array.from({ length: 12 }, (_, month) =>
+    month <= currentMonth ? null : perItem.reduce((sum, values) => sum + values[month], 0))
 }
 
 export function getCashInPerBulanByYear(
