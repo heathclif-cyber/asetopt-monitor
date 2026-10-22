@@ -46,6 +46,11 @@ export function ExportEvaluasiKinerjaButton({ rows, tahun, endMonth, basis, jadw
         {exporting ? <Loader2 size={14} className="animate-spin" /> : <FileDown size={14} />}
         Evaluasi Kinerja
       </Button>
+      {endMonth >= 0 && (
+        <span className="text-[11px] text-blue-100/80" title="Pengaturan yang dipakai file Excel: sama dengan angka di layar">
+          s.d. {BULAN_LABELS_HO[endMonth]} · Prognosa {PROGNOSA_BASIS_LABEL[basis]}
+        </span>
+      )}
     </div>
   )
 }

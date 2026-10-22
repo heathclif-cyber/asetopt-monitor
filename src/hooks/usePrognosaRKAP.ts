@@ -80,8 +80,9 @@ export function usePrognosaRKAP(tahun: number, bulanPilihan: number | null = nul
   const cashIn = useMemo(() => Array.from({ length: 12 }, (_, m) => hoRows.reduce((s, r) => s + (r.cashByMonth[m]?.totalDiluarJaminan ?? 0), 0)), [hoRows])
   const pendapatanPerBulan = useMemo(() => Array.from({ length: 12 }, (_, m) => hoRows.reduce((s, r) => s + (r.pendapatanByMonth[m]?.total ?? 0), 0)), [hoRows])
 
-  const efektifBulanOtomatis = tahun < CURRENT_YEAR ? 11 : tahun === CURRENT_YEAR ? CURRENT_MONTH : -1
-  const efektifBulan = efektifBulanOtomatis >= 0 && bulanPilihan != null ? bulanPilihan : efektifBulanOtomatis
+  // Bawaan: bulan terakhir yang SUDAH SELESAI (September selama Oktober berjalan); prognosa mulai bulan berjalan.
+  const efektifBulanOtomatis = tahun < CURRENT_YEAR ? 11 : tahun === CURRENT_YEAR ? CURRENT_MONTH - 1 : -1
+  const efektifBulan = tahun <= CURRENT_YEAR && bulanPilihan != null ? bulanPilihan : efektifBulanOtomatis
 
   const jadwalPerKode = useMemo(() => getJadwalPerKode(allKompensasi, daftarAset, tahun), [allKompensasi, daftarAset, tahun])
   const prognosaManualCash = useMemo(() => manualMap(manualRows, 'cash'), [manualRows])

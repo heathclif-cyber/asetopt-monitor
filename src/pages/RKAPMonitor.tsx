@@ -740,11 +740,11 @@ export function RKAPMonitor() {
             aria-label="Hitung s.d. bulan"
             value={efektifBulan}
             onChange={e => setBulanPilihan(Number(e.target.value))}
-            disabled={efektifBulanOtomatis < 0}
+            disabled={tahunAktif > CURRENT_YEAR}
             className="h-8 rounded-md border border-white/30 bg-white/10 px-2 text-xs text-white focus:outline-none"
             title="Batas bulan untuk YTD, carry-over, prognosa, dan ekspor Evaluasi Kinerja"
           >
-            {efektifBulanOtomatis < 0 && <option value={-1} className="text-gray-800">—</option>}
+            {efektifBulan < 0 && <option value={-1} className="text-gray-800">—</option>}
             {BULAN_LABELS.map((label, month) => (
               <option key={label} value={month} className="text-gray-800">s.d. {label}</option>
             ))}
