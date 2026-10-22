@@ -465,7 +465,12 @@ export function RKAPMonitor() {
     }
   }
   const resetNonaktif = async () => {
-    if (!window.confirm(`Aktifkan kembali semua prognosa yang dinonaktifkan pada mode ini (dasar ${PROGNOSA_BASIS_LABEL[basisPrognosa]})?`)) return
+    const jumlah = nonaktifRows.filter(r => r.basis === prognosaType).length
+    if (!window.confirm(
+      `Hapus SEMUA ${jumlah} penonaktifan prognosa ${prognosaType === 'cash_in' ? 'Cash In' : 'PSAK 73'} pada dasar ${PROGNOSA_BASIS_LABEL[basisPrognosa]}?\n\n`
+      + 'Prognosa akan naik kembali dan berlaku untuk semua pengguna, termasuk file Evaluasi Kinerja. '
+      + 'Untuk mengaktifkan satu proker saja, pakai ikon slider pada proker itu.',
+    )) return
     try {
       await resetNonaktifStore(tahunAktif, prognosaType, basisPrognosa)
     } catch (e) {
